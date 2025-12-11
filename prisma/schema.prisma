@@ -1,0 +1,156 @@
+// Prisma schema for SafetySecretary backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Phase progression for HIRA workflow
+enum RiskAssessmentPhase {
+  PROCESS_STEPS         // 1. Describe process: activity + equipment + substances
+  HAZARD_IDENTIFICATION // 2. Identify hazards per step + existing controls
+  RISK_RATING           // 3. Baseline risk assessment (adherence to existing controls)
+  CONTROL_DISCUSSION    // 4. Discuss possible additional controls
+  ACTIONS               // 5. Structure controls into action plan
+  RESIDUAL_RISK         // 6. Rate risk after proposed controls
+  COMPLETE              // Final state
+}
+
+enum ActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum HazardAssessmentType {
+  BASELINE
+  RESIDUAL
+}
+
+// S-T-O-P control hierarchy (effectiveness: high to low)
+enum ControlHierarchy {
+  SUBSTITUTION    // S - Replace the hazard entirely
+  TECHNICAL       // T - Engineering controls (guards, ventilation, barriers)
+  ORGANIZATIONAL  // O - Procedures, training, supervision
+  PPE             // P - Personal protective equipment (last resort)
+}
+
+model RiskAssessmentCase {
+  id            String         @id @default(uuid())
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  createdBy     String?
+  activityName  String
+  location      String?
+  team          String?
+  phase         RiskAssessmentPhase @default(PROCESS_STEPS)
+
+  steps         ProcessStep[]
+  hazards       Hazard[]
+  actions       CorrectiveAction[]
+}
+
+// Process step with HIRA triad: activity + equipment + substances
+model ProcessStep {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  caseId      String
+  orderIndex  Int
+
+  // HIRA triad fields
+  activity    String              // What is being done (main action/task)
+  equipment   String[]            // Tools/machines used
+  substances  String[]            // Materials/chemicals involved
+  description String?             // Additional context
+
+  raCase      RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hazards     HazardStep[]
+
+  @@index([caseId])
+}
+
+// Hazard with category classification and existing controls
+model Hazard {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  caseId      String
+  label       String                 // Human-readable hazard name
+  description String?                // What can happen / past incidents
+  categoryCode String?               // Category code (e.g., "MECHANICAL", "FALLS")
+
+  // Existing controls captured during hazard identification phase
+  existingControls String[]          // Rules/controls already in place
+
+  raCase           RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  steps            HazardStep[]
+  actions          CorrectiveAction[]
+  assessments      HazardAssessment[]
+  proposedControls HazardControl[]    // NEW controls from discussion phase
+
+  @@index([caseId])
+}
+
+model HazardStep {
+  hazardId String
+  stepId   String
+  orderIndex Int @default(0)
+
+  hazard   Hazard      @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+  step     ProcessStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@id([hazardId, stepId])
+  @@index([stepId, orderIndex])
+}
+
+model CorrectiveAction {
+  id          String      @id @default(uuid())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  caseId      String
+  hazardId    String?
+  description String
+  owner       String?
+  dueDate     DateTime?
+  status      ActionStatus @default(OPEN)
+
+  raCase      RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hazard      Hazard?            @relation(fields: [hazardId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([hazardId])
+}
+
+model HazardAssessment {
+  id         String               @id @default(uuid())
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+  hazardId   String
+  type       HazardAssessmentType
+  severity   String
+  likelihood String
+  riskRating String
+
+  hazard Hazard @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+
+  @@unique([hazardId, type])
+}
+
+// Proposed controls from control discussion phase (not existing controls)
+model HazardControl {
+  id          String             @id @default(uuid())
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  hazardId    String
+  description String             @db.Text
+  hierarchy   ControlHierarchy?  // S-T-O-P classification
+
+  hazard Hazard @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+
+  @@index([hazardId])
+}

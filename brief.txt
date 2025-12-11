@@ -1,0 +1,1785 @@
+Alright, here we go: three chunks as requested, in a way that a TS/React/Node + LLM dev can grab and run with.
+
+---
+
+## 1. v0 Backlog — MVP User Stories & Acceptance Criteria
+
+### EPIC: v0 Risk Assessment (Hybrid Flow)
+
+#### Story 1: Create a New Risk Assessment
+
+**As a** supervisor
+**I want** to start a new RA with basic context
+**So that** the assessment is clearly tied to a process/location/team
+
+**Acceptance criteria**
+
+* User can enter:
+
+  * Activity / process name (required)
+  * Location (optional)
+  * Team / area (optional)
+* On “Continue”, a new `RiskAssessmentCase` is created server-side with:
+
+  * `id`, `createdAt`, `createdBy`
+  * `activityName`, `location`, `team`
+  * `phase = "PROCESS_STEPS"`
+* If required fields missing → validation message, cannot continue.
+
+---
+
+#### Story 2: Capture Actual Process Steps (from free text)
+
+**As a** supervisor
+**I want** to describe how the activity is actually done in my own words
+**So that** the system can infer process steps and show them to me
+
+**Acceptance criteria**
+
+* Screen shows:
+
+  * Text input area (multi-line) and optional mic button.
+  * Prompt: “Describe how the activity is actually done, from start to finish.”
+* On submit:
+
+  * Backend calls LLM to extract 3–10 steps from the description.
+  * Steps are returned as an ordered list with labels and short descriptions.
+* UI shows:
+
+  * Reorderable list of steps.
+  * Ability to:
+
+    * edit step name,
+    * edit description,
+    * merge step with previous,
+    * delete step.
+* User can confirm steps and hit “Continue” → `phase = "HAZARD_NARRATIVE"`.
+* If LLM returns no steps → fallback: show original text with a message “Couldn’t infer steps, please enter them manually” and allow user to add rows.
+
+---
+
+#### Story 3: Capture Hazard Anecdotes (Narrative Dump)
+
+**As a** supervisor
+**I want** to freely describe things that could go wrong in this activity
+**So that** the system can suggest hazards and map them to steps
+
+**Acceptance criteria**
+
+* Screen shows:
+
+  * Text box for “stories / examples of what could go wrong”.
+  * Prompt: “Tell me things that could go wrong anywhere in this activity (close calls, incidents, worries).”
+* On submit:
+
+  * Backend sends text + steps to LLM.
+  * LLM returns a list of hazards with:
+
+    * `id`
+    * short label
+    * longer description
+    * suggested `stepIds` (one or more)
+* UI displays hazards grouped by step:
+
+  * For each step: list of hazards under it.
+  * Each hazard editable (label + description).
+  * Hazards can be re-assigned to different steps.
+* User can accept list and press “Continue” → `phase = "HAZARD_PER_STEP"`.
+
+---
+
+#### Story 4: Step-by-Step Hazard Completeness Check
+
+**As a** supervisor
+**I want** to quickly check each step for missing hazards
+**So that** we don’t overlook important risks
+
+**Acceptance criteria**
+
+* Screen loops through steps (wizard / one step at a time OR single page with collapsible sections).
+* For each step:
+
+  * Show existing hazards (if any).
+  * Prompt: “Anything else here that could hurt someone?”
+  * Text input and optional mic.
+* On submit per step:
+
+  * New hazards added manually (no LLM *required* here for v0; can be added later to rephrase).
+* There is a clear visual indication of:
+
+  * Steps with hazards
+  * Steps with no hazards (“none identified”)
+* When user is done, they can “Continue” → `phase = "RISK_RATING"`.
+* If no hazards at all → warning “No hazards identified; are you sure?” before proceeding.
+
+---
+
+#### Story 5: Rate Severity & Likelihood for Each Hazard
+
+**As a** supervisor
+**I want** to choose severity and likelihood using clear descriptions
+**So that** the risk level is explicit and understandable
+
+**Acceptance criteria**
+
+* Each hazard row shows:
+
+  * Hazard label
+  * Step name
+  * Two controls:
+
+    * Severity slider/dropdown (e.g. 1–5)
+    * Likelihood slider/dropdown (e.g. 1–5)
+* Each severity level has text anchor (e.g.):
+
+  * 1: Minor – first aid only, no time off
+  * 2: Moderate – medical treatment, a few days off
+  * 3: Serious – fracture / significant injury, weeks off
+  * 4: Severe – life-changing injury, permanent impact
+  * 5: Fatal / multiple serious injuries
+* Each likelihood level has text anchor (e.g.):
+
+  * Rare – maybe once in 10+ years
+  * Occasional – once every few years
+  * Regular – yearly
+  * Frequent – monthly
+  * Very frequent – weekly or more
+* Risk rating (e.g. Low/Medium/High) computed as `f(severity, likelihood)` and shown read-only.
+* User can adjust values at any time.
+* “Continue” → `phase = "CONTROLS_ACTIONS"`.
+
+*(Optional v0.1)*:
+Backend can call LLM to *suggest* severity/likelihood based on previous text, but UI must always let user override; suggestions clearly marked.
+
+---
+
+#### Story 6: Capture Existing Controls and Improvement Actions
+
+**As a** supervisor
+**I want** to list existing controls and define new actions
+**So that** we have a clear action plan linked to each hazard
+
+**Acceptance criteria**
+
+* For each hazard:
+
+  * Show existing controls list (editable text; initially empty).
+  * Field: “What protections already exist?” → free text.
+  * Field: “What should we improve or add?” → free text.
+* When user enters text in “What should we improve?”:
+
+  * An **Action** is created with:
+
+    * description (can be reworded by LLM)
+    * hazardId
+    * optional fields for:
+
+      * responsible person (free text)
+      * due date (date picker)
+      * status (default “Open”)
+* User can add/edit/delete actions in a central actions table.
+* “Continue” → `phase = "REVIEW"`.
+
+---
+
+#### Story 7: Review & Export
+
+**As a** supervisor
+**I want** to review the whole RA and export it
+**So that** I can share or file it
+
+**Acceptance criteria**
+
+* Review screen shows:
+
+  * Activity details
+  * Process steps (actual)
+  * Hazards per step (with risk levels)
+  * Controls
+  * Actions
+* User can:
+
+  * Edit any text inline and changes persist to backend.
+  * Go back to a previous phase (optional for v0, or at least to steps/hazards).
+* Export:
+
+  * “Export to PDF” (simple but readable layout).
+  * “Export to Word” (optional v0.1).
+* After export, RA stays saved as `status: "Completed"`.
+
+---
+
+## 2. Prompt Templates per Phase (LLM Tasks)
+
+Assume you have a backend where you call an LLM with system + user messages and want **structured JSON output**.
+
+### Phase 2: Extract Process Steps
+
+**System message (template)**
+
+> You are a safety assistant helping to structure a risk assessment.
+> The user will describe how a work activity is actually done.
+> Your job is to extract 3–10 discrete process steps in order.
+> Each step should have:
+>
+> * a short label (max 8 words)
+> * a one-sentence description
+>   Use simple, concrete language that operators will understand.
+>   Do not add steps that are not clearly implied.
+>   Return **ONLY** valid JSON in this shape:
+>
+> ```json
+> {
+>   "steps": [
+>     { "label": "...", "description": "..." }
+>   ]
+> }
+> ```
+
+**User message (example)**
+
+> Activity: Pallet handling at receiving.
+> Description: Operator takes pallet from the truck, scans the labels, restacks the boxes on different pallets according to destination, then moves the pallet with a pallet lifter to the buffer area, and later loads the boxes into a hopper.
+
+---
+
+### Phase 3: Extract Hazards from Anecdotes
+
+**System message**
+
+> You are a safety assistant helping with a risk assessment.
+> The user has already defined process steps. You will receive:
+>
+> * a JSON array of steps (with ids and labels)
+> * a free-text description of things that could go wrong (stories, examples).
+>   Your job is to extract hazards and link them to the most relevant step(s).
+>   A hazard is a potential source of harm, e.g. "tripping over a pallet", "getting fingers caught in a gate".
+>   For each hazard, create:
+> * "label": short name (max 10 words)
+> * "description": one sentence, clear and concrete
+> * "stepIds": array of step ids where this hazard primarily occurs
+>   If you are unsure about a step, pick the most likely one; do not invent new steps.
+>   Return ONLY JSON:
+>
+> ```json
+> {
+>   "hazards": [
+>     {
+>       "label": "...",
+>       "description": "...",
+>       "stepIds": ["step-1", "step-3"]
+>     }
+>   ]
+> }
+> ```
+
+**User payload example (you send as one combined user message, or as tools)**
+
+* Steps JSON
+* Anecdote text:
+
+  > “We’ve had people almost stumble when turning the pallet lifter near the buffer. The scanner cable sometimes gets caught and people yank it. Once the hopper gate closed faster than expected and scared the operator.”
+
+---
+
+### (Optional) Rewording / Clean-up Hazards
+
+**System message**
+
+> You are a writing assistant.
+> The user will send a list of hazard labels and descriptions.
+> Improve clarity and grammar but keep the meaning.
+> Use simple language suitable for operators and supervisors.
+> Return the same structure with improved text.
+
+---
+
+### Phase 6: Action Rewording
+
+**System message**
+
+> You are a writing assistant.
+> The user will describe improvement ideas as short notes.
+> Rewrite each note as a clear actionable task starting with a verb.
+> Example: "lighting bad near buffer" → "Improve lighting in the buffer area".
+> Keep it short and concrete.
+> Return:
+>
+> ```json
+> {
+>   "actions": [
+>     {
+>       "originalText": "...",
+>       "suggestedAction": "..."
+>     }
+>   ]
+> }
+> ```
+
+---
+
+### (Optional) Severity/Likelihood Suggestion
+
+**System message**
+
+> You are a safety assistant.
+> The user will provide a hazard description and an example of what could happen.
+> Suggest a severity level (1–5) and a likelihood level (1–5) based on a worst credible case, but DO NOT assume this is final; it is only a suggestion.
+> Use this scale:
+> Severity:
+> 1 = Minor (first aid only)
+> 2 = Moderate (short absence, simple treatment)
+> 3 = Serious (fracture or equivalent)
+> 4 = Severe (life-changing, permanent)
+> 5 = Fatal or multiple severe injuries
+> Likelihood:
+> 1 = Rare (once in 10+ years)
+> 2 = Occasional (every few years)
+> 3 = Regular (about yearly)
+> 4 = Frequent (monthly)
+> 5 = Very frequent (weekly or more)
+> Return:
+>
+> ```json
+> {
+>   "severitySuggestion": 3,
+>   "likelihoodSuggestion": 2,
+>   "reasoning": "..."
+> }
+> ```
+
+Then surface as **suggestions only** in UI.
+
+---
+
+## 3. Minimal Backend State Machine (Scaffold)
+
+You want a simple, explicit state machine per RA case.
+
+### 3.1 Phases / States
+
+Define phases as a union type:
+
+```ts
+type Phase =
+  | "SCOPE"
+  | "PROCESS_STEPS"
+  | "HAZARD_NARRATIVE"
+  | "HAZARD_PER_STEP"
+  | "RISK_RATING"
+  | "CONTROLS_ACTIONS"
+  | "REVIEW";
+```
+
+### 3.2 Core Data Structures (simplified)
+
+```ts
+interface RiskAssessmentCase {
+  id: string;
+  createdAt: string;
+  createdBy: string;
+
+  activityName: string;
+  location?: string;
+  team?: string;
+
+  phase: Phase;
+
+  steps: Step[];        // filled in PROCESS_STEPS
+  hazards: Hazard[];    // filled in HAZARD_NARRATIVE + HAZARD_PER_STEP
+  actions: Action[];    // filled in CONTROLS_ACTIONS
+
+  // optional metadata: status, notes, etc.
+}
+
+interface Step {
+  id: string;                     // e.g. "step-1"
+  order: number;
+  label: string;
+  description: string;
+}
+
+interface Hazard {
+  id: string;                     // "hazard-1"
+  stepIds: string[];              // linked steps
+  label: string;
+  description: string;
+  severity?: number;              // 1–5
+  likelihood?: number;            // 1–5
+  riskLevel?: "Low" | "Medium" | "High" | "Very High";
+}
+
+interface Action {
+  id: string;
+  hazardId: string;
+  description: string;
+  owner?: string;
+  dueDate?: string;               // ISO
+  status: "Open" | "In Progress" | "Done";
+}
+```
+
+### 3.3 State Machine Events
+
+You can model events as something like:
+
+```ts
+type Event =
+  | { type: "CREATE_CASE"; payload: { activityName: string; location?: string; team?: string } }
+  | { type: "SET_STEPS_FROM_LLM"; payload: { steps: { label: string; description: string }[] } }
+  | { type: "UPDATE_STEPS"; payload: { steps: Step[] } }
+  | { type: "SET_HAZARDS_FROM_LLM"; payload: { hazards: Hazard[] } }
+  | { type: "ADD_MANUAL_HAZARD"; payload: { stepId: string; label: string; description: string } }
+  | { type: "SET_RISK_RATINGS"; payload: { hazardId: string; severity: number; likelihood: number }[] }
+  | { type: "ADD_ACTION"; payload: { hazardId: string; description: string } }
+  | { type: "UPDATE_ACTION"; payload: { action: Action } }
+  | { type: "ADVANCE_PHASE" }
+  | { type: "SET_PHASE"; payload: { phase: Phase } };
+```
+
+### 3.4 Transition Logic (pseudocode)
+
+```ts
+function reducer(state: RiskAssessmentCase, event: Event): RiskAssessmentCase {
+  switch (event.type) {
+    case "CREATE_CASE":
+      return {
+        id: generateId(),
+        createdAt: nowIso(),
+        createdBy: getUserId(),
+        activityName: event.payload.activityName,
+        location: event.payload.location,
+        team: event.payload.team,
+        phase: "PROCESS_STEPS",
+        steps: [],
+        hazards: [],
+        actions: []
+      };
+
+    case "SET_STEPS_FROM_LLM":
+      return {
+        ...state,
+        steps: event.payload.steps.map((s, idx) => ({
+          id: `step-${idx + 1}`,
+          order: idx + 1,
+          label: s.label,
+          description: s.description
+        }))
+      };
+
+    case "UPDATE_STEPS":
+      return {
+        ...state,
+        steps: event.payload.steps
+          .map((s, idx) => ({ ...s, order: idx + 1 }))
+      };
+
+    case "SET_HAZARDS_FROM_LLM":
+      // assume hazards include stepIds, but no risk yet
+      return {
+        ...state,
+        hazards: event.payload.hazards.map((h, idx) => ({
+          id: h.id ?? `hazard-${idx + 1}`,
+          stepIds: h.stepIds,
+          label: h.label,
+          description: h.description
+        }))
+      };
+
+    case "ADD_MANUAL_HAZARD":
+      const newHazard: Hazard = {
+        id: `hazard-${state.hazards.length + 1}`,
+        stepIds: [event.payload.stepId],
+        label: event.payload.label,
+        description: event.payload.description
+      };
+      return { ...state, hazards: [...state.hazards, newHazard] };
+
+    case "SET_RISK_RATINGS":
+      return {
+        ...state,
+        hazards: state.hazards.map(h => {
+          const match = event.payload.find(x => x.hazardId === h.id);
+          if (!match) return h;
+          const riskLevel = computeRisk(match.severity, match.likelihood);
+          return {
+            ...h,
+            severity: match.severity,
+            likelihood: match.likelihood,
+            riskLevel
+          };
+        })
+      };
+
+    case "ADD_ACTION":
+      const newAction: Action = {
+        id: `action-${state.actions.length + 1}`,
+        hazardId: event.payload.hazardId,
+        description: event.payload.description,
+        status: "Open"
+      };
+      return { ...state, actions: [...state.actions, newAction] };
+
+    case "UPDATE_ACTION":
+      return {
+        ...state,
+        actions: state.actions.map(a => a.id === event.payload.action.id ? event.payload.action : a)
+      };
+
+    case "ADVANCE_PHASE":
+      return { ...state, phase: nextPhase(state.phase) };
+
+    case "SET_PHASE":
+      return { ...state, phase: event.payload.phase };
+
+    default:
+      return state;
+  }
+}
+
+function nextPhase(current: Phase): Phase {
+  switch (current) {
+    case "SCOPE": return "PROCESS_STEPS";
+    case "PROCESS_STEPS": return "HAZARD_NARRATIVE";
+    case "HAZARD_NARRATIVE": return "HAZARD_PER_STEP";
+    case "HAZARD_PER_STEP": return "RISK_RATING";
+    case "RISK_RATING": return "CONTROLS_ACTIONS";
+    case "CONTROLS_ACTIONS": return "REVIEW";
+    case "REVIEW": return "REVIEW";
+  }
+}
+```
+
+You can persist `RiskAssessmentCase` in Postgres as JSONB + relational tables, or purely relational; from the LLM’s perspective it’s all just `state` passed in and out.
+
+---
+
+If you like, next step can be: a skeleton of the backend endpoint structure (e.g. `/api/cases`, `/api/cases/:id/steps`, `/api/cases/:id/hazards`, `/api/llm/extract-steps`, etc.) so your Codex setup has a clear file/API map to start generating code from.
+
+
+Perfect, let’s lock in a clean API surface you can throw at Codex.
+
+I’ll:
+
+1. Sketch the **API design** (resources + endpoints).
+2. Give you **one TS Express router skeleton** you can feed directly to an LLM for implementation.
+
+---
+
+## 1. API Design – Resources & Endpoints
+
+### Core resource
+
+* `RiskAssessmentCase` (RA case)
+* Nested resources:
+
+  * `steps`
+  * `hazards`
+  * `actions`
+
+Backend is responsible for calling the LLM; the front-end talks only to these REST endpoints.
+
+---
+
+### 1.1 RA Cases
+
+**POST `/api/ra-cases`** – Create new case (Scope screen)
+
+* **Body**
+
+  ```json
+  {
+    "activityName": "Pallet handling at receiving",
+    "location": "Warehouse A",
+    "team": "Shift 2"
+  }
+  ```
+* **Response 201**
+
+  ```json
+  {
+    "id": "ra_123",
+    "activityName": "...",
+    "location": "...",
+    "team": "...",
+    "phase": "PROCESS_STEPS",
+    "steps": [],
+    "hazards": [],
+    "actions": []
+  }
+  ```
+
+---
+
+**GET `/api/ra-cases/:id`** – Get full case state
+
+* **Response 200**
+
+  ```json
+  {
+    "id": "ra_123",
+    "activityName": "...",
+    "location": "...",
+    "team": "...",
+    "phase": "HAZARD_NARRATIVE",
+    "steps": [ /* Step[] */ ],
+    "hazards": [ /* Hazard[] */ ],
+    "actions": [ /* Action[] */ ]
+  }
+  ```
+
+---
+
+**PATCH `/api/ra-cases/:id`** – Update meta (activityName, location, team, phase if needed)
+
+* **Body** – any subset
+
+  ```json
+  {
+    "activityName": "Updated name",
+    "location": "New location",
+    "team": "Team 1",
+    "phase": "RISK_RATING"
+  }
+  ```
+
+---
+
+**POST `/api/ra-cases/:id/advance-phase`** – Move to next phase
+
+* **Response 200**
+
+  ```json
+  {
+    "id": "ra_123",
+    "phase": "HAZARD_NARRATIVE"
+  }
+  ```
+
+---
+
+### 1.2 Steps
+
+**POST `/api/ra-cases/:id/steps/extract`** – Extract steps from description (LLM call)
+
+* **Body**
+
+  ```json
+  {
+    "description": "Operator takes pallet from truck..."
+  }
+  ```
+* **Behavior**
+
+  * Backend calls LLM with description.
+  * Creates/overwrites `steps` for this case.
+* **Response 200**
+
+  ```json
+  {
+    "steps": [
+      { "id": "step-1", "order": 1, "label": "Receive pallet", "description": "..." },
+      ...
+    ]
+  }
+  ```
+
+---
+
+**PUT `/api/ra-cases/:id/steps`** – Update steps (after user edits/reorders)
+
+* **Body**
+
+  ```json
+  {
+    "steps": [
+      { "id": "step-1", "order": 1, "label": "Receive pallet", "description": "..." },
+      { "id": "step-2", "order": 2, "label": "Scan labels", "description": "..." }
+    ]
+  }
+  ```
+* **Response 200** – Updated steps array.
+
+---
+
+### 1.3 Hazards
+
+**POST `/api/ra-cases/:id/hazards/extract`** – Extract hazards from anecdotes (LLM call)
+
+* **Body**
+
+  ```json
+  {
+    "anecdotes": "Someone tripped turning the pallet lifter...",
+    "steps": [
+      { "id": "step-1", "label": "Receive pallet" },
+      { "id": "step-2", "label": "Scan labels" }
+    ]
+  }
+  ```
+* **Response 200**
+
+  ```json
+  {
+    "hazards": [
+      {
+        "id": "hazard-1",
+        "label": "Trip while turning pallet lifter",
+        "description": "Operator can stumble while turning pallet lifter near buffer zone.",
+        "stepIds": ["step-1", "step-4"]
+      }
+    ]
+  }
+  ```
+
+Backend merges these into case.hazards (or replaces, depending on your policy).
+
+---
+
+**POST `/api/ra-cases/:id/hazards`** – Add manual hazard to a step
+
+* **Body**
+
+  ```json
+  {
+    "stepId": "step-3",
+    "label": "Boxes falling from pallet",
+    "description": "Stacked boxes can topple during re-stacking."
+  }
+  ```
+* **Response 201**
+
+  ```json
+  {
+    "id": "hazard-3",
+    "stepIds": ["step-3"],
+    "label": "Boxes falling from pallet",
+    "description": "Stacked boxes can topple during re-stacking."
+  }
+  ```
+
+---
+
+**PUT `/api/ra-cases/:id/hazards/:hazardId`** – Update hazard (edit text, reassign steps)
+
+* **Body**
+
+  ```json
+  {
+    "label": "Trip when turning pallet lifter",
+    "description": "Operator can trip when turning pallet lifter near buffer.",
+    "stepIds": ["step-4"]
+  }
+  ```
+
+---
+
+**PUT `/api/ra-cases/:id/hazards/risk`** – Bulk set severity/likelihood
+
+* **Body**
+
+  ```json
+  {
+    "ratings": [
+      { "hazardId": "hazard-1", "severity": 3, "likelihood": 2 },
+      { "hazardId": "hazard-2", "severity": 4, "likelihood": 1 }
+    ]
+  }
+  ```
+* Backend computes `riskLevel` and saves.
+* **Response 200** – updated hazards with risk.
+
+---
+
+### 1.4 Actions & Controls
+
+(“Controls” can be simply text fields on the hazard; actions are separate.)
+
+**POST `/api/ra-cases/:id/actions`** – Add action linked to hazard
+
+* **Body**
+
+  ```json
+  {
+    "hazardId": "hazard-1",
+    "description": "Improve lighting near buffer area",
+    "owner": "Shift leader",
+    "dueDate": "2025-12-31"
+  }
+  ```
+* **Response 201**
+
+  ```json
+  {
+    "id": "action-1",
+    "hazardId": "hazard-1",
+    "description": "Improve lighting near buffer area",
+    "owner": "Shift leader",
+    "dueDate": "2025-12-31",
+    "status": "Open"
+  }
+  ```
+
+---
+
+**PUT `/api/ra-cases/:id/actions/:actionId`** – Update action
+
+* **Body**
+
+  ```json
+  {
+    "description": "Improve lighting in buffer zone",
+    "owner": "Maintenance",
+    "dueDate": "2025-11-30",
+    "status": "In Progress"
+  }
+  ```
+
+---
+
+### 1.5 Export
+
+**GET `/api/ra-cases/:id/export/pdf`**
+
+* Returns `application/pdf` of the report (simple RA layout).
+
+Later you can add `/export/docx` etc.
+
+---
+
+## 2. Express Router Skeleton (TypeScript) – One File
+
+Here’s a single TS router skeleton your LLM dev can extend.
+It assumes:
+
+* Express
+* Some `raService` abstraction
+* Some `llmService` abstraction
+* Basic async/await
+
+```ts
+// routes/raCasesRouter.ts
+import express, { Request, Response } from "express";
+
+/**
+ * Risk Assessment router (MVP)
+ *
+ * Intent:
+ * - Provide REST endpoints for the v0 RA flow.
+ * - All LLM calls are abstracted behind services (e.g. llmService).
+ * - State for each RA case is persisted via raService (DB-backed).
+ *
+ * NOTE for implementor (LLM / Codex):
+ * - Implement raService and llmService separately.
+ * - DO NOT put business logic in the router; call service functions.
+ */
+
+export const raCasesRouter = express.Router();
+
+/**
+ * POST /api/ra-cases
+ * Create a new RA case (scope screen).
+ */
+raCasesRouter.post("/", async (req: Request, res: Response) => {
+  try {
+    const { activityName, location, team } = req.body;
+
+    if (!activityName || typeof activityName !== "string") {
+      return res.status(400).json({ error: "activityName is required" });
+    }
+
+    // TODO: implement raService.createCase
+    const raCase = await req.app.locals.raService.createCase({
+      activityName,
+      location,
+      team
+    });
+
+    res.status(201).json(raCase);
+  } catch (err) {
+    console.error("Error creating RA case", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/ra-cases/:id
+ * Get full RA case state.
+ */
+raCasesRouter.get("/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const raCase = await req.app.locals.raService.getCaseById(id);
+    if (!raCase) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json(raCase);
+  } catch (err) {
+    console.error("Error fetching RA case", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PATCH /api/ra-cases/:id
+ * Update RA case metadata (activityName, location, team, phase).
+ */
+raCasesRouter.patch("/:id", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const patch = req.body; // { activityName?, location?, team?, phase? }
+
+    const updated = await req.app.locals.raService.updateCaseMeta(id, patch);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error("Error updating RA case meta", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/ra-cases/:id/advance-phase
+ * Move case to next phase.
+ */
+raCasesRouter.post("/:id/advance-phase", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const updated = await req.app.locals.raService.advancePhase(id);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json({ id: updated.id, phase: updated.phase });
+  } catch (err) {
+    console.error("Error advancing phase", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/ra-cases/:id/steps/extract
+ * Extract steps from free-text description using LLM.
+ */
+raCasesRouter.post("/:id/steps/extract", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { description } = req.body;
+
+    if (!description || typeof description !== "string") {
+      return res.status(400).json({ error: "description is required" });
+    }
+
+    const raCase = await req.app.locals.raService.getCaseById(id);
+    if (!raCase) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    // Call LLM to extract steps (LLM prompt defined separately).
+    const extracted = await req.app.locals.llmService.extractStepsFromDescription(description);
+
+    // Persist steps into RA case.
+    const updated = await req.app.locals.raService.setStepsFromExtraction(id, extracted.steps);
+
+    res.json({ steps: updated.steps });
+  } catch (err) {
+    console.error("Error extracting steps", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PUT /api/ra-cases/:id/steps
+ * Overwrite steps with user-edited list.
+ */
+raCasesRouter.put("/:id/steps", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { steps } = req.body;
+
+    if (!Array.isArray(steps)) {
+      return res.status(400).json({ error: "steps must be an array" });
+    }
+
+    const updated = await req.app.locals.raService.updateSteps(id, steps);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json({ steps: updated.steps });
+  } catch (err) {
+    console.error("Error updating steps", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/ra-cases/:id/hazards/extract
+ * Extract hazards from anecdotes using LLM and map to steps.
+ */
+raCasesRouter.post("/:id/hazards/extract", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { anecdotes } = req.body;
+
+    if (!anecdotes || typeof anecdotes !== "string") {
+      return res.status(400).json({ error: "anecdotes is required" });
+    }
+
+    const raCase = await req.app.locals.raService.getCaseById(id);
+    if (!raCase) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    // Use existing steps and anecdotes to ask LLM for hazards.
+    const extracted = await req.app.locals.llmService.extractHazardsFromAnecdotes({
+      anecdotes,
+      steps: raCase.steps
+    });
+
+    const updated = await req.app.locals.raService.mergeExtractedHazards(id, extracted.hazards);
+
+    res.json({ hazards: updated.hazards });
+  } catch (err) {
+    console.error("Error extracting hazards", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/ra-cases/:id/hazards
+ * Add a manual hazard to a step.
+ */
+raCasesRouter.post("/:id/hazards", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { stepId, label, description } = req.body;
+
+    if (!stepId || !label || !description) {
+      return res.status(400).json({ error: "stepId, label and description are required" });
+    }
+
+    const hazard = await req.app.locals.raService.addManualHazard(id, {
+      stepId,
+      label,
+      description
+    });
+
+    if (!hazard) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.status(201).json(hazard);
+  } catch (err) {
+    console.error("Error adding hazard", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PUT /api/ra-cases/:id/hazards/:hazardId
+ * Update hazard (label, description, stepIds).
+ */
+raCasesRouter.put("/:id/hazards/:hazardId", async (req: Request, res: Response) => {
+  try {
+    const { id, hazardId } = req.params;
+    const { label, description, stepIds } = req.body;
+
+    const updatedHazard = await req.app.locals.raService.updateHazard(id, hazardId, {
+      label,
+      description,
+      stepIds
+    });
+
+    if (!updatedHazard) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json(updatedHazard);
+  } catch (err) {
+    console.error("Error updating hazard", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PUT /api/ra-cases/:id/hazards/risk
+ * Bulk set severity/likelihood for hazards.
+ */
+raCasesRouter.put("/:id/hazards/risk", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { ratings } = req.body;
+
+    if (!Array.isArray(ratings)) {
+      return res.status(400).json({ error: "ratings must be an array" });
+    }
+
+    const updated = await req.app.locals.raService.setHazardRiskRatings(id, ratings);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json({ hazards: updated.hazards });
+  } catch (err) {
+    console.error("Error setting risk ratings", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * POST /api/ra-cases/:id/actions
+ * Add an action linked to a hazard.
+ */
+raCasesRouter.post("/:id/actions", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { hazardId, description, owner, dueDate } = req.body;
+
+    if (!hazardId || !description) {
+      return res.status(400).json({ error: "hazardId and description are required" });
+    }
+
+    const action = await req.app.locals.raService.addAction(id, {
+      hazardId,
+      description,
+      owner,
+      dueDate
+    });
+
+    if (!action) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.status(201).json(action);
+  } catch (err) {
+    console.error("Error adding action", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * PUT /api/ra-cases/:id/actions/:actionId
+ * Update action fields (description, owner, dueDate, status).
+ */
+raCasesRouter.put("/:id/actions/:actionId", async (req: Request, res: Response) => {
+  try {
+    const { id, actionId } = req.params;
+    const patch = req.body;
+
+    const updatedAction = await req.app.locals.raService.updateAction(id, actionId, patch);
+    if (!updatedAction) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    res.json(updatedAction);
+  } catch (err) {
+    console.error("Error updating action", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * GET /api/ra-cases/:id/export/pdf
+ * Export RA case as a PDF report.
+ */
+raCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const raCase = await req.app.locals.raService.getCaseById(id);
+    if (!raCase) {
+      return res.status(404).json({ error: "Not found" });
+    }
+
+    // TODO: implement report generation service
+    const pdfBuffer = await req.app.locals.reportService.generatePdfForCase(raCase);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="ra-${id}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error("Error exporting PDF", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default raCasesRouter;
+```
+
+You can now hand this whole conversation (plus this router skeleton) to Codex/another LLM and say:
+
+* “Implement `raService`, `llmService.extractStepsFromDescription`, `llmService.extractHazardsFromAnecdotes`, and `reportService.generatePdfForCase` in a minimal way using Postgres + OpenAI”, etc.
+
+If you want, next iteration we can design the front-end layout (React component tree for the 7 screens) in a similar scaffold style.
+
+
+Good question to pause on here. 😊
+Short answer: **yes, use React**, but keep it **small and boring**. No Next.js, no Redux, no design system overkill. Just:
+
+* **Vite + React + TypeScript**
+* A tiny set of components
+* Tailwind *optional* (nice to have, not required)
+
+That’s the sweet spot where:
+
+* LLM devs are very comfortable.
+* You don’t overshoot into a “meta-front-end-platform”.
+* Resource use is totally fine for a RA tool (this is not a 3D game).
+
+Plain HTML/JS is doable, but the moment you add:
+
+* 7 phases,
+* shared state,
+* conditionally rendered screens,
+
+…you’ll reinvent a mini React in spaghetti form. So: **React, but minimal**.
+
+---
+
+## 1. Frontend architecture at a glance
+
+* **Stack**
+
+  * Vite + React + TypeScript
+  * Fetch API for HTTP calls
+  * Optional: TailwindCSS for layout and spacing
+
+* **Single-page app**
+
+  * One route: `/ra/:caseId`
+  * The *phase* (scope, steps, hazards, …) comes from the backend’s `phase` field.
+  * We don’t need a full router library for v0 (React Router is optional).
+
+* **State**
+
+  * One `RiskAssessmentCase` object in a top-level state.
+  * `useEffect` loads case from backend.
+  * Child components get `case` + callbacks (`updateSteps`, `addHazard`, …).
+
+---
+
+## 2. Screens (mapped to `phase`)
+
+These are the same 7 phases we defined, each as one component:
+
+1. `PhaseScope` (`phase === "SCOPE"` – optional if you want to edit scope later)
+2. `PhaseProcessSteps` (`"PROCESS_STEPS"`)
+3. `PhaseHazardNarrative` (`"HAZARD_NARRATIVE"`)
+4. `PhaseHazardPerStep` (`"HAZARD_PER_STEP"`)
+5. `PhaseRiskRating` (`"RISK_RATING"`)
+6. `PhaseControlsActions` (`"CONTROLS_ACTIONS"`)
+7. `PhaseReview` (`"REVIEW"`)
+
+**Layout idea (desktop):**
+
+* Left sidebar:
+
+  * Activity + location
+  * Phase list / progress indicator
+* Right main area:
+
+  * Active phase content
+  * Bottom bar with “Back / Continue”
+
+**Mobile:**
+
+* Keep it simple:
+
+  * Top: phase name
+  * Content
+  * Bottom: Back / Continue
+
+---
+
+## 3. Component tree (conceptual)
+
+```text
+<App>
+  <RaEditor caseId="ra_123">
+    <Layout>
+      <Sidebar>  // activity name, phase list
+      <Main>
+        <PhaseScope />
+        <PhaseProcessSteps />
+        <PhaseHazardNarrative />
+        <PhaseHazardPerStep />
+        <PhaseRiskRating />
+        <PhaseControlsActions />
+        <PhaseReview />
+      </Main>
+    </Layout>
+  </RaEditor>
+</App>
+```
+
+More concretely:
+
+* `RaEditor`
+
+  * Fetches RA case (`GET /api/ra-cases/:id`).
+  * Holds `case` state.
+  * Provides helper functions:
+
+    * `updateMeta`
+    * `extractSteps`
+    * `updateSteps`
+    * `extractHazards`
+    * `addHazard`
+    * `setRiskRatings`
+    * `addAction`
+    * `updateAction`
+    * `advancePhase`
+  * Decides which `Phase*` component to render based on `case.phase`.
+
+* `PhaseProcessSteps`
+
+  * Textarea for description
+  * Button “Generate steps from text” → calls `/steps/extract`
+  * Shows editable list of steps
+
+* `PhaseHazardNarrative`
+
+  * Textarea “Tell me what could go wrong”
+  * Button “Extract hazards” → `/hazards/extract`
+  * Shows hazards grouped by steps for review
+
+* `PhaseHazardPerStep`
+
+  * Accordion: Step 1 / Step 2 / …
+  * Inside each: current hazards + “Add hazard” form
+
+* `PhaseRiskRating`
+
+  * Table of hazards:
+
+    * hazard label
+    * step name
+    * severity dropdown/slider with descriptions
+    * likelihood dropdown/slider with descriptions
+    * computed risk
+
+* `PhaseControlsActions`
+
+  * For each hazard:
+
+    * existing controls text box
+    * “Add action” row
+  * Central `ActionTable` listing all actions
+
+* `PhaseReview`
+
+  * Read-only-like summary.
+  * Inline edit possible.
+  * “Export as PDF” button.
+
+---
+
+## 4. Data types for the frontend
+
+Same shape as backend (simplified):
+
+```ts
+export type Phase =
+  | "SCOPE"
+  | "PROCESS_STEPS"
+  | "HAZARD_NARRATIVE"
+  | "HAZARD_PER_STEP"
+  | "RISK_RATING"
+  | "CONTROLS_ACTIONS"
+  | "REVIEW";
+
+export interface Step {
+  id: string;
+  order: number;
+  label: string;
+  description: string;
+}
+
+export interface Hazard {
+  id: string;
+  stepIds: string[];
+  label: string;
+  description: string;
+  severity?: number;
+  likelihood?: number;
+  riskLevel?: "Low" | "Medium" | "High" | "Very High";
+}
+
+export interface Action {
+  id: string;
+  hazardId: string;
+  description: string;
+  owner?: string;
+  dueDate?: string;
+  status: "Open" | "In Progress" | "Done";
+}
+
+export interface RiskAssessmentCase {
+  id: string;
+  activityName: string;
+  location?: string;
+  team?: string;
+  phase: Phase;
+  steps: Step[];
+  hazards: Hazard[];
+  actions: Action[];
+}
+```
+
+---
+
+## 5. React skeleton for the LLM dev
+
+Here is a **single file** (`RaEditor.tsx`) scaffold with comments and TODOs.
+Codex/other LLM can expand this into a full implementation.
+
+```tsx
+// src/RaEditor.tsx
+import React, { useEffect, useState } from "react";
+import type { Phase, RiskAssessmentCase, Step, Hazard, Action } from "./types";
+
+interface RaEditorProps {
+  caseId: string;
+}
+
+/**
+ * Top-level RA editor.
+ *
+ * Responsibilities:
+ * - Load RA case from backend.
+ * - Hold RA case state in memory.
+ * - Provide callbacks to child components for updating steps/hazards/actions.
+ * - Render the appropriate Phase* component based on case.phase.
+ */
+export const RaEditor: React.FC<RaEditorProps> = ({ caseId }) => {
+  const [raCase, setRaCase] = useState<RiskAssessmentCase | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load case on mount
+  useEffect(() => {
+    const loadCase = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`/api/ra-cases/${caseId}`);
+        if (!res.ok) {
+          throw new Error(`Failed to load RA case (${res.status})`);
+        }
+        const data: RiskAssessmentCase = await res.json();
+        setRaCase(data);
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message ?? "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadCase();
+  }, [caseId]);
+
+  // Helper: optimistic state update wrapper
+  const updateCaseState = (updater: (prev: RiskAssessmentCase) => RiskAssessmentCase) => {
+    setRaCase(prev => (prev ? updater(prev) : prev));
+  };
+
+  // ---- Callbacks for phases ----
+
+  // Extract steps from free-text description (calls backend LLM)
+  const extractSteps = async (description: string) => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/steps/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description })
+      });
+      if (!res.ok) throw new Error("Failed to extract steps");
+      const data = await res.json();
+      updateCaseState(prev => ({ ...prev, steps: data.steps }));
+    } catch (err) {
+      console.error(err);
+      // TODO: surface error to user
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Update steps after user editing/reordering
+  const saveSteps = async (steps: Step[]) => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/steps`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ steps })
+      });
+      if (!res.ok) throw new Error("Failed to save steps");
+      const data = await res.json();
+      updateCaseState(prev => ({ ...prev, steps: data.steps }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Extract hazards from anecdotes (LLM)
+  const extractHazards = async (anecdotes: string) => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/hazards/extract`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ anecdotes })
+      });
+      if (!res.ok) throw new Error("Failed to extract hazards");
+      const data = await res.json();
+      updateCaseState(prev => ({ ...prev, hazards: data.hazards }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Add manual hazard
+  const addManualHazard = async (stepId: string, label: string, description: string) => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/hazards`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stepId, label, description })
+      });
+      if (!res.ok) throw new Error("Failed to add hazard");
+      const hazard: Hazard = await res.json();
+      updateCaseState(prev => ({ ...prev, hazards: [...prev.hazards, hazard] }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Bulk set risk ratings
+  const saveRiskRatings = async (ratings: { hazardId: string; severity: number; likelihood: number }[]) => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/hazards/risk`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ratings })
+      });
+      if (!res.ok) throw new Error("Failed to save risk ratings");
+      const data = await res.json();
+      updateCaseState(prev => ({ ...prev, hazards: data.hazards }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Add action
+  const addAction = async (payload: { hazardId: string; description: string; owner?: string; dueDate?: string }) => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error("Failed to add action");
+      const action: Action = await res.json();
+      updateCaseState(prev => ({ ...prev, actions: [...prev.actions, action] }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Advance phase
+  const advancePhase = async () => {
+    if (!raCase) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ra-cases/${raCase.id}/advance-phase`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to advance phase");
+      const data = await res.json();
+      updateCaseState(prev => ({ ...prev, phase: data.phase }));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading || !raCase) {
+    return <div>Loading RA case…</div>;
+  }
+
+  if (error) {
+    return <div>Error loading RA case: {error}</div>;
+  }
+
+  return (
+    <div className="flex h-screen">
+      {/* Sidebar with basic info + phase list */}
+      <aside className="w-64 border-r p-4">
+        <h2 className="font-bold mb-2">Risk Assessment</h2>
+        <div className="mb-4">
+          <div className="font-semibold">{raCase.activityName}</div>
+          {raCase.location && <div className="text-sm text-gray-600">{raCase.location}</div>}
+          {raCase.team && <div className="text-sm text-gray-600">{raCase.team}</div>}
+        </div>
+        {/* TODO: Phase list / progress indicator */}
+      </aside>
+
+      {/* Main content area */}
+      <main className="flex-1 p-4">
+        {raCase.phase === "PROCESS_STEPS" && (
+          <PhaseProcessSteps
+            raCase={raCase}
+            onExtractSteps={extractSteps}
+            onSaveSteps={saveSteps}
+            onNext={advancePhase}
+          />
+        )}
+
+        {raCase.phase === "HAZARD_NARRATIVE" && (
+          <PhaseHazardNarrative
+            raCase={raCase}
+            onExtractHazards={extractHazards}
+            onNext={advancePhase}
+          />
+        )}
+
+        {raCase.phase === "HAZARD_PER_STEP" && (
+          <PhaseHazardPerStep
+            raCase={raCase}
+            onAddHazard={addManualHazard}
+            onNext={advancePhase}
+          />
+        )}
+
+        {raCase.phase === "RISK_RATING" && (
+          <PhaseRiskRating
+            raCase={raCase}
+            onSaveRiskRatings={saveRiskRatings}
+            onNext={advancePhase}
+          />
+        )}
+
+        {raCase.phase === "CONTROLS_ACTIONS" && (
+          <PhaseControlsActions
+            raCase={raCase}
+            onAddAction={addAction}
+            onNext={advancePhase}
+          />
+        )}
+
+        {raCase.phase === "REVIEW" && (
+          <PhaseReview raCase={raCase} />
+        )}
+      </main>
+    </div>
+  );
+};
+
+// Placeholder props interfaces for child components.
+// LLM dev should create separate files for each Phase* component.
+
+interface PhaseProcessStepsProps {
+  raCase: RiskAssessmentCase;
+  onExtractSteps: (description: string) => Promise<void>;
+  onSaveSteps: (steps: Step[]) => Promise<void>;
+  onNext: () => Promise<void>;
+}
+
+const PhaseProcessSteps: React.FC<PhaseProcessStepsProps> = () => {
+  // TODO: implement UI described in spec
+  return <div>TODO: PhaseProcessSteps</div>;
+};
+
+interface PhaseHazardNarrativeProps {
+  raCase: RiskAssessmentCase;
+  onExtractHazards: (anecdotes: string) => Promise<void>;
+  onNext: () => Promise<void>;
+}
+
+const PhaseHazardNarrative: React.FC<PhaseHazardNarrativeProps> = () => {
+  // TODO: implement UI described in spec
+  return <div>TODO: PhaseHazardNarrative</div>;
+};
+
+interface PhaseHazardPerStepProps {
+  raCase: RiskAssessmentCase;
+  onAddHazard: (stepId: string, label: string, description: string) => Promise<void>;
+  onNext: () => Promise<void>;
+}
+
+const PhaseHazardPerStep: React.FC<PhaseHazardPerStepProps> = () => {
+  // TODO: implement UI described in spec
+  return <div>TODO: PhaseHazardPerStep</div>;
+};
+
+interface PhaseRiskRatingProps {
+  raCase: RiskAssessmentCase;
+  onSaveRiskRatings: (
+    ratings: { hazardId: string; severity: number; likelihood: number }[]
+  ) => Promise<void>;
+  onNext: () => Promise<void>;
+}
+
+const PhaseRiskRating: React.FC<PhaseRiskRatingProps> = () => {
+  // TODO: implement UI described in spec
+  return <div>TODO: PhaseRiskRating</div>;
+};
+
+interface PhaseControlsActionsProps {
+  raCase: RiskAssessmentCase;
+  onAddAction: (payload: { hazardId: string; description: string; owner?: string; dueDate?: string }) => Promise<void>;
+  onNext: () => Promise<void>;
+}
+
+const PhaseControlsActions: React.FC<PhaseControlsActionsProps> = () => {
+  // TODO: implement UI described in spec
+  return <div>TODO: PhaseControlsActions</div>;
+};
+
+interface PhaseReviewProps {
+  raCase: RiskAssessmentCase;
+}
+
+const PhaseReview: React.FC<PhaseReviewProps> = () => {
+  // TODO: implement UI described in spec
+  return <div>TODO: PhaseReview</div>;
+};
+```
+
+---
+
+You can hand **this answer** + the previous backend spec to your LLM dev and say:
+
+> “Scaffold a Vite + React + TS app with this RaEditor, fill in the Phase components according to the spec, wire to the backend endpoints, and give me a minimal working MVP.”
+
+That should be plenty to get a first clickable prototype.
+
+
+

@@ -41,7 +41,7 @@ describe("GlobalLLMInput clarification loop", () => {
         needsClarification: false
       });
 
-    render(<GlobalLLMInput currentPhase={"PROCESS_STEPS" as any} />);
+    render(<GlobalLLMInput currentPhase="PROCESS_STEPS" />);
 
     await user.type(screen.getByPlaceholderText(/Describe changes in natural language/i), "Add a ladder");
     await user.click(screen.getByRole("button", { name: "Parse" }));
@@ -59,4 +59,3 @@ describe("GlobalLLMInput clarification loop", () => {
     expect(parseContextualUpdate.mock.calls[1]?.[0]).toMatch(/Clarification:\s*Step 2/);
   });
 });
-

@@ -187,8 +187,8 @@ describe("raCasesRouter", () => {
         { id: "step-2", activity: "Step 2", equipment: [], substances: [], description: null, orderIndex: 1 }
       ],
       hazards: [
-        { id: "haz-1", stepIds: ["step-1"], existingControls: [] },
-        { id: "haz-2", stepIds: ["step-2"], existingControls: [] }
+        { id: "haz-1", stepId: "step-1", existingControls: [] },
+        { id: "haz-2", stepId: "step-2", existingControls: [] }
       ],
       actions: []
     };
@@ -217,8 +217,8 @@ describe("raCasesRouter", () => {
       phase: "HAZARD_IDENTIFICATION",
       steps: [{ id: "step-1", activity: "Step 1", equipment: [], substances: [], description: null, orderIndex: 0 }],
       hazards: [
-        { id: "haz-1", stepIds: ["step-1"], existingControls: [] },
-        { id: "haz-2", stepIds: ["step-1"], existingControls: [] }
+        { id: "haz-1", stepId: "step-1", existingControls: [] },
+        { id: "haz-2", stepId: "step-1", existingControls: [] }
       ],
       actions: []
     };
@@ -276,7 +276,7 @@ describe("raCasesRouter", () => {
       id: "case-1",
       phase: "PROCESS_STEPS",
       steps: [],
-      hazards: [{ id: "haz-1", stepIds: [], existingControls: [] }],
+      hazards: [{ id: "haz-1", stepId: "step-1", existingControls: [] }],
       actions: []
     };
     const updatedCase = { ...initialCase, hazards: [] };
@@ -308,8 +308,8 @@ describe("raCasesRouter", () => {
     const raCase = {
       id: "case-1",
       phase: "RESIDUAL_RISK",
-      steps: [],
-      hazards: [{ id: "haz-1", stepIds: [], existingControls: [] }],
+      steps: [{ id: "step-1", activity: "Step 1", equipment: [], substances: [], description: null, orderIndex: 0 }],
+      hazards: [{ id: "haz-1", stepId: "step-1", existingControls: [] }],
       actions: []
     };
     const updated = { ...raCase };
@@ -327,14 +327,14 @@ describe("raCasesRouter", () => {
           intent: "modify",
           target: "assessment",
           location: { hazardId: "haz-1" },
-          data: { severity: "LOW", likelihood: "RARE" },
+          data: { severity: "C", likelihood: "3" },
           explanation: "Set residual rating"
         }
       }
     });
     expect(res.statusCode).toBe(200);
     expect(raService.setResidualRiskRatings).toHaveBeenCalledWith("case-1", [
-      { hazardId: "haz-1", severity: "LOW", likelihood: "RARE" }
+      { hazardId: "haz-1", severity: "C", likelihood: "3" }
     ]);
   });
 });

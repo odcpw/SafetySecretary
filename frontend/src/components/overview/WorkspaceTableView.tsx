@@ -18,17 +18,23 @@ import {
   getRiskColorForAssessment,
   loadMatrixSettings
 } from "@/lib/riskMatrixSettings";
+import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
 import {
   SheetBody,
+  SheetButton,
   SheetCell,
   SheetHead,
   SheetHeaderCell,
+  SheetInput,
   SheetRow,
-  SheetTable
+  SheetSelect,
+  SheetTable,
+  SheetTextarea
 } from "@/components/ui/SheetTable";
+import { useHazardDrafts } from "@/hooks/useHazardDrafts";
 
-const SEVERITY_OPTIONS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-const LIKELIHOOD_OPTIONS = ["RARE", "UNLIKELY", "POSSIBLE", "LIKELY", "ALMOST_CERTAIN"];
+const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS;
+const LIKELIHOOD_OPTIONS = TEMPLATE_LIKELIHOOD_OPTIONS;
 
 interface WorkspaceTableViewProps {
   raCase: RiskAssessmentCase;
@@ -36,34 +42,12 @@ interface WorkspaceTableViewProps {
 
 // Group hazards by their associated step for display
 const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
-  const grouped = raCase.steps.map((step) => ({
+  return raCase.steps.map((step) => ({
     step,
     hazards: raCase.hazards
-      .filter((hazard) => hazard.stepIds.includes(step.id))
-      .sort(
-        (a, b) =>
-          (a.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER) -
-          (b.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER)
-      )
+      .filter((hazard) => hazard.stepId === step.id)
+      .sort((a, b) => a.orderIndex - b.orderIndex)
   }));
-
-  // Include unassigned hazards in a virtual "step"
-  const unassigned = raCase.hazards.filter((hazard) => hazard.stepIds.length === 0);
-  if (unassigned.length) {
-    grouped.push({
-      step: {
-        id: "unassigned",
-        activity: "Unassigned hazards",
-        equipment: [],
-        substances: [],
-        description: "Link these hazards to steps for better context",
-        orderIndex: grouped.length
-      } as RiskAssessmentCase["steps"][number],
-      hazards: unassigned
-    });
-  }
-
-  return grouped;
 };
 
 export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
@@ -98,6 +82,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
     }, {});
   }, [raCase.actions]);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setBaselineDraft(
       raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
@@ -118,6 +103,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
       }, {})
     );
   }, [raCase]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleBaselineChange = async (
     hazardId: string,
@@ -232,21 +218,9 @@ const EditableStepRows = ({
   onBaselineChange,
   onResidualChange
 }: EditableStepRowsProps) => {
-  // State for inline editing
-  const [editingHazard, setEditingHazard] = useState<string | null>(null);
-  const [hazardLabel, setHazardLabel] = useState("");
-  const [hazardDescription, setHazardDescription] = useState("");
   const [addingAction, setAddingAction] = useState<string | null>(null);
   const [newActionText, setNewActionText] = useState("");
-
-  // Handle hazard update
-  const handleHazardSave = async (hazardId: string) => {
-    await actions.updateHazard(hazardId, {
-      label: hazardLabel,
-      description: hazardDescription
-    });
-    setEditingHazard(null);
-  };
+  const { drafts, patchDraft, commitDraft } = useHazardDrafts(hazards);
 
   // Handle category change
   const handleCategoryChange = async (hazardId: string, categoryCode: string) => {
@@ -299,76 +273,38 @@ const EditableStepRows = ({
     <>
       {renderStepRow()}
       {hazards.map((hazard) => {
-        const isEditing = editingHazard === hazard.id;
         const isAddingAction = addingAction === hazard.id;
         const hazardActions = actionsByHazard[hazard.id] ?? [];
-        const categoryLabel = hazard.categoryCode
-          ? HAZARD_CATEGORIES.find((c) => c.code === hazard.categoryCode)?.label ?? hazard.categoryCode
-          : "—";
         const baseline = baselineDraft[hazard.id] ?? { severity: hazard.baseline?.severity ?? "", likelihood: hazard.baseline?.likelihood ?? "" };
         const residual = residualDraft[hazard.id] ?? { severity: hazard.residual?.severity ?? "", likelihood: hazard.residual?.likelihood ?? "" };
+        const draft = drafts[hazard.id];
 
         return (
           <SheetRow key={hazard.id} className="hazard-row">
             {/* Hazard label and description */}
             <SheetCell className="sheet-cell">
-              {isEditing ? (
-                <div className="sheet-inline-form">
-                  <input
-                    type="text"
-                    className="sheet-input"
-                    value={hazardLabel}
-                    onChange={(e) => setHazardLabel(e.target.value)}
-                    placeholder="Hazard label"
-                    disabled={saving}
-                  />
-                  <textarea
-                    className="sheet-textarea"
-                    value={hazardDescription}
-                    onChange={(e) => setHazardDescription(e.target.value)}
-                    placeholder="Description"
-                    disabled={saving}
-                    rows={2}
-                  />
-                  <div className="sheet-actions-grid">
-                    <button
-                      type="button"
-                      className="sheet-button sheet-button--primary"
-                      onClick={() => handleHazardSave(hazard.id)}
-                      disabled={saving}
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      className="sheet-button"
-                      onClick={() => setEditingHazard(null)}
-                      disabled={saving}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  className="hazard-label"
-                  style={{ cursor: "pointer" }}
-                  onClick={() => {
-                    setEditingHazard(hazard.id);
-                    setHazardLabel(hazard.label);
-                    setHazardDescription(hazard.description ?? "");
-                  }}
-                >
-                  <strong>{hazard.label}</strong>
-                  {hazard.description && <p>{hazard.description}</p>}
-                </div>
-              )}
+              <div className="sheet-inline-form">
+                <SheetInput
+                  value={draft?.label ?? hazard.label}
+                  onChange={(event) => patchDraft(hazard.id, { label: event.target.value })}
+                  onBlur={() => void commitDraft(hazard.id, actions.updateHazard)}
+                  placeholder="Hazard label"
+                  disabled={saving}
+                />
+                <SheetTextarea
+                  value={draft?.description ?? hazard.description ?? ""}
+                  onChange={(event) => patchDraft(hazard.id, { description: event.target.value })}
+                  onBlur={() => void commitDraft(hazard.id, actions.updateHazard)}
+                  placeholder="Description"
+                  disabled={saving}
+                  rows={2}
+                />
+              </div>
             </SheetCell>
 
             {/* Category */}
             <SheetCell>
-              <select
-                className="sheet-select"
+              <SheetSelect
                 value={hazard.categoryCode ?? ""}
                 onChange={(e) => handleCategoryChange(hazard.id, e.target.value)}
                 disabled={saving}
@@ -379,41 +315,39 @@ const EditableStepRows = ({
                     {cat.code}
                   </option>
                 ))}
-              </select>
+              </SheetSelect>
             </SheetCell>
 
             {/* Baseline severity */}
             <SheetCell>
-              <select
-                className="sheet-select"
+              <SheetSelect
                 value={baseline.severity}
                 onChange={(e) => void onBaselineChange(hazard.id, { severity: e.target.value })}
                 disabled={saving}
               >
                 <option value="">—</option>
-                {SEVERITY_OPTIONS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
+                {SEVERITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}
                   </option>
                 ))}
-              </select>
+              </SheetSelect>
             </SheetCell>
 
             {/* Baseline likelihood */}
             <SheetCell>
-              <select
-                className="sheet-select"
+              <SheetSelect
                 value={baseline.likelihood}
                 onChange={(e) => void onBaselineChange(hazard.id, { likelihood: e.target.value })}
                 disabled={saving}
               >
                 <option value="">—</option>
-                {LIKELIHOOD_OPTIONS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
+                {LIKELIHOOD_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}
                   </option>
                 ))}
-              </select>
+              </SheetSelect>
             </SheetCell>
 
             {/* Baseline risk pill */}
@@ -428,36 +362,34 @@ const EditableStepRows = ({
 
             {/* Residual severity */}
             <SheetCell>
-              <select
-                className="sheet-select"
+              <SheetSelect
                 value={residual.severity}
                 onChange={(e) => void onResidualChange(hazard.id, { severity: e.target.value })}
                 disabled={saving}
               >
                 <option value="">—</option>
-                {SEVERITY_OPTIONS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
+                {SEVERITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}
                   </option>
                 ))}
-              </select>
+              </SheetSelect>
             </SheetCell>
 
             {/* Residual likelihood */}
             <SheetCell>
-              <select
-                className="sheet-select"
+              <SheetSelect
                 value={residual.likelihood}
                 onChange={(e) => void onResidualChange(hazard.id, { likelihood: e.target.value })}
                 disabled={saving}
               >
                 <option value="">—</option>
-                {LIKELIHOOD_OPTIONS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
+                {LIKELIHOOD_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.value}
                   </option>
                 ))}
-              </select>
+              </SheetSelect>
             </SheetCell>
 
             {/* Residual risk pill */}
@@ -479,9 +411,7 @@ const EditableStepRows = ({
               </ul>
               {isAddingAction ? (
                 <div className="sheet-control-add-form" style={{ marginTop: "0.5rem" }}>
-                  <input
-                    type="text"
-                    className="sheet-input"
+                  <SheetInput
                     value={newActionText}
                     onChange={(e) => setNewActionText(e.target.value)}
                     placeholder="Action description"
@@ -491,33 +421,28 @@ const EditableStepRows = ({
                       if (e.key === "Escape") setAddingAction(null);
                     }}
                   />
-                  <button
-                    type="button"
-                    className="sheet-button sheet-button--primary"
+                  <SheetButton
+                    variant="primary"
                     onClick={() => handleAddAction(hazard.id)}
                     disabled={saving || !newActionText.trim()}
                   >
                     Add
-                  </button>
-                  <button
-                    type="button"
-                    className="sheet-button"
+                  </SheetButton>
+                  <SheetButton
                     onClick={() => setAddingAction(null)}
                     disabled={saving}
                   >
                     Cancel
-                  </button>
+                  </SheetButton>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  className="sheet-button"
+                <SheetButton
                   onClick={() => setAddingAction(hazard.id)}
                   disabled={saving}
                   style={{ marginTop: "0.5rem" }}
                 >
                   + Add action
-                </button>
+                </SheetButton>
               )}
             </SheetCell>
           </SheetRow>

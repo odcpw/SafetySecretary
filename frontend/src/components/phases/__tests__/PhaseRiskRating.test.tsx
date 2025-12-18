@@ -18,25 +18,27 @@ const buildCase = (): RiskAssessmentCase => ({
   hazards: [
     {
       id: "haz-1",
+      stepId: "step-1",
+      orderIndex: 0,
       label: "Slip on wet floor",
       description: "Water after wash",
-      baseline: { severity: "MEDIUM", likelihood: "LIKELY", riskRating: "MEDIUM_LIKELY" },
+      baseline: { severity: "C", likelihood: "2", riskRating: "Moderate Risk" },
       residual: undefined,
       existingControls: [],
       proposedControls: [],
-      stepIds: ["step-1"],
-      stepOrder: { "step-1": 0 }
+      categoryCode: null
     },
     {
       id: "haz-2",
+      stepId: "step-2",
+      orderIndex: 0,
       label: "Chemical splash",
       description: null,
-      baseline: { severity: "HIGH", likelihood: "POSSIBLE", riskRating: "HIGH_POSSIBLE" },
+      baseline: { severity: "B", likelihood: "3", riskRating: "Moderate Risk" },
       residual: undefined,
       existingControls: [],
       proposedControls: [],
-      stepIds: ["step-2"],
-      stepOrder: { "step-2": 0 }
+      categoryCode: null
     }
   ],
   actions: []
@@ -50,6 +52,7 @@ describe("PhaseRiskRating", () => {
         raCase={buildCase()}
         saving={false}
         onSaveRiskRatings={vi.fn()}
+        onUpdateHazard={vi.fn()}
         onNext={mockNext}
       />
     );

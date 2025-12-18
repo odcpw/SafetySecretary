@@ -5,17 +5,17 @@ import {
   loadMatrixSettings,
   type RiskMatrixSettings
 } from "@/lib/riskMatrixSettings";
+import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
 import {
   SheetBody,
   SheetCell,
   SheetHead,
   SheetHeaderCell,
-  SheetInput,
   SheetRow,
   SheetSelect,
   SheetTable
 } from "@/components/ui/SheetTable";
-import { getCategoryLabel, HAZARD_CATEGORIES } from "@/lib/hazardCategories";
+import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 
 interface PhaseRiskRatingProps {
   raCase: RiskAssessmentCase;
@@ -26,20 +26,8 @@ interface PhaseRiskRatingProps {
   canAdvance?: boolean;
 }
 
-const SEVERITY_OPTIONS = [
-  { value: "LOW", label: "Low", helper: "First aid or reversible harm" },
-  { value: "MEDIUM", label: "Medium", helper: "Medical treatment or lost time" },
-  { value: "HIGH", label: "High", helper: "Serious injury or long-term harm" },
-  { value: "CRITICAL", label: "Critical", helper: "Fatality or multiple serious injuries" }
-];
-
-const LIKELIHOOD_OPTIONS = [
-  { value: "RARE", label: "Rare", helper: "Would take multiple failures" },
-  { value: "UNLIKELY", label: "Unlikely", helper: "Could happen but not expected" },
-  { value: "POSSIBLE", label: "Possible", helper: "Has happened or could soon" },
-  { value: "LIKELY", label: "Likely", helper: "Happens regularly" },
-  { value: "ALMOST_CERTAIN", label: "Almost certain", helper: "When uncontrolled it will happen" }
-];
+const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS;
+const LIKELIHOOD_OPTIONS = TEMPLATE_LIKELIHOOD_OPTIONS;
 
 const initialRatingsFromHazards = (hazards: Hazard[]) =>
   hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
@@ -96,27 +84,9 @@ export const PhaseRiskRating = ({
     const grouped = raCase.steps.map((step) => ({
       step,
       hazards: raCase.hazards
-        .filter((hazard) => hazard.stepIds.includes(step.id))
-        .sort(
-          (a, b) =>
-            (a.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER) -
-            (b.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER)
-        )
+        .filter((hazard) => hazard.stepId === step.id)
+        .sort((a, b) => a.orderIndex - b.orderIndex)
     }));
-    const unassigned = raCase.hazards.filter((hazard) => hazard.stepIds.length === 0);
-    if (unassigned.length) {
-      grouped.push({
-        step: {
-          id: "unassigned",
-          activity: "Unassigned hazards",
-          equipment: [],
-          substances: [],
-          description: "Assign these hazards to steps to keep context clear",
-          orderIndex: grouped.length
-        } as RiskAssessmentCase["steps"][number],
-        hazards: unassigned
-      });
-    }
     return grouped.filter((entry) => entry.hazards.length > 0);
   }, [raCase.hazards, raCase.steps]);
 

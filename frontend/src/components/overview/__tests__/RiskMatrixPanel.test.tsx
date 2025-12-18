@@ -19,36 +19,36 @@ const buildCase = (): RiskAssessmentCase => ({
   hazards: [
     {
       id: "haz-1",
+      stepId: "step-1",
+      orderIndex: 0,
       label: "Hazard A",
       description: null,
       existingControls: [],
       proposedControls: [],
-      stepIds: ["step-1"],
-      stepOrder: { "step-1": 0 },
-      baseline: { severity: "HIGH", likelihood: "LIKELY", riskRating: "HIGH_LIKELY" },
-      residual: { severity: "LOW", likelihood: "UNLIKELY", riskRating: "LOW_UNLIKELY" }
+      baseline: { severity: "B", likelihood: "2", riskRating: "High Risk" },
+      residual: { severity: "E", likelihood: "4", riskRating: "Negligible Risk" }
     },
     {
       id: "haz-2",
+      stepId: "step-1",
+      orderIndex: 1,
       label: "Hazard B",
       description: null,
       existingControls: [],
       proposedControls: [],
-      stepIds: [],
-      stepOrder: {},
-      baseline: { severity: "LOW", likelihood: "RARE", riskRating: "LOW_RARE" },
+      baseline: { severity: "D", likelihood: "5", riskRating: "Negligible Risk" },
       residual: undefined
     },
     {
       id: "haz-3",
+      stepId: "step-1",
+      orderIndex: 2,
       label: "Hazard C",
       description: null,
       existingControls: [],
       proposedControls: [],
-      stepIds: [],
-      stepOrder: {},
       baseline: undefined,
-      residual: { severity: "CRITICAL", likelihood: "ALMOST_CERTAIN", riskRating: "CRITICAL_ALMOST_CERTAIN" }
+      residual: { severity: "A", likelihood: "1", riskRating: "Extreme Risk" }
     }
   ],
   actions: []
@@ -92,19 +92,19 @@ describe("RiskMatrixPanel", () => {
 
     expect(sumMatrixCounts(container)).toBe(2);
 
-    await user.click(getCellButton(container, { row: 3, column: 3 })); // HIGH x LIKELY
+    await user.click(getCellButton(container, { row: 1, column: 3 })); // B x 2
     expect(screen.getByText("Hazard A")).toBeInTheDocument();
 
-    await user.click(getCellButton(container, { row: 0, column: 0 })); // LOW x RARE
+    await user.click(getCellButton(container, { row: 4, column: 1 })); // D x 5
     expect(screen.getByText("Hazard B")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Residual risk" }));
     expect(sumMatrixCounts(container)).toBe(2);
 
-    await user.click(getCellButton(container, { row: 1, column: 0 })); // LOW x UNLIKELY
+    await user.click(getCellButton(container, { row: 3, column: 0 })); // E x 4
     expect(screen.getByText("Hazard A")).toBeInTheDocument();
 
-    await user.click(getCellButton(container, { row: 4, column: 4 })); // CRITICAL x ALMOST_CERTAIN
+    await user.click(getCellButton(container, { row: 0, column: 4 })); // A x 1
     expect(screen.getByText("Hazard C")).toBeInTheDocument();
   });
 });

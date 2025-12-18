@@ -5,6 +5,7 @@ import {
   RiskAssessmentPhase as PrismaPhase
 } from "@prisma/client";
 import prisma from "./prismaClient";
+import { TEMPLATE_RISK_BAND_LABEL, getTemplateRiskBand } from "./templateRiskMatrix";
 import {
   ActionInput,
   CreateRiskAssessmentInput,
@@ -39,13 +40,10 @@ const caseInclude = {
   },
   hazards: {
     include: {
-      steps: true,
       assessments: true,
       proposedControls: true
     },
-    orderBy: {
-      createdAt: "asc" as const
-    }
+    orderBy: [{ stepId: "asc" as const }, { orderIndex: "asc" as const }, { createdAt: "asc" as const }]
   },
   actions: {
     orderBy: {
@@ -64,12 +62,12 @@ export type HazardDto = {
   createdAt: Date;
   updatedAt: Date;
   caseId: string;
+  stepId: string;
+  orderIndex: number;
   label: string;
   description: string | null;
   categoryCode: string | null;
   existingControls: string[];
-  stepIds: string[];
-  stepOrder: Record<string, number>;
   baseline?: HazardAssessmentSnapshot;
   residual?: HazardAssessmentSnapshot;
   proposedControls: { id: string; description: string; hierarchy: string | null }[];
@@ -131,26 +129,16 @@ export class RiskAssessmentService {
     return count === uniqueStepIds.length;
   }
 
-  private async attachHazardToStep(
-    tx: Prisma.TransactionClient,
-    hazardId: string,
-    stepId: string
-  ): Promise<void> {
-    const orderIndex = await tx.hazardStep.count({ where: { stepId } });
-    await tx.hazardStep.create({
-      data: { hazardId, stepId, orderIndex }
-    });
-  }
-
   private async normalizeStepHazardOrder(tx: Prisma.TransactionClient, stepId: string): Promise<void> {
-    const items = await tx.hazardStep.findMany({
+    const items = await tx.hazard.findMany({
       where: { stepId },
-      orderBy: { orderIndex: "asc" }
+      orderBy: { orderIndex: "asc" },
+      select: { id: true }
     });
     await Promise.all(
       items.map((item, index) =>
-        tx.hazardStep.update({
-          where: { hazardId_stepId: { hazardId: item.hazardId, stepId } },
+        tx.hazard.update({
+          where: { id: item.id },
           data: { orderIndex: index }
         })
       )
@@ -326,14 +314,6 @@ export class RiskAssessmentService {
 
       const obsolete = existingSteps.filter((step) => !seen.has(step.id)).map((step) => step.id);
       if (obsolete.length) {
-        await tx.hazardStep.deleteMany({
-          where: {
-            stepId: {
-              in: obsolete
-            }
-          }
-        });
-
         await tx.processStep.deleteMany({
           where: {
             id: {
@@ -354,30 +334,44 @@ export class RiskAssessmentService {
       return null;
     }
 
-    const stepIds = await this.db.processStep.findMany({
+    const steps = await this.db.processStep.findMany({
       where: { caseId: id },
-      select: { id: true }
+      select: { id: true },
+      orderBy: { orderIndex: "asc" }
     });
-    const validStepIds = new Set(stepIds.map((step) => step.id));
+    const validStepIds = new Set(steps.map((step) => step.id));
+    const defaultStepId = steps[0]?.id;
 
     await this.db.$transaction(async (tx) => {
-      for (const hazard of hazards) {
-        const created = await tx.hazard.create({
-          data: {
-            caseId: id,
-            label: hazard.label,
-            description: hazard.description ?? null,
-            categoryCode: hazard.categoryCode ?? null,
-            existingControls: hazard.existingControls ?? []
-          }
-        });
+      const nextOrderIndexByStepId = new Map<string, number>();
+      const getNextOrderIndex = async (stepId: string): Promise<number> => {
+        const existing = nextOrderIndexByStepId.get(stepId);
+        if (existing !== undefined) {
+          nextOrderIndexByStepId.set(stepId, existing + 1);
+          return existing;
+        }
+        const count = await tx.hazard.count({ where: { stepId } });
+        nextOrderIndexByStepId.set(stepId, count + 1);
+        return count;
+      };
 
-        if (hazard.stepIds && hazard.stepIds.length) {
-          for (const stepId of hazard.stepIds) {
-            if (validStepIds.has(stepId)) {
-              await this.attachHazardToStep(tx, created.id, stepId);
+      for (const hazard of hazards) {
+        const requestedStepIds = Array.isArray(hazard.stepIds) ? hazard.stepIds : [];
+        const resolvedStepIds = requestedStepIds.filter((stepId) => validStepIds.has(stepId));
+        const targetStepIds = resolvedStepIds.length ? resolvedStepIds : defaultStepId ? [defaultStepId] : [];
+        for (const stepId of targetStepIds) {
+          const orderIndex = await getNextOrderIndex(stepId);
+          await tx.hazard.create({
+            data: {
+              caseId: id,
+              stepId,
+              orderIndex,
+              label: hazard.label,
+              description: hazard.description ?? null,
+              categoryCode: hazard.categoryCode ?? null,
+              existingControls: hazard.existingControls ?? []
             }
-          }
+          });
         }
       }
     });
@@ -398,9 +392,12 @@ export class RiskAssessmentService {
     }
 
     const withSteps = await this.db.$transaction(async (tx) => {
+      const orderIndex = await tx.hazard.count({ where: { stepId: hazard.stepId } });
       const created = await tx.hazard.create({
         data: {
           caseId: id,
+          stepId: hazard.stepId,
+          orderIndex,
           label: hazard.label,
           description: hazard.description ?? null,
           categoryCode: hazard.categoryCode ?? null,
@@ -408,11 +405,9 @@ export class RiskAssessmentService {
         }
       });
 
-      await this.attachHazardToStep(tx, created.id, hazard.stepId);
-
       return tx.hazard.findUnique({
         where: { id: created.id },
-        include: { steps: true, assessments: true, proposedControls: true }
+        include: { assessments: true, proposedControls: true }
       });
     });
 
@@ -428,7 +423,7 @@ export class RiskAssessmentService {
       description?: string | null;
       categoryCode?: string | null;
       existingControls?: string[];
-      stepIds?: string[]
+      stepId?: string
     }
   ): Promise<HazardDto | null> {
     const hazard = await this.db.hazard.findFirst({
@@ -438,11 +433,12 @@ export class RiskAssessmentService {
       return null;
     }
 
-    if (patch.stepIds && !(await this.stepIdsBelongToCase(caseId, patch.stepIds))) {
-      return null;
+    if (patch.stepId) {
+      const step = await this.db.processStep.findFirst({ where: { id: patch.stepId, caseId } });
+      if (!step) {
+        return null;
+      }
     }
-
-    const existingLinks = await this.db.hazardStep.findMany({ where: { hazardId } });
 
     await this.db.$transaction(async (tx) => {
       const payload: Prisma.HazardUpdateInput = {};
@@ -466,20 +462,21 @@ export class RiskAssessmentService {
         });
       }
 
-      if (patch.stepIds) {
-        await tx.hazardStep.deleteMany({ where: { hazardId } });
-        await Promise.all(
-          existingLinks.map((link) => this.normalizeStepHazardOrder(tx, link.stepId))
-        );
-        for (const stepId of patch.stepIds) {
-          await this.attachHazardToStep(tx, hazardId, stepId);
-        }
+      if (patch.stepId && patch.stepId !== hazard.stepId) {
+        const nextStepId = patch.stepId;
+        const orderIndex = await tx.hazard.count({ where: { stepId: nextStepId } });
+        await tx.hazard.update({
+          where: { id: hazardId },
+          data: { stepId: nextStepId, orderIndex }
+        });
+        await this.normalizeStepHazardOrder(tx, hazard.stepId);
+        await this.normalizeStepHazardOrder(tx, nextStepId);
       }
     });
 
     const updated = await this.db.hazard.findUnique({
       where: { id: hazardId },
-      include: { steps: true, assessments: true, proposedControls: true }
+      include: { assessments: true, proposedControls: true }
     });
 
     return updated ? this.mapHazard(updated) : null;
@@ -496,6 +493,7 @@ export class RiskAssessmentService {
 
     await this.db.$transaction(async (tx) => {
       for (const rating of ratings) {
+        const riskRating = TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(rating.severity, rating.likelihood)];
         await tx.hazardAssessment.upsert({
           where: {
             hazardId_type: {
@@ -506,14 +504,14 @@ export class RiskAssessmentService {
           update: {
             severity: rating.severity,
             likelihood: rating.likelihood,
-            riskRating: `${rating.severity}_${rating.likelihood}`
+            riskRating
           },
           create: {
             hazardId: rating.hazardId,
             type: HazardAssessmentType.BASELINE,
             severity: rating.severity,
             likelihood: rating.likelihood,
-            riskRating: `${rating.severity}_${rating.likelihood}`
+            riskRating
           }
         });
       }
@@ -608,6 +606,7 @@ export class RiskAssessmentService {
 
     await this.db.$transaction(async (tx) => {
       for (const rating of ratings) {
+        const riskRating = TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(rating.severity, rating.likelihood)];
         await tx.hazardAssessment.upsert({
           where: {
             hazardId_type: {
@@ -618,14 +617,14 @@ export class RiskAssessmentService {
           update: {
             severity: rating.severity,
             likelihood: rating.likelihood,
-            riskRating: `${rating.severity}_${rating.likelihood}`
+            riskRating
           },
           create: {
             hazardId: rating.hazardId,
             type: HazardAssessmentType.RESIDUAL,
             severity: rating.severity,
             likelihood: rating.likelihood,
-            riskRating: `${rating.severity}_${rating.likelihood}`
+            riskRating
           }
         });
       }
@@ -715,12 +714,9 @@ export class RiskAssessmentService {
     if (!hazard) {
       return false;
     }
-    const stepLinks = await this.db.hazardStep.findMany({ where: { hazardId } });
     await this.db.$transaction(async (tx) => {
       await tx.hazard.delete({ where: { id: hazardId } });
-      await Promise.all(
-        stepLinks.map((link) => this.normalizeStepHazardOrder(tx, link.stepId))
-      );
+      await this.normalizeStepHazardOrder(tx, hazard.stepId);
     });
     return true;
   }
@@ -732,19 +728,20 @@ export class RiskAssessmentService {
     if (!step) {
       return false;
     }
-    const existing = await this.db.hazardStep.findMany({
-      where: { stepId },
-      select: { hazardId: true }
+    const existing = await this.db.hazard.findMany({
+      where: { stepId, caseId },
+      select: { id: true },
+      orderBy: { orderIndex: "asc" }
     });
-    const existingSet = new Set(existing.map((item) => item.hazardId));
+    const existingSet = new Set(existing.map((item) => item.id));
     const filtered = hazardIds.filter((id) => existingSet.has(id));
-    const remainder = existing.map((item) => item.hazardId).filter((id) => !filtered.includes(id));
+    const remainder = existing.map((item) => item.id).filter((id) => !filtered.includes(id));
     const finalOrder = [...filtered, ...remainder];
     await this.db.$transaction(async (tx) => {
       await Promise.all(
         finalOrder.map((hazardId, index) =>
-          tx.hazardStep.update({
-            where: { hazardId_stepId: { hazardId, stepId } },
+          tx.hazard.update({
+            where: { id: hazardId },
             data: { orderIndex: index }
           })
         )
@@ -861,6 +858,46 @@ export class RiskAssessmentService {
     };
   }
 
+  private async normalizeStepAttachmentOrder(
+    tx: Prisma.TransactionClient,
+    caseId: string,
+    stepId: string
+  ): Promise<void> {
+    const items = await tx.attachment.findMany({
+      where: { caseId, stepId, hazardId: null },
+      orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+      select: { id: true }
+    });
+    await Promise.all(
+      items.map((item, index) =>
+        tx.attachment.update({
+          where: { id: item.id },
+          data: { orderIndex: index }
+        })
+      )
+    );
+  }
+
+  private async normalizeHazardAttachmentOrder(
+    tx: Prisma.TransactionClient,
+    caseId: string,
+    hazardId: string
+  ): Promise<void> {
+    const items = await tx.attachment.findMany({
+      where: { caseId, hazardId },
+      orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+      select: { id: true }
+    });
+    await Promise.all(
+      items.map((item, index) =>
+        tx.attachment.update({
+          where: { id: item.id },
+          data: { orderIndex: index }
+        })
+      )
+    );
+  }
+
   async addHazardAttachment(
     caseId: string,
     hazardId: string,
@@ -922,12 +959,95 @@ export class RiskAssessmentService {
     };
   }
 
+  async updateAttachment(
+    caseId: string,
+    attachmentId: string,
+    patch: { stepId?: string | null; hazardId?: string | null }
+  ): Promise<AttachmentDto | null> {
+    const attachment = await this.db.attachment.findFirst({ where: { id: attachmentId, caseId } });
+    if (!attachment) {
+      return null;
+    }
+
+    const nextStepId = patch.stepId !== undefined ? patch.stepId : attachment.stepId;
+    const nextHazardId = patch.hazardId !== undefined ? patch.hazardId : attachment.hazardId;
+    if (!nextStepId && !nextHazardId) {
+      return null;
+    }
+
+    if (nextStepId) {
+      const step = await this.db.processStep.findFirst({ where: { id: nextStepId, caseId } });
+      if (!step) {
+        return null;
+      }
+    }
+    if (nextHazardId) {
+      const hazard = await this.db.hazard.findFirst({ where: { id: nextHazardId, caseId } });
+      if (!hazard) {
+        return null;
+      }
+    }
+
+    const updated = await this.db.$transaction(async (tx) => {
+      const orderIndex =
+        nextHazardId !== null && nextHazardId !== undefined
+          ? await tx.attachment.count({ where: { caseId, hazardId: nextHazardId } })
+          : nextStepId
+            ? await tx.attachment.count({ where: { caseId, stepId: nextStepId, hazardId: null } })
+            : attachment.orderIndex;
+
+      const updatedRow = await tx.attachment.update({
+        where: { id: attachmentId },
+        data: {
+          stepId: nextHazardId ? null : nextStepId,
+          hazardId: nextHazardId,
+          orderIndex
+        }
+      });
+
+      if (attachment.hazardId) {
+        await this.normalizeHazardAttachmentOrder(tx, caseId, attachment.hazardId);
+      } else if (attachment.stepId) {
+        await this.normalizeStepAttachmentOrder(tx, caseId, attachment.stepId);
+      }
+
+      if (updatedRow.hazardId) {
+        await this.normalizeHazardAttachmentOrder(tx, caseId, updatedRow.hazardId);
+      } else if (updatedRow.stepId) {
+        await this.normalizeStepAttachmentOrder(tx, caseId, updatedRow.stepId);
+      }
+
+      return updatedRow;
+    });
+
+    return {
+      id: updated.id,
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+      caseId: updated.caseId,
+      stepId: updated.stepId ?? null,
+      hazardId: updated.hazardId ?? null,
+      orderIndex: updated.orderIndex,
+      originalName: updated.originalName,
+      mimeType: updated.mimeType,
+      byteSize: updated.byteSize,
+      storageKey: updated.storageKey
+    };
+  }
+
   async deleteAttachment(caseId: string, attachmentId: string): Promise<AttachmentDto | null> {
     const attachment = await this.db.attachment.findFirst({ where: { id: attachmentId, caseId } });
     if (!attachment) {
       return null;
     }
-    await this.db.attachment.delete({ where: { id: attachmentId } });
+    await this.db.$transaction(async (tx) => {
+      await tx.attachment.delete({ where: { id: attachmentId } });
+      if (attachment.hazardId) {
+        await this.normalizeHazardAttachmentOrder(tx, caseId, attachment.hazardId);
+      } else if (attachment.stepId) {
+        await this.normalizeStepAttachmentOrder(tx, caseId, attachment.stepId);
+      }
+    });
     return {
       id: attachment.id,
       createdAt: attachment.createdAt,
@@ -941,6 +1061,30 @@ export class RiskAssessmentService {
       byteSize: attachment.byteSize,
       storageKey: attachment.storageKey
     };
+  }
+
+  async reorderStepAttachments(caseId: string, stepId: string, attachmentIds: string[]): Promise<boolean> {
+    const step = await this.db.processStep.findFirst({ where: { id: stepId, caseId } });
+    if (!step) {
+      return false;
+    }
+
+    const existing = await this.db.attachment.findMany({
+      where: { caseId, stepId, hazardId: null },
+      select: { id: true },
+      orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }]
+    });
+    const existingSet = new Set(existing.map((item) => item.id));
+    const filtered = attachmentIds.filter((id) => existingSet.has(id));
+    const remainder = existing.map((item) => item.id).filter((id) => !filtered.includes(id));
+    const finalOrder = [...filtered, ...remainder];
+
+    await this.db.$transaction(async (tx) => {
+      await Promise.all(
+        finalOrder.map((id, index) => tx.attachment.update({ where: { id }, data: { orderIndex: index } }))
+      );
+    });
+    return true;
   }
 
   async listAttachments(caseId: string): Promise<AttachmentDto[]> {
@@ -965,21 +1109,15 @@ export class RiskAssessmentService {
 
   private mapCase(record: CaseWithRelations): RiskAssessmentCaseDto {
     const stepOrder = new Map<string, number>();
-    record.steps.forEach((step, index) => stepOrder.set(step.id, index));
-
-    const sortKey = (hazard: CaseWithRelations["hazards"][number]) => {
-      const orders = hazard.steps
-        .map((step) => stepOrder.get(step.stepId))
-        .filter((value): value is number => typeof value === "number");
-      if (orders.length === 0) {
-        return Number.MAX_SAFE_INTEGER;
-      }
-      return Math.min(...orders);
-    };
+    record.steps.forEach((step, index) => stepOrder.set(step.id, step.orderIndex ?? index));
 
     const hazards = [...record.hazards].sort((a, b) => {
-      const diff = sortKey(a) - sortKey(b);
-      return diff !== 0 ? diff : a.createdAt.getTime() - b.createdAt.getTime();
+      const diff = (stepOrder.get(a.stepId) ?? Number.MAX_SAFE_INTEGER) - (stepOrder.get(b.stepId) ?? Number.MAX_SAFE_INTEGER);
+      if (diff !== 0) {
+        return diff;
+      }
+      const orderDiff = (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
+      return orderDiff !== 0 ? orderDiff : a.createdAt.getTime() - b.createdAt.getTime();
     });
 
     return {
@@ -989,7 +1127,7 @@ export class RiskAssessmentService {
   }
 
   private mapHazard(hazard: CaseWithRelations["hazards"][number]): HazardDto {
-    const { steps, assessments, proposedControls, ...rest } = hazard;
+    const { assessments, proposedControls, ...rest } = hazard;
     const baseline = assessments.find((assessment) => assessment.type === HazardAssessmentType.BASELINE);
     const residual = assessments.find((assessment) => assessment.type === HazardAssessmentType.RESIDUAL);
 
@@ -998,15 +1136,12 @@ export class RiskAssessmentService {
       createdAt: rest.createdAt,
       updatedAt: rest.updatedAt,
       caseId: rest.caseId,
+      stepId: rest.stepId,
+      orderIndex: rest.orderIndex ?? 0,
       label: rest.label,
       description: rest.description,
       categoryCode: rest.categoryCode,
       existingControls: rest.existingControls,
-      stepIds: steps.map((step) => step.stepId),
-      stepOrder: steps.reduce<Record<string, number>>((acc, step) => {
-        acc[step.stepId] = step.orderIndex ?? 0;
-        return acc;
-      }, {}),
       proposedControls: proposedControls.map((control) => ({
         id: control.id,
         description: control.description,

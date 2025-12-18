@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import express from "express";
 import { AppLocals } from "../types/app";
+import { TEMPLATE_LIKELIHOOD_LEVELS, TEMPLATE_SEVERITY_LEVELS } from "../types/templateRisk";
 
 export const raCasesRouter = express.Router();
 
@@ -15,8 +16,8 @@ const requireParam = (req: Request, res: Response, key: string): string | null =
   return value;
 };
 
-const SEVERITY_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
-const LIKELIHOOD_LEVELS = ["RARE", "UNLIKELY", "POSSIBLE", "LIKELY", "ALMOST_CERTAIN"] as const;
+const SEVERITY_LEVELS = TEMPLATE_SEVERITY_LEVELS;
+const LIKELIHOOD_LEVELS = TEMPLATE_LIKELIHOOD_LEVELS;
 const CONTROL_HIERARCHY_LEVELS = ["SUBSTITUTION", "TECHNICAL", "ORGANIZATIONAL", "PPE"] as const;
 const ACTION_STATUSES = ["OPEN", "IN_PROGRESS", "COMPLETE"] as const;
 const HAZARD_CATEGORY_CODES = [
@@ -43,7 +44,7 @@ type HazardCategoryCodeNormalized = (typeof HAZARD_CATEGORY_CODES)[number];
 
 const normalizeSeverity = (value: unknown): SeverityLevelNormalized | undefined => {
   const normalized =
-    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+    typeof value === "string" ? value.trim().toUpperCase() : "";
   return SEVERITY_LEVELS.includes(normalized as SeverityLevelNormalized)
     ? (normalized as SeverityLevelNormalized)
     : undefined;
@@ -51,7 +52,11 @@ const normalizeSeverity = (value: unknown): SeverityLevelNormalized | undefined 
 
 const normalizeLikelihood = (value: unknown): LikelihoodLevelNormalized | undefined => {
   const normalized =
-    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+    typeof value === "number" && Number.isFinite(value)
+      ? String(value)
+      : typeof value === "string"
+        ? value.trim()
+        : "";
   return LIKELIHOOD_LEVELS.includes(normalized as LikelihoodLevelNormalized)
     ? (normalized as LikelihoodLevelNormalized)
     : undefined;
@@ -400,7 +405,7 @@ raCasesRouter.put("/:id/hazards/:hazardId", async (req: Request, res: Response) 
     const descriptionRaw = (patchRaw as any).description;
     const categoryRaw = (patchRaw as any).categoryCode;
     const existingControlsRaw = (patchRaw as any).existingControls;
-    const stepIdsRaw = (patchRaw as any).stepIds;
+    const stepIdRaw = (patchRaw as any).stepId;
 
     if (labelRaw !== undefined) {
       if (typeof labelRaw !== "string" || !labelRaw.trim()) {
@@ -438,21 +443,20 @@ raCasesRouter.put("/:id/hazards/:hazardId", async (req: Request, res: Response) 
         safePatch.existingControls = normalizedControls;
       }
     }
-    if (stepIdsRaw !== undefined) {
-      const normalizedStepIds = normalizeStringArray(stepIdsRaw);
-      if (normalizedStepIds === undefined) {
-        errors.push("stepIds must be an array of strings");
+    if (stepIdRaw !== undefined) {
+      if (typeof stepIdRaw !== "string" || !stepIdRaw.trim()) {
+        errors.push("stepId must be a non-empty string");
       } else {
+        const stepId = stepIdRaw.trim();
         const raCase = await raService.getCaseById(caseId);
         if (!raCase) {
           return res.status(404).json({ error: "Not found" });
         }
         const validStepIds = new Set(raCase.steps.map((s) => s.id));
-        const invalidIds = normalizedStepIds.filter((id) => !validStepIds.has(id));
-        if (invalidIds.length) {
-          errors.push(`stepIds contains invalid stepIds: ${invalidIds.join(", ")}`);
+        if (!validStepIds.has(stepId)) {
+          errors.push("stepId must reference an existing step in this case");
         } else {
-          safePatch.stepIds = normalizedStepIds;
+          safePatch.stepId = stepId;
         }
       }
     }
@@ -547,11 +551,11 @@ raCasesRouter.post("/:id/hazards/:hazardId/proposed-controls", async (req: Reque
       return res.status(400).json({ error: "Invalid control data", details: errors });
     }
 
-    const control = await raService.addProposedControl(caseId, {
-      hazardId,
-      description,
-      hierarchy: normalizedHierarchy
-    });
+    const payload: { hazardId: string; description: string; hierarchy?: any } = { hazardId, description };
+    if (normalizedHierarchy !== undefined) {
+      payload.hierarchy = normalizedHierarchy;
+    }
+    const control = await raService.addProposedControl(caseId, payload as any);
     if (!control) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -635,7 +639,7 @@ raCasesRouter.put("/:id/steps/:stepId/hazards/order", async (req: Request, res: 
       return res.status(404).json({ error: "Not found" });
     }
     const hazardIdsForStep = new Set(
-      raCase.hazards.filter((hazard) => hazard.stepIds.includes(stepId)).map((hazard) => hazard.id)
+      raCase.hazards.filter((hazard) => hazard.stepId === stepId).map((hazard) => hazard.id)
     );
     const invalidHazardIds = hazardIds.filter((hazardId: any) => typeof hazardId !== "string" || !hazardIdsForStep.has(hazardId));
     if (invalidHazardIds.length) {
@@ -822,9 +826,9 @@ raCasesRouter.post("/:id/contextual-update/parse", async (req: Request, res: Res
         description: h.description,
         categoryCode: h.categoryCode,
         existingControls: h.existingControls,
-        stepIds: h.stepIds,
-        baseline: h.baseline,
-        residual: h.residual
+        stepId: h.stepId,
+        ...(h.baseline ? { baseline: h.baseline } : {}),
+        ...(h.residual ? { residual: h.residual } : {})
       })),
       actions: raCase.actions.map((a) => ({
         id: a.id,
@@ -1035,7 +1039,7 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
         const descriptionRaw = (data as any).description;
         const categoryRaw = (data as any).categoryCode;
         const existingControlsRaw = (data as any).existingControls;
-        const stepIdsRaw = (data as any).stepIds;
+        const stepIdRaw = (data as any).stepId;
 
         if (labelRaw !== undefined) {
           if (typeof labelRaw !== "string" || !labelRaw.trim()) {
@@ -1073,17 +1077,16 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
             patch.existingControls = normalizedControls;
           }
         }
-        if (stepIdsRaw !== undefined) {
-          const normalizedStepIds = normalizeStringArray(stepIdsRaw);
-          if (!normalizedStepIds) {
-            errors.push("data.stepIds must be an array of strings");
+        if (stepIdRaw !== undefined) {
+          if (typeof stepIdRaw !== "string" || !stepIdRaw.trim()) {
+            errors.push("data.stepId must be a non-empty string");
           } else {
+            const stepId = stepIdRaw.trim();
             const validStepIds = new Set(raCase.steps.map((s) => s.id));
-            const invalidIds = normalizedStepIds.filter((id) => !validStepIds.has(id));
-            if (invalidIds.length) {
-              errors.push(`data.stepIds contains invalid stepIds: ${invalidIds.join(", ")}`);
+            if (!validStepIds.has(stepId)) {
+              errors.push("data.stepId must reference an existing step in this case");
             } else {
-              patch.stepIds = normalizedStepIds;
+              patch.stepId = stepId;
             }
           }
         }
@@ -1345,6 +1348,12 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
       }
       if (errors.length) {
         return res.status(400).json({ error: "Invalid assessment data", details: errors });
+      }
+
+      if (!severity || !likelihood) {
+        return res
+          .status(400)
+          .json({ error: "Invalid assessment data", details: ["severity and likelihood are required"] });
       }
 
 	      if (isResidual) {

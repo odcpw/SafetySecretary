@@ -16,7 +16,7 @@ interface OverviewBoardProps {
 export const OverviewBoard = ({ raCase, saving, onAddHazard, onAddAction, onUpdateAction }: OverviewBoardProps) => {
   const hazardsByStep = raCase.steps.map((step) => ({
     step,
-    hazards: raCase.hazards.filter((hazard) => hazard.stepIds.includes(step.id))
+    hazards: raCase.hazards.filter((hazard) => hazard.stepId === step.id)
   }));
 
   const actionsByHazard = raCase.actions.reduce<Record<string, typeof raCase.actions>>((acc, action) => {
@@ -75,7 +75,7 @@ export const OverviewBoard = ({ raCase, saving, onAddHazard, onAddAction, onUpda
               <option value="">Choose step…</option>
               {raCase.steps.map((step) => (
                 <option key={step.id} value={step.id}>
-                  {step.title}
+                  {step.activity}
                 </option>
               ))}
             </select>
@@ -107,7 +107,7 @@ export const OverviewBoard = ({ raCase, saving, onAddHazard, onAddAction, onUpda
       {hazardsByStep.map(({ step, hazards }) => (
         <section key={step.id} className="rounded-lg border border-slate-200 p-4">
           <header className="mb-3">
-            <h3 className="text-lg font-semibold text-slate-900">{step.title}</h3>
+            <h3 className="text-lg font-semibold text-slate-900">{step.activity}</h3>
             {step.description && <p className="text-sm text-slate-500">{step.description}</p>}
           </header>
           <div className="space-y-4">
@@ -123,11 +123,19 @@ export const OverviewBoard = ({ raCase, saving, onAddHazard, onAddAction, onUpda
                     </span>
                   </div>
                   {hazard.description && <p className="text-sm text-slate-600">{hazard.description}</p>}
-                  {hazard.controls.length > 0 && (
+                  {hazard.existingControls.length > 0 && (
                     <p className="mt-2 text-sm text-slate-600">
-                      Controls:{" "}
+                      Existing controls:{" "}
                       <span className="text-slate-800">
-                        {hazard.controls.map((control) => control.description).join(", ")}
+                        {hazard.existingControls.join(", ")}
+                      </span>
+                    </p>
+                  )}
+                  {hazard.proposedControls.length > 0 && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      Proposed controls:{" "}
+                      <span className="text-slate-800">
+                        {hazard.proposedControls.map((control) => control.description).join(", ")}
                       </span>
                     </p>
                   )}

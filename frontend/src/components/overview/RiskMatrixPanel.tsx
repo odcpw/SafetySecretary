@@ -281,10 +281,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
                 <li key={hazard.id}>
                   <strong>{hazard.label}</strong>
                   <span>
-                    {hazard.stepIds
-                      .map((stepId) => raCase.steps.find((step) => step.id === stepId)?.title)
-                      .filter(Boolean)
-                      .join(", ") || "Unassigned"}
+                    {raCase.steps.find((step) => step.id === hazard.stepId)?.activity ?? "Unassigned"}
                   </span>
                 </li>
               ))}

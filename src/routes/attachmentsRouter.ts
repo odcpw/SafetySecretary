@@ -45,6 +45,25 @@ const requireCaseId = (req: Request, res: Response) => {
   return caseId;
 };
 
+attachmentsRouter.get("/", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireCaseId(req, res);
+    if (!caseId) return;
+
+    const { raService } = getServices(req);
+    const attachments = await raService.listAttachments(caseId);
+    res.json(
+      attachments.map((attachment) => ({
+        ...attachment,
+        url: `/api/ra-cases/${caseId}/attachments/${attachment.id}/download`
+      }))
+    );
+  } catch (error) {
+    console.error("[attachmentsRouter] list attachments", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 attachmentsRouter.post("/steps/:stepId", upload.single("file"), async (req: Request, res: Response) => {
   try {
     const caseId = requireCaseId(req, res);
@@ -87,6 +106,32 @@ attachmentsRouter.post("/steps/:stepId", upload.single("file"), async (req: Requ
   }
 });
 
+attachmentsRouter.put("/steps/:stepId/order", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireCaseId(req, res);
+    if (!caseId) return;
+    const stepId = req.params.stepId;
+    if (!stepId) {
+      return res.status(400).json({ error: "stepId parameter is required" });
+    }
+
+    const attachmentIdsRaw = (req.body as any)?.attachmentIds;
+    if (!Array.isArray(attachmentIdsRaw) || !attachmentIdsRaw.every((id) => typeof id === "string")) {
+      return res.status(400).json({ error: "attachmentIds must be an array of strings" });
+    }
+
+    const { raService } = getServices(req);
+    const ok = await raService.reorderStepAttachments(caseId, stepId, attachmentIdsRaw);
+    if (!ok) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error("[attachmentsRouter] reorder step attachments", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 attachmentsRouter.post("/hazards/:hazardId", upload.single("file"), async (req: Request, res: Response) => {
   try {
     const caseId = requireCaseId(req, res);
@@ -125,6 +170,47 @@ attachmentsRouter.post("/hazards/:hazardId", upload.single("file"), async (req: 
     }
   } catch (error) {
     console.error("[attachmentsRouter] upload hazard attachment", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+attachmentsRouter.put("/:attachmentId", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireCaseId(req, res);
+    if (!caseId) return;
+    const attachmentId = req.params.attachmentId;
+    if (!attachmentId) {
+      return res.status(400).json({ error: "attachmentId parameter is required" });
+    }
+
+    const body = typeof req.body === "object" && req.body ? req.body : {};
+    const stepIdRaw = (body as any).stepId;
+    const hazardIdRaw = (body as any).hazardId;
+
+    const patch: { stepId?: string | null; hazardId?: string | null } = {};
+    if (stepIdRaw !== undefined) {
+      if (typeof stepIdRaw === "string" || stepIdRaw === null) {
+        patch.stepId = stepIdRaw;
+      } else {
+        return res.status(400).json({ error: "stepId must be a string or null" });
+      }
+    }
+    if (hazardIdRaw !== undefined) {
+      if (typeof hazardIdRaw === "string" || hazardIdRaw === null) {
+        patch.hazardId = hazardIdRaw;
+      } else {
+        return res.status(400).json({ error: "hazardId must be a string or null" });
+      }
+    }
+
+    const { raService } = getServices(req);
+    const updated = await raService.updateAttachment(caseId, attachmentId, patch);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json({ ...updated, url: `/api/ra-cases/${caseId}/attachments/${updated.id}/download` });
+  } catch (error) {
+    console.error("[attachmentsRouter] update attachment", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

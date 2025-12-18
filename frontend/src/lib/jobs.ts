@@ -44,7 +44,12 @@ export const pollJobUntilDone = async (
   while (true) {
     const response = await fetch(`/api/llm-jobs/${jobId}`);
     if (!response.ok) {
-      throw new Error(`Unable to load job ${jobId}`);
+      if (response.status === 404) {
+        throw new Error(
+          "LLM job not found (server may have restarted). Please re-run the extraction."
+        );
+      }
+      throw new Error(`Unable to load job ${jobId} (HTTP ${response.status})`);
     }
 
     const parsed = LlmJobResponseSchema.parse(await response.json());

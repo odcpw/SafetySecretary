@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AssistantPanel } from "@/components/common/AssistantPanel";
+import { StepPhotosPanel } from "@/components/common/StepPhotosPanel";
 import {
   SheetAddRow,
   SheetBody,
@@ -51,10 +52,16 @@ export const PhaseProcessSteps = ({
       return;
     }
     setStatus("Extracting steps…");
-    await onExtractSteps(description);
-    setDescription("");
-    setStatus("Steps extracted from description.");
-    setTimeout(() => setStatus(null), 2500);
+    try {
+      await onExtractSteps(description);
+      setDescription("");
+      setStatus("Steps extracted from description.");
+      setTimeout(() => setStatus(null), 2500);
+    } catch (err) {
+      console.error(err);
+      setStatus(err instanceof Error ? err.message : "Failed to extract steps");
+      setTimeout(() => setStatus(null), 5000);
+    }
   };
 
   const handleSave = async () => {
@@ -262,6 +269,9 @@ export const PhaseProcessSteps = ({
             </SheetAddRow>
           </SheetFooter>
         </SheetTable>
+
+        <StepPhotosPanel caseId={raCase.id} steps={raCase.steps} />
+
         <div className="flex flex-wrap gap-3">
           <button type="button" disabled={saving || draftSteps.length === 0} onClick={handleSave}>
             Save steps

@@ -94,7 +94,7 @@ export interface ContextualUpdateParams {
       description?: string | null;
       categoryCode?: string | null;
       existingControls?: string[];
-      stepIds: string[];
+      stepId: string;
       baseline?: HazardAssessmentSnapshotLike;
       residual?: HazardAssessmentSnapshotLike;
     }>;
@@ -323,8 +323,8 @@ Respond as JSON:
   "hazardId": string,
   "controls": [string],
   "hierarchy": "SUBSTITUTION" | "TECHNICAL" | "ORGANIZATIONAL" | "PPE",
-  "residualSeverity": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
-  "residualLikelihood": "RARE" | "UNLIKELY" | "POSSIBLE" | "LIKELY" | "ALMOST_CERTAIN"
+  "residualSeverity": "A" | "B" | "C" | "D" | "E",
+  "residualLikelihood": "1" | "2" | "3" | "4" | "5"
 }]}`
           },
           {
@@ -486,15 +486,39 @@ Respond as JSON:
   }
 
   private normalizeSeverity(input: unknown): SeverityLevel | undefined {
-    const value = typeof input === "string" ? input.toUpperCase() : "";
-    return ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(value) ? (value as SeverityLevel) : undefined;
+    const value = typeof input === "string" ? input.trim().toUpperCase() : "";
+    if (["A", "B", "C", "D", "E"].includes(value)) {
+      return value as SeverityLevel;
+    }
+    const normalized = value.replace(/\s+/g, "_");
+    const map: Record<string, SeverityLevel> = {
+      CATASTROPHIC: "A",
+      HAZARDOUS: "B",
+      MAJOR: "C",
+      MINOR: "D",
+      NEGLIGIBLE: "E"
+    };
+    return map[normalized];
   }
 
   private normalizeLikelihood(input: unknown): LikelihoodLevel | undefined {
-    const value = typeof input === "string" ? input.toUpperCase().replace(/\s+/g, "_") : "";
-    return ["RARE", "UNLIKELY", "POSSIBLE", "LIKELY", "ALMOST_CERTAIN"].includes(value)
-      ? (value as LikelihoodLevel)
-      : undefined;
+    if (typeof input === "number" && Number.isFinite(input)) {
+      const raw = String(input);
+      return ["1", "2", "3", "4", "5"].includes(raw) ? (raw as LikelihoodLevel) : undefined;
+    }
+    const value = typeof input === "string" ? input.trim().toUpperCase().replace(/\s+/g, "_") : "";
+    if (["1", "2", "3", "4", "5"].includes(value)) {
+      return value as LikelihoodLevel;
+    }
+    const map: Record<string, LikelihoodLevel> = {
+      CERTAIN: "1",
+      LIKELY: "2",
+      POSSIBLE: "3",
+      UNLIKELY: "4",
+      EXTREMELY_UNLIKELY: "5",
+      EXTREMELY: "5"
+    };
+    return map[value];
   }
 
   private normalizeHierarchy(input: unknown): ControlHierarchy | undefined {

@@ -1,3 +1,5 @@
+import type { TemplateLikelihoodLevel, TemplateSeverityLevel } from "./templateRisk";
+
 // Phase progression for HIRA workflow
 export enum RiskAssessmentPhase {
   PROCESS_STEPS = "PROCESS_STEPS",           // 1. Describe process: activity + equipment + substances
@@ -17,8 +19,8 @@ export enum ControlHierarchy {
   PPE = "PPE"                        // P - Personal protective equipment
 }
 
-export type SeverityLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type LikelihoodLevel = "RARE" | "UNLIKELY" | "POSSIBLE" | "LIKELY" | "ALMOST_CERTAIN";
+export type SeverityLevel = TemplateSeverityLevel;
+export type LikelihoodLevel = TemplateLikelihoodLevel;
 
 // Process step input with HIRA triad: activity + equipment + substances
 export interface ProcessStepInput {
@@ -36,7 +38,7 @@ export interface HazardInput {
   description?: string | null;
   categoryCode?: string | null;      // Category code (e.g., "MECHANICAL", "FALLS")
   existingControls?: string[];       // Controls already in place
-  stepIds?: string[];
+  stepId?: string;
 }
 
 export interface HazardRatingInput {

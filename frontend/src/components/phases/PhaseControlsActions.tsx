@@ -89,10 +89,16 @@ export const PhaseControlsActions = ({
       return;
     }
     setAssistantStatus("Requesting actions…");
-    await onExtractActions(assistantNotes);
-    setAssistantNotes("");
-    setAssistantStatus("Suggestions requested. Refresh after the job completes.");
-    setTimeout(() => setAssistantStatus(null), 2000);
+    try {
+      await onExtractActions(assistantNotes);
+      setAssistantNotes("");
+      setAssistantStatus("Suggestions requested. Refresh after the job completes.");
+      setTimeout(() => setAssistantStatus(null), 2000);
+    } catch (err) {
+      console.error(err);
+      setAssistantStatus(err instanceof Error ? err.message : "Failed to request actions");
+      setTimeout(() => setAssistantStatus(null), 5000);
+    }
   };
 
   const handleSubmit = async (event: FormEvent) => {

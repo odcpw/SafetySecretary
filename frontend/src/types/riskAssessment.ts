@@ -50,6 +50,8 @@ export interface ProposedControl {
 // Hazard with category classification and existing controls
 export interface Hazard {
   id: string;
+  stepId: string;
+  orderIndex: number;
   label: string;
   description: string | null;
   categoryCode?: string | null;         // Category code (e.g., "MECHANICAL", "FALLS")
@@ -57,12 +59,10 @@ export interface Hazard {
   proposedControls: ProposedControl[];  // New controls from discussion phase
   baseline?: HazardAssessmentSnapshot;
   residual?: HazardAssessmentSnapshot;
-  stepIds: string[];
-  stepOrder: Record<string, number>;
 }
 
-export type SeverityChoice = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
-export type LikelihoodChoice = "RARE" | "UNLIKELY" | "POSSIBLE" | "LIKELY" | "ALMOST_CERTAIN";
+export type SeverityChoice = "A" | "B" | "C" | "D" | "E";
+export type LikelihoodChoice = "1" | "2" | "3" | "4" | "5";
 
 export type ActionStatus = "OPEN" | "IN_PROGRESS" | "COMPLETE";
 

@@ -38,7 +38,7 @@ interface RaActions {
   extractControls: (notes: string) => Promise<void>;
   extractActions: (notes: string) => Promise<void>;
   addManualHazard: (stepId: string, label: string, description: string) => Promise<void>;
-  updateHazard: (hazardId: string, patch: { label?: string; description?: string; stepIds?: string[]; existingControls?: string[]; categoryCode?: string }) => Promise<void>;
+  updateHazard: (hazardId: string, patch: { label?: string; description?: string; stepId?: string; existingControls?: string[]; categoryCode?: string }) => Promise<void>;
   deleteHazard: (hazardId: string) => Promise<void>;
   reorderHazards: (stepId: string, hazardIds: string[]) => Promise<void>;
   saveRiskRatings: (ratings: { hazardId: string; severity: string; likelihood: string }[]) => Promise<void>;
@@ -253,7 +253,7 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
           id: h.id,
           label: h.label,
           description: h.description ?? "",
-          stepIds: h.stepIds,
+          stepId: h.stepId,
           categoryCode: h.categoryCode ?? null,
           baseline: h.baseline ?? null,
           residual: h.residual ?? null,

@@ -13,13 +13,14 @@ import {
 } from "@/components/ui/SheetTable";
 import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
 import { getCategoryLabel } from "@/lib/hazardCategories";
+import { useHazardDrafts } from "@/hooks/useHazardDrafts";
 
 interface PhaseHazardNarrativeProps {
   raCase: RiskAssessmentCase;
   saving: boolean;
   onExtractHazards: (narrative: string, stepId?: string) => Promise<void>;
   onAddHazard: (stepId: string, label: string, description: string) => Promise<void>;
-  onUpdateHazard: (hazardId: string, patch: { label?: string; description?: string; stepIds?: string[]; existingControls?: string[] }) => Promise<void>;
+  onUpdateHazard: (hazardId: string, patch: { label?: string; description?: string; stepId?: string; existingControls?: string[] }) => Promise<void>;
   onDeleteHazard: (hazardId: string) => Promise<void>;
   onReorderHazards: (stepId: string, hazardIds: string[]) => Promise<void>;
   onNext: () => Promise<void>;
@@ -42,7 +43,6 @@ export const PhaseHazardNarrative = ({
   const [narrative, setNarrative] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [activeStepId, setActiveStepId] = useState<string>(ALL_STEPS);
-  const [drafts, setDrafts] = useState<Record<string, { label: string; description: string; existingControls: string }>>({});
   const [forms, setForms] = useState<Record<string, { label: string; description: string }>>({});
   const [moveMenuHazardId, setMoveMenuHazardId] = useState<string | null>(null);
   const [pendingDuplicates, setPendingDuplicates] = useState<
@@ -57,21 +57,7 @@ export const PhaseHazardNarrative = ({
   >([]);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
 
-  useEffect(() => {
-    const handle = requestAnimationFrame(() => {
-      setDrafts(
-        raCase.hazards.reduce<Record<string, { label: string; description: string; existingControls: string }>>((acc, hazard) => {
-          acc[hazard.id] = {
-            label: hazard.label,
-            description: hazard.description ?? "",
-            existingControls: (hazard.existingControls ?? []).join("\n")
-          };
-          return acc;
-        }, {})
-      );
-    });
-    return () => cancelAnimationFrame(handle);
-  }, [raCase.hazards]);
+  const { drafts, patchDraft, commitDraft } = useHazardDrafts(raCase.hazards);
 
   const stepNumberMap = useMemo(
     () => new Map(raCase.steps.map((step, index) => [step.id, index + 1])),
@@ -83,12 +69,8 @@ export const PhaseHazardNarrative = ({
       raCase.steps.map((step) => ({
         step,
         hazards: raCase.hazards
-          .filter((hazard) => hazard.stepIds.includes(step.id))
-          .sort(
-            (a, b) =>
-              (a.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER) -
-              (b.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER)
-          )
+          .filter((hazard) => hazard.stepId === step.id)
+          .sort((a, b) => a.orderIndex - b.orderIndex)
       })),
     [raCase.hazards, raCase.steps]
   );
@@ -100,64 +82,31 @@ export const PhaseHazardNarrative = ({
     return hazardsByStep.filter((group) => group.step.id === activeStepId);
   }, [activeStepId, hazardsByStep]);
 
-  const hazardMap = useMemo(
-    () =>
-      new Map(
-        raCase.hazards.map((hazard) => [
-          hazard.id,
-          {
-            label: hazard.label,
-            description: hazard.description ?? "",
-            existingControls: (hazard.existingControls ?? []).join("\n")
-          }
-        ])
-      ),
-    [raCase.hazards]
-  );
-
   const handleExtract = async () => {
     if (!narrative.trim()) {
       return;
     }
     setAssistantStatus("Extracting hazards…");
     const stepId = activeStepId === ALL_STEPS ? undefined : activeStepId;
-    await onExtractHazards(narrative, stepId);
-    setNarrative("");
-    setAssistantStatus("Hazards returned from assistant.");
-    setTimeout(() => setAssistantStatus(null), 2500);
+    try {
+      await onExtractHazards(narrative, stepId);
+      setNarrative("");
+      setAssistantStatus("Hazards returned from assistant.");
+      setTimeout(() => setAssistantStatus(null), 2500);
+    } catch (err) {
+      console.error(err);
+      setAssistantStatus(err instanceof Error ? err.message : "Failed to extract hazards");
+      setTimeout(() => setAssistantStatus(null), 5000);
+    }
   };
 
   const handleAutoSave = useCallback(
     async (hazardId: string) => {
-      const draft = drafts[hazardId];
-      const original = hazardMap.get(hazardId);
-      if (!draft || !original) {
-        return;
-      }
-      const normalizedLabel = draft.label.trim();
-      const normalizedDescription = draft.description?.trim() ?? "";
-      const normalizedControls = draft.existingControls?.trim() ?? "";
-      if (
-        normalizedLabel === original.label &&
-        normalizedDescription === original.description &&
-        normalizedControls === original.existingControls
-      ) {
-        return;
-      }
-      // Convert newline-separated controls to array
-      const existingControlsArray = normalizedControls
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
-      await onUpdateHazard(hazardId, {
-        label: draft.label,
-        description: draft.description,
-        existingControls: existingControlsArray
-      });
+      await commitDraft(hazardId, onUpdateHazard);
       setStatus("Autosaved.");
       setTimeout(() => setStatus(null), 1500);
     },
-    [drafts, hazardMap, onUpdateHazard]
+    [commitDraft, onUpdateHazard]
   );
 
   const handleDelete = async (hazardId: string) => {
@@ -192,7 +141,7 @@ export const PhaseHazardNarrative = ({
   const handleMoveToStep = async (hazardId: string, targetStepId: string) => {
     setMoveMenuHazardId(null);
     await onUpdateHazard(hazardId, {
-      stepIds: [targetStepId]
+      stepId: targetStepId
     });
     setStatus("Hazard moved.");
     setTimeout(() => setStatus(null), 2000);
@@ -237,7 +186,7 @@ export const PhaseHazardNarrative = ({
         const candidate = raCase.hazards.find(
           (hazard) =>
             !previousIdSet.has(hazard.id) &&
-            hazard.stepIds.includes(duplicate.stepId) &&
+            hazard.stepId === duplicate.stepId &&
             hazard.label === duplicate.label &&
             (hazard.description ?? "") === duplicate.description
         );
@@ -428,10 +377,7 @@ export const PhaseHazardNarrative = ({
                           <SheetInput
                             value={draft?.label ?? ""}
                             onChange={(event) =>
-                              setDrafts((prev) => ({
-                                ...prev,
-                                [hazard.id]: { ...draft!, label: event.target.value }
-                              }))
+                              patchDraft(hazard.id, { label: event.target.value })
                             }
                             onBlur={() => {
                               void handleAutoSave(hazard.id);
@@ -448,10 +394,7 @@ export const PhaseHazardNarrative = ({
                             className="sheet-textarea--expanded"
                             value={draft?.description ?? ""}
                             onChange={(event) =>
-                              setDrafts((prev) => ({
-                                ...prev,
-                                [hazard.id]: { ...draft!, description: event.target.value }
-                              }))
+                              patchDraft(hazard.id, { description: event.target.value })
                             }
                             onBlur={() => {
                               void handleAutoSave(hazard.id);
@@ -464,10 +407,7 @@ export const PhaseHazardNarrative = ({
                             className="sheet-textarea--expanded"
                             value={draft?.existingControls ?? ""}
                             onChange={(event) =>
-                              setDrafts((prev) => ({
-                                ...prev,
-                                [hazard.id]: { ...draft!, existingControls: event.target.value }
-                              }))
+                              patchDraft(hazard.id, { existingControls: event.target.value })
                             }
                             onBlur={() => {
                               void handleAutoSave(hazard.id);
@@ -515,7 +455,7 @@ export const PhaseHazardNarrative = ({
                                         <button
                                           type="button"
                                           onClick={() => handleMoveToStep(hazard.id, stepOption.id)}
-                                          disabled={hazard.stepIds.includes(stepOption.id)}
+                                          disabled={hazard.stepId === stepOption.id}
                                         >
                                           {stepNumberMap.get(stepOption.id)
                                             ? `${stepNumberMap.get(stepOption.id)}. `

@@ -19,31 +19,12 @@ interface CaseTableViewProps {
 }
 
 const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
-  const grouped = raCase.steps.map((step) => ({
+  return raCase.steps.map((step) => ({
     step,
     hazards: raCase.hazards
-      .filter((hazard) => hazard.stepIds.includes(step.id))
-      .sort(
-        (a, b) =>
-          (a.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER) -
-          (b.stepOrder?.[step.id] ?? Number.MAX_SAFE_INTEGER)
-      )
+      .filter((hazard) => hazard.stepId === step.id)
+      .sort((a, b) => a.orderIndex - b.orderIndex)
   }));
-  const unassigned = raCase.hazards.filter((hazard) => hazard.stepIds.length === 0);
-  if (unassigned.length) {
-    grouped.push({
-      step: {
-        id: "unassigned",
-        activity: "Unassigned hazards",
-        equipment: [],
-        substances: [],
-        description: "Link hazards to steps for better context",
-        orderIndex: grouped.length
-      } as RiskAssessmentCase["steps"][number],
-      hazards: unassigned
-    });
-  }
-  return grouped;
 };
 
 export const CaseTableView = ({ raCase }: CaseTableViewProps) => {

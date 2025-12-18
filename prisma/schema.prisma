@@ -70,7 +70,7 @@ model ProcessStep {
   description String?             // Additional context
 
   raCase      RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  hazards     HazardStep[]
+  hazards     Hazard[]
   attachments Attachment[]
 
   @@index([caseId])
@@ -82,6 +82,8 @@ model Hazard {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   caseId      String
+  stepId      String
+  orderIndex  Int                    @default(0)
   label       String                 // Human-readable hazard name
   description String?                // What can happen / past incidents
   categoryCode String?               // Category code (e.g., "MECHANICAL", "FALLS")
@@ -90,24 +92,13 @@ model Hazard {
   existingControls String[]          // Rules/controls already in place
 
   raCase           RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  steps            HazardStep[]
+  step             ProcessStep       @relation(fields: [stepId], references: [id], onDelete: Cascade)
   actions          CorrectiveAction[]
   assessments      HazardAssessment[]
   proposedControls HazardControl[]    // NEW controls from discussion phase
   attachments      Attachment[]
 
   @@index([caseId])
-}
-
-model HazardStep {
-  hazardId String
-  stepId   String
-  orderIndex Int @default(0)
-
-  hazard   Hazard      @relation(fields: [hazardId], references: [id], onDelete: Cascade)
-  step     ProcessStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
-
-  @@id([hazardId, stepId])
   @@index([stepId, orderIndex])
 }
 

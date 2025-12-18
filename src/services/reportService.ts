@@ -3,15 +3,17 @@ import path from "node:path";
 import { env } from "../config/env";
 import { AttachmentDto, RiskAssessmentCaseDto } from "./raService";
 import ExcelJS from "exceljs";
+import { TEMPLATE_RISK_BAND_LABEL, getTemplateRiskBand } from "./templateRiskMatrix";
+import { TEMPLATE_RISK_GUIDANCE } from "./templateRiskGuidance";
 
-const SEVERITY_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-const LIKELIHOOD_LEVELS = ["RARE", "UNLIKELY", "POSSIBLE", "LIKELY", "ALMOST_CERTAIN"];
+const SEVERITY_LEVELS = ["E", "D", "C", "B", "A"] as const;
+const LIKELIHOOD_LEVELS = ["1", "2", "3", "4", "5"] as const;
 const RISK_BUCKETS = [
-  { label: "Very Low", color: "0f9d58" },
-  { label: "Low", color: "8bc34a" },
-  { label: "Moderate", color: "f4c20d" },
-  { label: "High", color: "f57c00" },
-  { label: "Extreme", color: "d93025" }
+  { label: "Negligible Risk", color: "0f9d58" },
+  { label: "Minor Risk", color: "8bc34a" },
+  { label: "Moderate Risk", color: "f4c20d" },
+  { label: "High Risk", color: "f57c00" },
+  { label: "Extreme Risk", color: "d93025" }
 ];
 
 export class ReportService {
@@ -52,6 +54,7 @@ export class ReportService {
 
     this.buildRiskAssessmentSheet(workbook, raCase);
     this.buildMatrixSheet(workbook, raCase);
+    this.buildRiskGuidanceSheet(workbook);
     this.buildActionsSheet(workbook, raCase);
     if (attachments.length) {
       this.buildPhotosSheet(workbook, raCase, attachments);
@@ -110,7 +113,7 @@ export class ReportService {
         .filter(Boolean)
         .join("\n");
 
-      const hazardsForStep = raCase.hazards.filter((hazard) => hazard.stepIds.includes(step.id));
+      const hazardsForStep = raCase.hazards.filter((hazard) => hazard.stepId === step.id);
       if (!hazardsForStep.length) {
         sheet.addRow([
           stepIndex + 1,
@@ -159,11 +162,17 @@ export class ReportService {
           "",
           baseline?.likelihood ?? "",
           baseline?.severity ?? "",
-          baseline?.riskRating ?? (baseline ? `${baseline.severity} x ${baseline.likelihood}` : ""),
+          baseline?.riskRating ??
+            (baseline?.severity && baseline?.likelihood
+              ? TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(baseline.severity as any, baseline.likelihood as any)]
+              : ""),
           actionHeadlines,
           residual?.likelihood ?? "",
           residual?.severity ?? "",
-          residual?.riskRating ?? (residual ? `${residual.severity} x ${residual.likelihood}` : ""),
+          residual?.riskRating ??
+            (residual?.severity && residual?.likelihood
+              ? TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(residual.severity as any, residual.likelihood as any)]
+              : ""),
           "",
           actionOwner
         ]);
@@ -194,38 +203,39 @@ export class ReportService {
       const headerRow = opts.offsetRow + 2;
       const headerCol = opts.offsetCol + 1;
 
-      LIKELIHOOD_LEVELS.forEach((likelihood, idx) => {
+      // Template orientation: Severity across columns (E..A), Likelihood down rows (1..5).
+      SEVERITY_LEVELS.forEach((severity, idx) => {
         const cell = sheet.getCell(headerRow, headerCol + idx);
-        cell.value = likelihood;
+        cell.value = severity;
         cell.font = { bold: true };
         cell.alignment = { horizontal: "center" };
       });
-      SEVERITY_LEVELS.forEach((severity, idx) => {
+      LIKELIHOOD_LEVELS.forEach((likelihood, idx) => {
         const cell = sheet.getCell(headerRow + idx + 1, opts.offsetCol);
-        cell.value = severity;
+        cell.value = likelihood;
         cell.font = { bold: true };
         cell.alignment = { horizontal: "center" };
       });
 
       const counts: Record<string, Record<string, number>> = {};
-      SEVERITY_LEVELS.forEach((sev) => {
-        counts[sev] = {};
-        LIKELIHOOD_LEVELS.forEach((lik) => {
-          counts[sev]![lik] = 0;
+      LIKELIHOOD_LEVELS.forEach((lik) => {
+        counts[lik] = {};
+        SEVERITY_LEVELS.forEach((sev) => {
+          counts[lik]![sev] = 0;
         });
       });
 
       raCase.hazards.forEach((hazard) => {
         const { severity, likelihood } = opts.read(hazard);
-        if (severity && likelihood && counts[severity]) {
-          counts[severity]![likelihood] = (counts[severity]![likelihood] ?? 0) + 1;
+        if (severity && likelihood && counts[likelihood]) {
+          counts[likelihood]![severity] = (counts[likelihood]![severity] ?? 0) + 1;
         }
       });
 
-      LIKELIHOOD_LEVELS.forEach((likelihood, colIdx) => {
-        SEVERITY_LEVELS.forEach((severity, rowIdx) => {
+      SEVERITY_LEVELS.forEach((severity, colIdx) => {
+        LIKELIHOOD_LEVELS.forEach((likelihood, rowIdx) => {
           const cell = sheet.getCell(headerRow + rowIdx + 1, headerCol + colIdx);
-          const count = counts[severity]?.[likelihood] ?? 0;
+          const count = counts[likelihood]?.[severity] ?? 0;
           cell.value = count || "";
           cell.alignment = { horizontal: "center", vertical: "middle" };
           cell.fill = {
@@ -247,18 +257,47 @@ export class ReportService {
       title: "Current Matrix (baseline)",
       offsetRow: 1,
       offsetCol: 1,
-      read: (hazard) => ({ severity: hazard.baseline?.severity, likelihood: hazard.baseline?.likelihood })
+      read: (hazard) => ({
+        severity: hazard.baseline?.severity ?? null,
+        likelihood: hazard.baseline?.likelihood ?? null
+      })
     });
 
     renderMatrix({
       title: "Target Matrix (residual)",
       offsetRow: 12,
       offsetCol: 1,
-      read: (hazard) => ({ severity: hazard.residual?.severity, likelihood: hazard.residual?.likelihood })
+      read: (hazard) => ({
+        severity: hazard.residual?.severity ?? null,
+        likelihood: hazard.residual?.likelihood ?? null
+      })
     });
 
     sheet.columns.forEach((col) => {
       col.width = Math.max(col.width ?? 0, 16);
+    });
+  }
+
+  private buildRiskGuidanceSheet(workbook: ExcelJS.Workbook) {
+    const sheet = workbook.addWorksheet("Risk Bands");
+    sheet.columns = [
+      { header: "Risk band", width: 18 },
+      { header: "Decision", width: 34 },
+      { header: "Approver", width: 26 },
+      { header: "Timescale", width: 22 }
+    ];
+
+    const rows = Object.values(TEMPLATE_RISK_GUIDANCE);
+    rows.forEach((row) => {
+      sheet.addRow([row.label, row.decision, row.approver, row.timescale]);
+    });
+
+    sheet.getRow(1).font = { bold: true };
+    sheet.eachRow({ includeEmpty: false }, (row, idx) => {
+      row.alignment = { vertical: "top", wrapText: true };
+      if (idx > 1) {
+        row.height = 36;
+      }
     });
   }
 
@@ -395,21 +434,13 @@ export class ReportService {
     if (!severity || !likelihood) {
       return "FFCbd5f5";
     }
-    const severityIdx = SEVERITY_LEVELS.indexOf(severity);
-    const likelihoodIdx = LIKELIHOOD_LEVELS.indexOf(likelihood);
-    if (severityIdx === -1 || likelihoodIdx === -1) {
+    if (!SEVERITY_LEVELS.includes(severity as any) || !LIKELIHOOD_LEVELS.includes(likelihood as any)) {
       return "FFCbd5f5";
     }
-
-    const rows = 5;
-    const cols = 5;
-    const normalizedRow = likelihoodIdx / (LIKELIHOOD_LEVELS.length - 1);
-    const normalizedCol = severityIdx / (SEVERITY_LEVELS.length - 1);
-    const row = Math.min(rows - 1, Math.max(0, Math.round(normalizedRow * (rows - 1))));
-    const col = Math.min(cols - 1, Math.max(0, Math.round(normalizedCol * (cols - 1))));
-    const normalized = (row / (rows - 1) + col / (cols - 1)) / 2;
-    const bucketIndex = Math.min(RISK_BUCKETS.length - 1, Math.max(0, Math.round(normalized * (RISK_BUCKETS.length - 1))));
-    const color = RISK_BUCKETS[bucketIndex]?.color ?? "cbd5f5";
+    const band = getTemplateRiskBand(severity as any, likelihood as any);
+    const bandLabel = TEMPLATE_RISK_BAND_LABEL[band];
+    const bucket = RISK_BUCKETS.find((item) => item.label === bandLabel);
+    const color = bucket?.color ?? "cbd5f5";
     return color.startsWith("FF") ? color : `FF${color}`;
   }
 
@@ -462,7 +493,7 @@ export class ReportService {
     doc.moveDown(0.5);
 
     raCase.steps.forEach((step, index) => {
-      const stepHazards = raCase.hazards.filter((hazard) => hazard.stepIds.includes(step.id));
+      const stepHazards = raCase.hazards.filter((hazard) => hazard.stepId === step.id);
       doc.fontSize(13).text(`${index + 1}. ${step.activity}`, { underline: true });
       doc.moveDown(0.2);
       if (!stepHazards.length) {

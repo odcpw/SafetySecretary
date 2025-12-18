@@ -17,6 +17,7 @@ import {
   loadMatrixSettings,
   type RiskMatrixSettings
 } from "@/lib/riskMatrixSettings";
+import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
 
 interface PhaseControlsProps {
   raCase: RiskAssessmentCase;
@@ -41,39 +42,15 @@ const HIERARCHY_OPTIONS: { value: ControlHierarchy; label: string; description: 
 const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
   const grouped = raCase.steps.map((step) => ({
     step,
-    hazards: raCase.hazards.filter((hazard) => hazard.stepIds.includes(step.id))
+    hazards: raCase.hazards
+      .filter((hazard) => hazard.stepId === step.id)
+      .sort((a, b) => a.orderIndex - b.orderIndex)
   }));
-  const unassigned = raCase.hazards.filter((hazard) => hazard.stepIds.length === 0);
-  if (unassigned.length) {
-    grouped.push({
-      step: {
-        id: "unassigned",
-        activity: "Unassigned hazards",
-        equipment: [],
-        substances: [],
-        description: "Assign hazards to steps to improve clarity",
-        orderIndex: grouped.length
-      } as RiskAssessmentCase["steps"][number],
-      hazards: unassigned
-    });
-  }
   return grouped.filter((entry) => entry.hazards.length > 0);
 };
 
-const SEVERITY_OPTIONS = [
-  { value: "LOW", label: "Low" },
-  { value: "MEDIUM", label: "Medium" },
-  { value: "HIGH", label: "High" },
-  { value: "CRITICAL", label: "Critical" }
-];
-
-const LIKELIHOOD_OPTIONS = [
-  { value: "RARE", label: "Rare" },
-  { value: "UNLIKELY", label: "Unlikely" },
-  { value: "POSSIBLE", label: "Possible" },
-  { value: "LIKELY", label: "Likely" },
-  { value: "ALMOST_CERTAIN", label: "Almost certain" }
-];
+const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS.map(({ value, label }) => ({ value, label }));
+const LIKELIHOOD_OPTIONS = TEMPLATE_LIKELIHOOD_OPTIONS.map(({ value, label }) => ({ value, label }));
 
 // Form state for adding new proposed controls
 interface NewControlForm {
@@ -212,10 +189,16 @@ export const PhaseControls = ({
       return;
     }
     setLlmStatus("Requesting suggestions…");
-    await onExtractControls(assistantNotes);
-    setAssistantNotes("");
-    setLlmStatus("Suggestions requested. Check back after the job completes.");
-    setTimeout(() => setLlmStatus(null), 2000);
+    try {
+      await onExtractControls(assistantNotes);
+      setAssistantNotes("");
+      setLlmStatus("Suggestions requested. Check back after the job completes.");
+      setTimeout(() => setLlmStatus(null), 2000);
+    } catch (err) {
+      console.error(err);
+      setLlmStatus(err instanceof Error ? err.message : "Failed to request suggestions");
+      setTimeout(() => setLlmStatus(null), 5000);
+    }
   };
 
   const handleExistingControlsBlur = async (hazardId: string) => {

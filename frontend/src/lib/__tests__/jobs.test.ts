@@ -19,7 +19,7 @@ describe("pollJobUntilDone", () => {
       })
     });
 
-    vi.stubGlobal("fetch", fetchMock as any);
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
     const job = await pollJobUntilDone("job-1", { intervalMs: 1, timeoutMs: 50 });
 
@@ -39,12 +39,24 @@ describe("pollJobUntilDone", () => {
       })
     });
 
-    vi.stubGlobal("fetch", fetchMock as any);
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
     const job = await pollJobUntilDone("job-2", { intervalMs: 1, timeoutMs: 50 });
 
     expect(job.type).toBe("controls");
     expect(job.rawType).toBe("controls");
   });
-});
 
+  it("explains missing jobs as likely server restart", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await expect(pollJobUntilDone("job-missing", { intervalMs: 1, timeoutMs: 50 })).rejects.toThrow(
+      /server may have restarted/i
+    );
+  });
+});

@@ -1347,24 +1347,111 @@ td {
   font-size: 0.85rem;
 }
 
-.workspace-table .hazard-label {
-  transition: background-color 0.15s;
-  padding: 0.35rem;
-  border-radius: 6px;
-  margin: -0.35rem;
+/* Browser TUI prototype */
+.tui-panel {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.9));
+  color: rgba(226, 232, 240, 0.92);
+  overflow: hidden;
 }
 
-.workspace-table .hazard-label:hover {
-  background-color: rgba(31, 122, 224, 0.06);
+.tui-panel__header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
 }
 
-.workspace-table .hazard-label strong {
-  display: block;
-  margin-bottom: 0.15rem;
-}
-
-.workspace-table .hazard-label p {
+.tui-panel__header h3 {
   margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.tui-panel__header p {
+  margin: 0.35rem 0 0;
   font-size: 0.85rem;
-  color: var(--text-muted);
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.tui-empty {
+  padding: 1rem 1.25rem 1.4rem;
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.tui-grid {
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  outline: none;
+  overflow: auto;
+  max-height: 70vh;
+}
+
+.tui-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1.1rem 0.75rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  color: rgba(226, 232, 240, 0.75);
+}
+
+.tui-row {
+  display: flex;
+}
+
+.tui-row--header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: rgba(15, 23, 42, 0.96);
+}
+
+.tui-cell {
+  box-sizing: border-box;
+  padding: 0.35rem 0.45rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.22);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+}
+
+.tui-cell--header {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.tui-cell--active {
+  outline: 2px solid rgba(34, 211, 238, 0.7);
+  outline-offset: -2px;
+  background-color: rgba(34, 211, 238, 0.08);
+}
+
+.tui-text {
+  display: block;
+  pointer-events: none;
+}
+
+.tui-input,
+.tui-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0.35rem 0.45rem;
+  border: none;
+  outline: none;
+  background-color: rgba(2, 6, 23, 0.9);
+  color: rgba(226, 232, 240, 0.95);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.tui-select {
+  cursor: pointer;
 }

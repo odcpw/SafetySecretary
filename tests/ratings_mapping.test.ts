@@ -22,11 +22,12 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
               createdAt: new Date("2025-01-01T00:00:00Z"),
               updatedAt: new Date("2025-01-01T00:00:00Z"),
               caseId: "case-1",
+              stepId: "step-1",
+              orderIndex: 0,
               label: "Slip",
               description: null,
               categoryCode: null,
               existingControls: [],
-              steps: [{ hazardId: "haz-1", stepId: "step-1", orderIndex: 0 }],
               assessments: [
                 {
                   id: "assess-1",
@@ -34,9 +35,9 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
                   updatedAt: new Date(),
                   hazardId: "haz-1",
                   type: HazardAssessmentType.BASELINE,
-                  severity: "HIGH",
-                  likelihood: "LIKELY",
-                  riskRating: "HIGH_LIKELY"
+                  severity: "B",
+                  likelihood: "2",
+                  riskRating: "High Risk"
                 },
                 {
                   id: "assess-2",
@@ -44,9 +45,9 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
                   updatedAt: new Date(),
                   hazardId: "haz-1",
                   type: HazardAssessmentType.RESIDUAL,
-                  severity: "LOW",
-                  likelihood: "UNLIKELY",
-                  riskRating: "LOW_UNLIKELY"
+                  severity: "E",
+                  likelihood: "4",
+                  riskRating: "Negligible Risk"
                 }
               ],
               proposedControls: []
@@ -64,13 +65,13 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
     expect(raCase!.hazards).toHaveLength(1);
     const hazard = raCase!.hazards[0]!;
 
-    expect(hazard.baseline?.severity).toBe("HIGH");
-    expect(hazard.baseline?.likelihood).toBe("LIKELY");
-    expect(hazard.baseline?.riskRating).toBe("HIGH_LIKELY");
+    expect(hazard.baseline?.severity).toBe("B");
+    expect(hazard.baseline?.likelihood).toBe("2");
+    expect(hazard.baseline?.riskRating).toBe("High Risk");
 
-    expect(hazard.residual?.severity).toBe("LOW");
-    expect(hazard.residual?.likelihood).toBe("UNLIKELY");
-    expect(hazard.residual?.riskRating).toBe("LOW_UNLIKELY");
+    expect(hazard.residual?.severity).toBe("E");
+    expect(hazard.residual?.likelihood).toBe("4");
+    expect(hazard.residual?.riskRating).toBe("Negligible Risk");
   });
 
   it("upserts baseline ratings with computed riskRating", async () => {
@@ -83,18 +84,18 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
     const service = new RiskAssessmentService(mockDb);
     vi.spyOn(service, "getCaseById").mockResolvedValue({ id: "case-1", hazards: [], steps: [], actions: [] } as any);
 
-    await service.setHazardRiskRatings("case-1", [{ hazardId: "haz-1", severity: "HIGH", likelihood: "LIKELY" }]);
+    await service.setHazardRiskRatings("case-1", [{ hazardId: "haz-1", severity: "B", likelihood: "2" }]);
 
     expect(upsert).toHaveBeenCalledTimes(1);
     expect(upsert).toHaveBeenCalledWith({
       where: { hazardId_type: { hazardId: "haz-1", type: HazardAssessmentType.BASELINE } },
-      update: { severity: "HIGH", likelihood: "LIKELY", riskRating: "HIGH_LIKELY" },
+      update: { severity: "B", likelihood: "2", riskRating: "High Risk" },
       create: {
         hazardId: "haz-1",
         type: HazardAssessmentType.BASELINE,
-        severity: "HIGH",
-        likelihood: "LIKELY",
-        riskRating: "HIGH_LIKELY"
+        severity: "B",
+        likelihood: "2",
+        riskRating: "High Risk"
       }
     });
   });
@@ -109,18 +110,18 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
     const service = new RiskAssessmentService(mockDb);
     vi.spyOn(service, "getCaseById").mockResolvedValue({ id: "case-1", hazards: [], steps: [], actions: [] } as any);
 
-    await service.setResidualRiskRatings("case-1", [{ hazardId: "haz-1", severity: "LOW", likelihood: "RARE" }]);
+    await service.setResidualRiskRatings("case-1", [{ hazardId: "haz-1", severity: "E", likelihood: "5" }]);
 
     expect(upsert).toHaveBeenCalledTimes(1);
     expect(upsert).toHaveBeenCalledWith({
       where: { hazardId_type: { hazardId: "haz-1", type: HazardAssessmentType.RESIDUAL } },
-      update: { severity: "LOW", likelihood: "RARE", riskRating: "LOW_RARE" },
+      update: { severity: "E", likelihood: "5", riskRating: "Negligible Risk" },
       create: {
         hazardId: "haz-1",
         type: HazardAssessmentType.RESIDUAL,
-        severity: "LOW",
-        likelihood: "RARE",
-        riskRating: "LOW_RARE"
+        severity: "E",
+        likelihood: "5",
+        riskRating: "Negligible Risk"
       }
     });
   });

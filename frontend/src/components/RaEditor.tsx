@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { GlobalLLMInput } from "@/components/GlobalLLMInput";
 import { RiskMatrixPanel } from "@/components/overview/RiskMatrixPanel";
+import { BrowserTuiSpreadsheetView } from "@/components/overview/BrowserTuiSpreadsheetView";
 import { WorkspaceTableView } from "@/components/overview/WorkspaceTableView";
 import { PhaseControls } from "@/components/phases/PhaseControls";
 import { PhaseControlsActions } from "@/components/phases/PhaseControlsActions";
@@ -13,7 +14,7 @@ import { PHASES } from "@/lib/phases";
 import { useRaContext } from "@/contexts/RaContext";
 import type { Phase } from "@/types/riskAssessment";
 
-type WorkspaceView = "phases" | "table" | "matrix" | "actions";
+type WorkspaceView = "phases" | "table" | "matrix" | "actions" | "tui";
 
 interface WorkspaceTopBarProps {
   activityName: string;
@@ -22,6 +23,7 @@ interface WorkspaceTopBarProps {
   caseId: string;
   saving: boolean;
   currentView: WorkspaceView;
+  tuiEnabled?: boolean;
   onRefresh: () => Promise<void>;
   onNewCase: () => void;
   onLoadCase: (id: string) => void;
@@ -35,6 +37,7 @@ const WorkspaceTopBar = ({
   caseId,
   saving,
   currentView,
+  tuiEnabled = false,
   onRefresh,
   onNewCase,
   onLoadCase,
@@ -81,6 +84,7 @@ const WorkspaceTopBar = ({
         {viewButton("table", "Workspace")}
         {viewButton("matrix", "Risk matrix")}
         {viewButton("actions", "Action plan")}
+        {tuiEnabled && viewButton("tui", "TUI")}
         <button
           type="button"
           className="btn-outline"
@@ -182,7 +186,7 @@ export const RaEditor = () => {
     if (!param) {
       return null;
     }
-    return ["phases", "table", "matrix", "actions"].includes(param) ? (param as WorkspaceView) : null;
+    return ["phases", "table", "matrix", "actions", "tui"].includes(param) ? (param as WorkspaceView) : null;
   }, []);
 
   const [viewPhaseState, setViewPhaseState] = useState<Phase>(
@@ -195,7 +199,15 @@ export const RaEditor = () => {
   const viewPhase = paramPhase ?? viewPhaseState;
   const safeViewPhase = PHASES.some((phase) => phase.id === viewPhase) ? viewPhase : raCase.phase;
   const paramWorkspaceView = getWorkspaceFromParam(searchParams.get("view"));
-  const workspaceView = paramWorkspaceView ?? workspaceViewState;
+  const requestedWorkspaceView = paramWorkspaceView ?? workspaceViewState;
+  const tuiEnabled = (() => {
+    try {
+      return searchParams.get("tui") === "1" || window.localStorage.getItem("ss_tui") === "1";
+    } catch {
+      return false;
+    }
+  })();
+  const workspaceView: WorkspaceView = requestedWorkspaceView === "tui" && !tuiEnabled ? "table" : requestedWorkspaceView;
 
   const updateSearchParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -364,7 +376,7 @@ export const RaEditor = () => {
             <p className="text-label">Workspace view</p>
             <h2>Full editable worksheet</h2>
             <p className="workspace-phase-panel__description">
-              Edit all fields inline. Click on any cell to modify it.
+              Edit all fields inline. Most changes autosave as you move through the sheet.
             </p>
           </div>
           <div className="workspace-phase-panel__body">
@@ -384,6 +396,23 @@ export const RaEditor = () => {
           </div>
           <div className="workspace-phase-panel__body">
             <RiskMatrixPanel raCase={raCase} />
+          </div>
+        </section>
+      );
+    }
+
+    if (workspaceView === "tui") {
+      return (
+        <section className="workspace-phase-panel app-panel">
+          <div className="workspace-phase-panel__header">
+            <p className="text-label">Workspace view</p>
+            <h2>Browser TUI (prototype)</h2>
+            <p className="workspace-phase-panel__description">
+              Keyboard-first worksheet. Enable via `?tui=1` or localStorage `ss_tui=1`.
+            </p>
+          </div>
+          <div className="workspace-phase-panel__body">
+            <BrowserTuiSpreadsheetView raCase={raCase} />
           </div>
         </section>
       );
@@ -421,6 +450,7 @@ export const RaEditor = () => {
           caseId={raCase.id}
           saving={saving}
           currentView={workspaceView}
+          tuiEnabled={tuiEnabled}
           onRefresh={refreshCase}
           onNewCase={() => navigate("/")}
           onLoadCase={(id) => navigate(`/cases/${encodeURIComponent(id)}`)}

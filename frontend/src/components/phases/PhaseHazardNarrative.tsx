@@ -298,6 +298,7 @@ export const PhaseHazardNarrative = ({
         primaryLabel="Extract hazards"
         status={assistantStatus}
         disabled={saving}
+        enableVoice
         onChange={setNarrative}
         onSubmit={handleExtract}
         onClear={() => setNarrative("")}

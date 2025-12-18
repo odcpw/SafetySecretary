@@ -52,6 +52,7 @@ model RiskAssessmentCase {
   steps         ProcessStep[]
   hazards       Hazard[]
   actions       CorrectiveAction[]
+  attachments   Attachment[]
 }
 
 // Process step with HIRA triad: activity + equipment + substances
@@ -70,6 +71,7 @@ model ProcessStep {
 
   raCase      RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
   hazards     HazardStep[]
+  attachments Attachment[]
 
   @@index([caseId])
 }
@@ -92,6 +94,7 @@ model Hazard {
   actions          CorrectiveAction[]
   assessments      HazardAssessment[]
   proposedControls HazardControl[]    // NEW controls from discussion phase
+  attachments      Attachment[]
 
   @@index([caseId])
 }
@@ -152,5 +155,27 @@ model HazardControl {
 
   hazard Hazard @relation(fields: [hazardId], references: [id], onDelete: Cascade)
 
+  @@index([hazardId])
+}
+
+model Attachment {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  caseId       String
+  stepId       String?
+  hazardId     String?
+  orderIndex   Int      @default(0)
+  originalName String
+  mimeType     String
+  byteSize     Int
+  storageKey   String
+
+  raCase       RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  step         ProcessStep?       @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  hazard       Hazard?            @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([stepId])
   @@index([hazardId])
 }

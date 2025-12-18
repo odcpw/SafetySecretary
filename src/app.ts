@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import raCasesRouter from "./routes/raCasesRouter";
 import llmJobsRouter from "./routes/llmJobsRouter";
+import attachmentsRouter from "./routes/attachmentsRouter";
 
 export const createApp = () => {
   const app = express();
@@ -10,6 +11,7 @@ export const createApp = () => {
   app.use(express.json({ limit: "1mb" }));
 
   app.get("/healthz", (_req, res) => res.json({ ok: true }));
+  app.use("/api/ra-cases/:id/attachments", attachmentsRouter);
   app.use("/api/ra-cases", raCasesRouter);
   app.use("/api/llm-jobs", llmJobsRouter);
 

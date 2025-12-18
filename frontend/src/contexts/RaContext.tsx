@@ -255,8 +255,8 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
           description: h.description ?? "",
           stepIds: h.stepIds,
           categoryCode: h.categoryCode ?? null,
-          severity: h.severity ?? null,
-          likelihood: h.likelihood ?? null,
+          baseline: h.baseline ?? null,
+          residual: h.residual ?? null,
           existingControls: h.existingControls ?? [],
           proposedControls: h.proposedControls ?? []
         })) ?? [],

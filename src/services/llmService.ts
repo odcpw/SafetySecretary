@@ -95,6 +95,8 @@ export interface ContextualUpdateParams {
       categoryCode?: string | null;
       existingControls?: string[];
       stepIds: string[];
+      baseline?: HazardAssessmentSnapshotLike;
+      residual?: HazardAssessmentSnapshotLike;
     }>;
     actions: Array<{ id: string; description: string; hazardId?: string | null }>;
   };
@@ -159,7 +161,7 @@ export class LlmService {
     try {
       const response = await this.client.chat.completions.create({
         model: DEFAULT_MODEL,
-        temperature: 0.2,
+        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -169,6 +171,9 @@ For each step, identify:
 - activity: What is being done (the main action/task)
 - equipment: List of tools, machines, or equipment used
 - substances: List of materials, chemicals, or substances involved
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary).
+Use empty arrays for unknown equipment/substances.
 
 Respond as JSON:
 {"steps": [{"activity": string, "equipment": string[], "substances": string[], "description": string}]}`
@@ -212,7 +217,7 @@ Respond as JSON:
     try {
       const response = await this.client.chat.completions.create({
         model: DEFAULT_MODEL,
-        temperature: 0.2,
+        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -227,6 +232,10 @@ For each hazard, provide:
 - categoryCode: Best match from [${HAZARD_CATEGORIES.join(", ")}]
 - existingControls: Array of existing controls/rules mentioned for this hazard
 - stepIds: Array of step IDs where this hazard applies
+
+Constraints:
+- Use ONLY step IDs from the provided steps list. If unsure, use [].
+- Return ONLY valid JSON (no markdown, no code fences, no commentary).
 
 Respond as JSON:
 {"hazards": [{"label": string, "description": string, "categoryCode": string, "existingControls": string[], "stepIds": string[]}]}`
@@ -290,7 +299,7 @@ Respond as JSON:
     try {
       const response = await this.client.chat.completions.create({
         model: DEFAULT_MODEL,
-        temperature: 0.2,
+        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -304,6 +313,10 @@ For each hazard, suggest controls classified by the S-T-O-P hierarchy:
 - PPE: Personal protective equipment (last resort)
 
 Prioritize higher-effectiveness controls.
+
+Constraints:
+- Use ONLY hazardId values present in the input hazards list.
+- Return ONLY valid JSON (no markdown, no code fences, no commentary).
 
 Respond as JSON:
 {"suggestions":[{
@@ -354,13 +367,19 @@ Respond as JSON:
     try {
       const response = await this.client.chat.completions.create({
         model: DEFAULT_MODEL,
-        temperature: 0.2,
+        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           {
             role: "system",
-            content:
-              "You are a safety coordinator. Convert supervisor notes into concrete corrective actions tied to the provided hazard IDs. Respond as JSON {\"actions\":[{\"hazardId\": string, \"description\": string, \"owner\": string, \"dueInDays\": number}]}."
+            content: `You are a safety coordinator. Convert supervisor notes into concrete corrective actions tied to the provided hazard IDs.
+
+Constraints:
+- Use ONLY hazardId values present in the input hazards list.
+- Return ONLY valid JSON (no markdown, no code fences, no commentary).
+
+Respond as JSON:
+{"actions":[{"hazardId": string, "description": string, "owner": string, "dueInDays": number}]}`
           },
           {
             role: "user",
@@ -501,7 +520,7 @@ Respond as JSON:
     try {
       const response = await this.client.chat.completions.create({
         model: DEFAULT_MODEL,
-        temperature: 0.2,
+        temperature: 0,
         response_format: { type: "json_object" },
         messages: [
           {
@@ -524,6 +543,13 @@ For each update command, specify:
 - location: { stepId?, stepIndex?, hazardId?, actionId?, insertAfter? }
 - data: The structured data to apply
 - explanation: Human-readable summary
+
+If the user request is ambiguous, set:
+- needsClarification: true
+- clarificationPrompt: a single concise question
+And return commands as an empty array.
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary).
 
 EXAMPLES:
 - "We also use a ladder in step 3" → modify step at index 2, add "Ladder" to equipment[]
@@ -569,10 +595,12 @@ Respond as JSON:
           }))
         : this.fallbackContextualUpdate(userInput, currentPhase, tableState);
 
+      const needsClarification = Boolean(parsed.needsClarification);
+
       return {
-        commands,
+        commands: needsClarification ? [] : commands,
         summary: parsed.summary ?? this.buildSummary(commands, userInput),
-        needsClarification: Boolean(parsed.needsClarification),
+        needsClarification,
         clarificationPrompt: parsed.clarificationPrompt,
         rawResponse: content
       };

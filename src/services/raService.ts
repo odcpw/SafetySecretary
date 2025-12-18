@@ -70,8 +70,6 @@ export type HazardDto = {
   existingControls: string[];
   stepIds: string[];
   stepOrder: Record<string, number>;
-  baselineAssessment?: HazardAssessmentSnapshot;
-  residualAssessment?: HazardAssessmentSnapshot;
   baseline?: HazardAssessmentSnapshot;
   residual?: HazardAssessmentSnapshot;
   proposedControls: { id: string; description: string; hierarchy: string | null }[];
@@ -79,6 +77,20 @@ export type HazardDto = {
 
 export type RiskAssessmentCaseDto = Omit<CaseWithRelations, "hazards"> & {
   hazards: HazardDto[];
+};
+
+export type AttachmentDto = {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  caseId: string;
+  stepId: string | null;
+  hazardId: string | null;
+  orderIndex: number;
+  originalName: string;
+  mimeType: string;
+  byteSize: number;
+  storageKey: string;
 };
 
 export interface RiskAssessmentCaseSummary {
@@ -94,6 +106,30 @@ export interface RiskAssessmentCaseSummary {
 
 export class RiskAssessmentService {
   constructor(private readonly db = prisma) {}
+
+  private async hazardIdsBelongToCase(caseId: string, hazardIds: string[]): Promise<boolean> {
+    const uniqueHazardIds = [...new Set(hazardIds.filter((id) => typeof id === "string" && id.length > 0))];
+    if (uniqueHazardIds.length === 0) {
+      return true;
+    }
+
+    const count = await this.db.hazard.count({
+      where: { caseId, id: { in: uniqueHazardIds } }
+    });
+    return count === uniqueHazardIds.length;
+  }
+
+  private async stepIdsBelongToCase(caseId: string, stepIds: string[]): Promise<boolean> {
+    const uniqueStepIds = [...new Set(stepIds.filter((id) => typeof id === "string" && id.length > 0))];
+    if (uniqueStepIds.length === 0) {
+      return true;
+    }
+
+    const count = await this.db.processStep.count({
+      where: { caseId, id: { in: uniqueStepIds } }
+    });
+    return count === uniqueStepIds.length;
+  }
 
   private async attachHazardToStep(
     tx: Prisma.TransactionClient,
@@ -248,6 +284,13 @@ export class RiskAssessmentService {
       return null;
     }
 
+    const stepIdsToUpdate = steps
+      .map((step) => step.id)
+      .filter((stepId): stepId is string => typeof stepId === "string" && stepId.length > 0);
+    if (!(await this.stepIdsBelongToCase(id, stepIdsToUpdate))) {
+      return null;
+    }
+
     await this.db.$transaction(async (tx) => {
       const existingSteps = await tx.processStep.findMany({
         where: { caseId: id }
@@ -311,6 +354,12 @@ export class RiskAssessmentService {
       return null;
     }
 
+    const stepIds = await this.db.processStep.findMany({
+      where: { caseId: id },
+      select: { id: true }
+    });
+    const validStepIds = new Set(stepIds.map((step) => step.id));
+
     await this.db.$transaction(async (tx) => {
       for (const hazard of hazards) {
         const created = await tx.hazard.create({
@@ -325,7 +374,9 @@ export class RiskAssessmentService {
 
         if (hazard.stepIds && hazard.stepIds.length) {
           for (const stepId of hazard.stepIds) {
-            await this.attachHazardToStep(tx, created.id, stepId);
+            if (validStepIds.has(stepId)) {
+              await this.attachHazardToStep(tx, created.id, stepId);
+            }
           }
         }
       }
@@ -387,6 +438,10 @@ export class RiskAssessmentService {
       return null;
     }
 
+    if (patch.stepIds && !(await this.stepIdsBelongToCase(caseId, patch.stepIds))) {
+      return null;
+    }
+
     const existingLinks = await this.db.hazardStep.findMany({ where: { hazardId } });
 
     await this.db.$transaction(async (tx) => {
@@ -435,10 +490,7 @@ export class RiskAssessmentService {
     ratings: HazardRatingInput[]
   ): Promise<RiskAssessmentCaseDto | null> {
     const hazardIds = ratings.map((r) => r.hazardId);
-    const hazards = await this.db.hazard.findMany({
-      where: { caseId, id: { in: hazardIds } }
-    });
-    if (hazards.length === 0) {
+    if (!(await this.hazardIdsBelongToCase(caseId, hazardIds))) {
       return null;
     }
 
@@ -509,6 +561,9 @@ export class RiskAssessmentService {
     if (hazards.length === 0) {
       return null;
     }
+    if (hazards.length !== hazardIds.length) {
+      return null;
+    }
 
     const validHazardIds = new Set(hazards.map((h) => h.id));
     const validInputs = inputs.filter((i) => validHazardIds.has(i.hazardId));
@@ -547,10 +602,7 @@ export class RiskAssessmentService {
     }
 
     const hazardIds = ratings.map((r) => r.hazardId);
-    const hazards = await this.db.hazard.findMany({
-      where: { caseId, id: { in: hazardIds } }
-    });
-    if (hazards.length === 0) {
+    if (!(await this.hazardIdsBelongToCase(caseId, hazardIds))) {
       return null;
     }
 
@@ -768,6 +820,149 @@ export class RiskAssessmentService {
     return true;
   }
 
+  async addStepAttachment(
+    caseId: string,
+    stepId: string,
+    input: { originalName: string; mimeType: string; byteSize: number; storageKey: string }
+  ): Promise<AttachmentDto | null> {
+    const step = await this.db.processStep.findFirst({ where: { id: stepId, caseId } });
+    if (!step) {
+      return null;
+    }
+
+    const attachment = await this.db.$transaction(async (tx) => {
+      const orderIndex = await tx.attachment.count({ where: { caseId, stepId } });
+      return tx.attachment.create({
+        data: {
+          caseId,
+          stepId,
+          hazardId: null,
+          orderIndex,
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          byteSize: input.byteSize,
+          storageKey: input.storageKey
+        }
+      });
+    });
+
+    return {
+      id: attachment.id,
+      createdAt: attachment.createdAt,
+      updatedAt: attachment.updatedAt,
+      caseId: attachment.caseId,
+      stepId: attachment.stepId ?? null,
+      hazardId: attachment.hazardId ?? null,
+      orderIndex: attachment.orderIndex,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      byteSize: attachment.byteSize,
+      storageKey: attachment.storageKey
+    };
+  }
+
+  async addHazardAttachment(
+    caseId: string,
+    hazardId: string,
+    input: { originalName: string; mimeType: string; byteSize: number; storageKey: string }
+  ): Promise<AttachmentDto | null> {
+    const hazard = await this.db.hazard.findFirst({ where: { id: hazardId, caseId } });
+    if (!hazard) {
+      return null;
+    }
+
+    const attachment = await this.db.$transaction(async (tx) => {
+      const orderIndex = await tx.attachment.count({ where: { caseId, hazardId } });
+      return tx.attachment.create({
+        data: {
+          caseId,
+          stepId: null,
+          hazardId,
+          orderIndex,
+          originalName: input.originalName,
+          mimeType: input.mimeType,
+          byteSize: input.byteSize,
+          storageKey: input.storageKey
+        }
+      });
+    });
+
+    return {
+      id: attachment.id,
+      createdAt: attachment.createdAt,
+      updatedAt: attachment.updatedAt,
+      caseId: attachment.caseId,
+      stepId: attachment.stepId ?? null,
+      hazardId: attachment.hazardId ?? null,
+      orderIndex: attachment.orderIndex,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      byteSize: attachment.byteSize,
+      storageKey: attachment.storageKey
+    };
+  }
+
+  async getAttachment(caseId: string, attachmentId: string): Promise<AttachmentDto | null> {
+    const attachment = await this.db.attachment.findFirst({ where: { id: attachmentId, caseId } });
+    if (!attachment) {
+      return null;
+    }
+    return {
+      id: attachment.id,
+      createdAt: attachment.createdAt,
+      updatedAt: attachment.updatedAt,
+      caseId: attachment.caseId,
+      stepId: attachment.stepId ?? null,
+      hazardId: attachment.hazardId ?? null,
+      orderIndex: attachment.orderIndex,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      byteSize: attachment.byteSize,
+      storageKey: attachment.storageKey
+    };
+  }
+
+  async deleteAttachment(caseId: string, attachmentId: string): Promise<AttachmentDto | null> {
+    const attachment = await this.db.attachment.findFirst({ where: { id: attachmentId, caseId } });
+    if (!attachment) {
+      return null;
+    }
+    await this.db.attachment.delete({ where: { id: attachmentId } });
+    return {
+      id: attachment.id,
+      createdAt: attachment.createdAt,
+      updatedAt: attachment.updatedAt,
+      caseId: attachment.caseId,
+      stepId: attachment.stepId ?? null,
+      hazardId: attachment.hazardId ?? null,
+      orderIndex: attachment.orderIndex,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      byteSize: attachment.byteSize,
+      storageKey: attachment.storageKey
+    };
+  }
+
+  async listAttachments(caseId: string): Promise<AttachmentDto[]> {
+    const attachments = await this.db.attachment.findMany({
+      where: { caseId },
+      orderBy: [{ createdAt: "asc" }]
+    });
+    return attachments.map((attachment) => ({
+      id: attachment.id,
+      createdAt: attachment.createdAt,
+      updatedAt: attachment.updatedAt,
+      caseId: attachment.caseId,
+      stepId: attachment.stepId ?? null,
+      hazardId: attachment.hazardId ?? null,
+      orderIndex: attachment.orderIndex,
+      originalName: attachment.originalName,
+      mimeType: attachment.mimeType,
+      byteSize: attachment.byteSize,
+      storageKey: attachment.storageKey
+    }));
+  }
+
   private mapCase(record: CaseWithRelations): RiskAssessmentCaseDto {
     const stepOrder = new Map<string, number>();
     record.steps.forEach((step, index) => stepOrder.set(step.id, index));
@@ -825,7 +1020,6 @@ export class RiskAssessmentService {
         likelihood: baseline.likelihood as LikelihoodLevel,
         riskRating: baseline.riskRating
       };
-      dto.baselineAssessment = baselineDto;
       dto.baseline = baselineDto;
     }
 
@@ -835,7 +1029,6 @@ export class RiskAssessmentService {
         likelihood: residual.likelihood as LikelihoodLevel,
         riskRating: residual.riskRating
       };
-      dto.residualAssessment = residualDto;
       dto.residual = residualDto;
     }
 

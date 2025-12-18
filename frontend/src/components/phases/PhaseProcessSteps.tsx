@@ -104,6 +104,7 @@ export const PhaseProcessSteps = ({
         primaryLabel="Generate steps"
         status={status}
         disabled={saving}
+        enableVoice
         onChange={setDescription}
         onSubmit={handleExtract}
         onClear={() => setDescription("")}

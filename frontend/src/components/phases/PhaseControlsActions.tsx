@@ -122,6 +122,7 @@ export const PhaseControlsActions = ({
         primaryLabel="Generate actions"
         status={assistantStatus}
         disabled={saving}
+        enableVoice
         onChange={setAssistantNotes}
         onSubmit={handleExtractActions}
         onClear={() => setAssistantNotes("")}

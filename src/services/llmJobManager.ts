@@ -193,11 +193,11 @@ export class LlmJobManager {
         if (hazard.existingControls && hazard.existingControls.length > 0) {
           item.existingControls = hazard.existingControls;
         }
-        if (hazard.baselineAssessment) {
-          item.baseline = hazard.baselineAssessment;
+        if (hazard.baseline) {
+          item.baseline = hazard.baseline;
         }
-        if (hazard.residualAssessment) {
-          item.residual = hazard.residualAssessment;
+        if (hazard.residual) {
+          item.residual = hazard.residual;
         }
         return item;
       })

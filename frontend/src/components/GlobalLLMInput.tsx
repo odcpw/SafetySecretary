@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useRaContext } from "@/contexts/RaContext";
 import type { ContextualUpdateCommand, ParsedContextualUpdate } from "@/contexts/RaContext";
 import type { Phase } from "@/types/riskAssessment";
+import { useSpeechToText } from "@/lib/useSpeechToText";
 
 interface GlobalLLMInputProps {
   currentPhase: Phase;
@@ -21,18 +22,30 @@ interface GlobalLLMInputProps {
 export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
   const { saving, actions } = useRaContext();
   const [input, setInput] = useState("");
+  const [clarification, setClarification] = useState("");
   const [parsing, setParsing] = useState(false);
   const [parsedResult, setParsedResult] = useState<ParsedContextualUpdate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
+  const speech = useSpeechToText({
+    onFinalText: (text) =>
+      setInput((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text)),
+    lang: "en-US"
+  });
+
   // Parse the user's natural language input
   const handleParse = async () => {
     if (!input.trim() || parsing) return;
 
+    if (speech.listening) {
+      speech.stop();
+    }
+
     setError(null);
     setParsing(true);
     setParsedResult(null);
+    setClarification("");
 
     try {
       const result = await actions.parseContextualUpdate(input.trim(), currentPhase);
@@ -45,9 +58,31 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
     }
   };
 
+  const handleClarify = async () => {
+    if (!parsedResult?.needsClarification || parsing) return;
+    if (!input.trim() || !clarification.trim()) return;
+
+    setError(null);
+    setParsing(true);
+
+    try {
+      const combined = `${input.trim()}\n\nClarification: ${clarification.trim()}`;
+      const result = await actions.parseContextualUpdate(combined, currentPhase);
+      setParsedResult(result);
+      if (!result.needsClarification) {
+        setClarification("");
+      }
+    } catch (err) {
+      console.error("Clarification parse error:", err);
+      setError(err instanceof Error ? err.message : "Failed to re-parse with clarification");
+    } finally {
+      setParsing(false);
+    }
+  };
+
   // Apply all parsed commands
   const handleApplyAll = async () => {
-    if (!parsedResult || applying) return;
+    if (!parsedResult || parsedResult.needsClarification || applying) return;
 
     setApplying(true);
     setError(null);
@@ -69,7 +104,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
 
   // Apply a single command
   const handleApplySingle = async (command: ContextualUpdateCommand) => {
-    if (applying) return;
+    if (parsedResult?.needsClarification || applying) return;
 
     setApplying(true);
     setError(null);
@@ -98,6 +133,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
   const handleCancel = () => {
     setParsedResult(null);
     setError(null);
+    setClarification("");
   };
 
   // Handle Enter key to submit
@@ -105,6 +141,13 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleParse();
+    }
+  };
+
+  const handleClarificationKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleClarify();
     }
   };
 
@@ -129,7 +172,28 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
         >
           {parsing ? "Parsing…" : "Parse"}
         </button>
+        <button
+          type="button"
+          className="btn-outline"
+          onClick={() => (speech.listening ? speech.stop() : speech.start())}
+          disabled={isDisabled || !speech.supported}
+          title={speech.supported ? "Dictate using your microphone" : "Speech recognition not supported"}
+        >
+          {speech.listening ? "Stop mic" : "Start mic"}
+        </button>
       </div>
+
+      {speech.listening && speech.interimText && (
+        <div className="global-llm-input__clarification">
+          <p>Listening… {speech.interimText}</p>
+        </div>
+      )}
+
+      {speech.error && (
+        <div className="global-llm-input__error">
+          {speech.error}
+        </div>
+      )}
 
       {error && (
         <div className="global-llm-input__error">
@@ -144,50 +208,76 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
             <p className="text-label">{parsedResult.summary}</p>
           </div>
 
-          {parsedResult.needsClarification && parsedResult.clarificationPrompt && (
-            <div className="global-llm-input__clarification">
-              <p>{parsedResult.clarificationPrompt}</p>
-            </div>
-          )}
-
-          <ul className="global-llm-input__commands">
-            {parsedResult.commands.map((command, index) => (
-              <li key={index} className="global-llm-input__command">
-                <div className="global-llm-input__command-info">
-                  <span className="command-badge">{command.intent}</span>
-                  <span className="command-target">{command.target}</span>
-                  <span className="command-explanation">{command.explanation}</span>
+          {parsedResult.needsClarification ? (
+            <>
+              {parsedResult.clarificationPrompt && (
+                <div className="global-llm-input__clarification">
+                  <p>{parsedResult.clarificationPrompt}</p>
                 </div>
+              )}
+
+              <div className="global-llm-input__field">
+                <textarea
+                  value={clarification}
+                  onChange={(e) => setClarification(e.target.value)}
+                  onKeyDown={handleClarificationKeyDown}
+                  placeholder="Answer the question to clarify…"
+                  disabled={isDisabled}
+                  rows={2}
+                />
                 <button
                   type="button"
-                  onClick={() => handleApplySingle(command)}
-                  disabled={applying}
-                  className="btn-small"
+                  onClick={handleClarify}
+                  disabled={isDisabled || !clarification.trim()}
+                  className="btn-primary"
                 >
-                  Apply
+                  {parsing ? "Re-parsing…" : "Re-parse"}
                 </button>
-              </li>
-            ))}
-          </ul>
+              </div>
 
-          <div className="global-llm-input__preview-actions">
-            <button
-              type="button"
-              onClick={handleApplyAll}
-              disabled={applying || parsedResult.commands.length === 0}
-              className="btn-primary"
-            >
-              {applying ? "Applying…" : "Apply All"}
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={applying}
-              className="btn-outline"
-            >
-              Cancel
-            </button>
-          </div>
+              <div className="global-llm-input__preview-actions">
+                <button type="button" onClick={handleCancel} disabled={applying || parsing} className="btn-outline">
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <ul className="global-llm-input__commands">
+                {parsedResult.commands.map((command, index) => (
+                  <li key={index} className="global-llm-input__command">
+                    <div className="global-llm-input__command-info">
+                      <span className="command-badge">{command.intent}</span>
+                      <span className="command-target">{command.target}</span>
+                      <span className="command-explanation">{command.explanation}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleApplySingle(command)}
+                      disabled={applying}
+                      className="btn-small"
+                    >
+                      Apply
+                    </button>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="global-llm-input__preview-actions">
+                <button
+                  type="button"
+                  onClick={handleApplyAll}
+                  disabled={applying || parsedResult.commands.length === 0}
+                  className="btn-primary"
+                >
+                  {applying ? "Applying…" : "Apply All"}
+                </button>
+                <button type="button" onClick={handleCancel} disabled={applying} className="btn-outline">
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

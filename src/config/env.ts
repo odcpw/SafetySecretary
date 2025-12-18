@@ -13,5 +13,7 @@ for (const key of required) {
 export const env = {
   port: Number(process.env.PORT) || 4000,
   databaseUrl: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/safetysecretary",
-  openAiKey: process.env.OPENAI_API_KEY
+  openAiKey: process.env.OPENAI_API_KEY,
+  attachmentsDir: process.env.SAFETYSECRETARY_ATTACHMENTS_DIR ?? "artifacts/attachments",
+  attachmentMaxBytes: Number(process.env.SAFETYSECRETARY_ATTACHMENT_MAX_BYTES) || 15 * 1024 * 1024
 };

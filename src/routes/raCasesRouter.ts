@@ -15,6 +15,118 @@ const requireParam = (req: Request, res: Response, key: string): string | null =
   return value;
 };
 
+const SEVERITY_LEVELS = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+const LIKELIHOOD_LEVELS = ["RARE", "UNLIKELY", "POSSIBLE", "LIKELY", "ALMOST_CERTAIN"] as const;
+const CONTROL_HIERARCHY_LEVELS = ["SUBSTITUTION", "TECHNICAL", "ORGANIZATIONAL", "PPE"] as const;
+const ACTION_STATUSES = ["OPEN", "IN_PROGRESS", "COMPLETE"] as const;
+const HAZARD_CATEGORY_CODES = [
+  "MECHANICAL",
+  "FALLS",
+  "ELECTRICAL",
+  "HAZARDOUS_SUBSTANCES",
+  "FIRE_EXPLOSION",
+  "THERMAL",
+  "PHYSICAL",
+  "ENVIRONMENTAL",
+  "ERGONOMIC",
+  "PSYCHOLOGICAL",
+  "CONTROL_FAILURES",
+  "POWER_FAILURE",
+  "ORGANIZATIONAL"
+] as const;
+
+type SeverityLevelNormalized = (typeof SEVERITY_LEVELS)[number];
+type LikelihoodLevelNormalized = (typeof LIKELIHOOD_LEVELS)[number];
+type ControlHierarchyNormalized = (typeof CONTROL_HIERARCHY_LEVELS)[number];
+type ActionStatusNormalized = (typeof ACTION_STATUSES)[number];
+type HazardCategoryCodeNormalized = (typeof HAZARD_CATEGORY_CODES)[number];
+
+const normalizeSeverity = (value: unknown): SeverityLevelNormalized | undefined => {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+  return SEVERITY_LEVELS.includes(normalized as SeverityLevelNormalized)
+    ? (normalized as SeverityLevelNormalized)
+    : undefined;
+};
+
+const normalizeLikelihood = (value: unknown): LikelihoodLevelNormalized | undefined => {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+  return LIKELIHOOD_LEVELS.includes(normalized as LikelihoodLevelNormalized)
+    ? (normalized as LikelihoodLevelNormalized)
+    : undefined;
+};
+
+const normalizeHierarchy = (value: unknown): ControlHierarchyNormalized | undefined => {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+  return CONTROL_HIERARCHY_LEVELS.includes(normalized as ControlHierarchyNormalized)
+    ? (normalized as ControlHierarchyNormalized)
+    : undefined;
+};
+
+const normalizeActionStatus = (value: unknown): ActionStatusNormalized | undefined => {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+  return ACTION_STATUSES.includes(normalized as ActionStatusNormalized)
+    ? (normalized as ActionStatusNormalized)
+    : undefined;
+};
+
+const normalizeCategoryCode = (value: unknown): HazardCategoryCodeNormalized | undefined => {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
+  return HAZARD_CATEGORY_CODES.includes(normalized as HazardCategoryCodeNormalized)
+    ? (normalized as HazardCategoryCodeNormalized)
+    : undefined;
+};
+
+const normalizeStringArray = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .map((item) => item.trim());
+};
+
+type RiskRatingNormalized = {
+  hazardId: string;
+  severity: SeverityLevelNormalized;
+  likelihood: LikelihoodLevelNormalized;
+};
+
+const normalizeRiskRatings = (ratings: unknown): { normalized: RiskRatingNormalized[]; errors: string[] } => {
+  const errors: string[] = [];
+  if (!Array.isArray(ratings)) {
+    return { normalized: [], errors: ["ratings must be an array"] };
+  }
+
+  const normalized = ratings
+    .map((rating: any, index: number) => {
+      const hazardId = typeof rating?.hazardId === "string" ? rating.hazardId : null;
+      if (!hazardId) {
+        errors.push(`ratings[${index}].hazardId is required`);
+        return null;
+      }
+      const severity = normalizeSeverity(rating.severity);
+      const likelihood = normalizeLikelihood(rating.likelihood);
+      if (!severity) {
+        errors.push(`ratings[${index}].severity must be one of ${SEVERITY_LEVELS.join(", ")}`);
+      }
+      if (!likelihood) {
+        errors.push(`ratings[${index}].likelihood must be one of ${LIKELIHOOD_LEVELS.join(", ")}`);
+      }
+      if (!severity || !likelihood) {
+        return null;
+      }
+      return { hazardId, severity, likelihood };
+    })
+    .filter((item: any): item is RiskRatingNormalized => item !== null);
+
+  return { normalized, errors };
+};
+
 raCasesRouter.get("/", async (req: Request, res: Response) => {
   try {
     const { createdBy, limit } = req.query as { createdBy?: string; limit?: string };
@@ -280,7 +392,76 @@ raCasesRouter.put("/:id/hazards/:hazardId", async (req: Request, res: Response) 
     }
 
     const { raService } = getServices(req);
-    const updated = await raService.updateHazard(caseId, hazardId, req.body);
+    const patchRaw = typeof req.body === "object" && req.body ? req.body : {};
+    const errors: string[] = [];
+    const safePatch: any = {};
+
+    const labelRaw = (patchRaw as any).label;
+    const descriptionRaw = (patchRaw as any).description;
+    const categoryRaw = (patchRaw as any).categoryCode;
+    const existingControlsRaw = (patchRaw as any).existingControls;
+    const stepIdsRaw = (patchRaw as any).stepIds;
+
+    if (labelRaw !== undefined) {
+      if (typeof labelRaw !== "string" || !labelRaw.trim()) {
+        errors.push("label must be a non-empty string");
+      } else {
+        safePatch.label = labelRaw.trim();
+      }
+    }
+    if (descriptionRaw !== undefined) {
+      if (typeof descriptionRaw === "string" || descriptionRaw === null) {
+        safePatch.description = typeof descriptionRaw === "string" ? descriptionRaw : null;
+      } else {
+        errors.push("description must be a string or null");
+      }
+    }
+    if (categoryRaw !== undefined) {
+      if (categoryRaw === null) {
+        safePatch.categoryCode = null;
+      } else if (typeof categoryRaw === "string") {
+        const normalizedCategory = normalizeCategoryCode(categoryRaw);
+        if (!normalizedCategory) {
+          errors.push(`categoryCode must be one of ${HAZARD_CATEGORY_CODES.join(", ")}`);
+        } else {
+          safePatch.categoryCode = normalizedCategory;
+        }
+      } else {
+        errors.push("categoryCode must be a string or null");
+      }
+    }
+    if (existingControlsRaw !== undefined) {
+      const normalizedControls = normalizeStringArray(existingControlsRaw);
+      if (normalizedControls === undefined) {
+        errors.push("existingControls must be an array of strings");
+      } else {
+        safePatch.existingControls = normalizedControls;
+      }
+    }
+    if (stepIdsRaw !== undefined) {
+      const normalizedStepIds = normalizeStringArray(stepIdsRaw);
+      if (normalizedStepIds === undefined) {
+        errors.push("stepIds must be an array of strings");
+      } else {
+        const raCase = await raService.getCaseById(caseId);
+        if (!raCase) {
+          return res.status(404).json({ error: "Not found" });
+        }
+        const validStepIds = new Set(raCase.steps.map((s) => s.id));
+        const invalidIds = normalizedStepIds.filter((id) => !validStepIds.has(id));
+        if (invalidIds.length) {
+          errors.push(`stepIds contains invalid stepIds: ${invalidIds.join(", ")}`);
+        } else {
+          safePatch.stepIds = normalizedStepIds;
+        }
+      }
+    }
+
+    if (errors.length) {
+      return res.status(400).json({ error: "Invalid hazard patch", details: errors });
+    }
+
+    const updated = await raService.updateHazard(caseId, hazardId, safePatch);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -317,16 +498,18 @@ raCasesRouter.delete("/:id/hazards/:hazardId", async (req: Request, res: Respons
 raCasesRouter.put("/:id/hazards/risk", async (req: Request, res: Response) => {
   try {
     const { ratings } = req.body;
-    if (!Array.isArray(ratings)) {
-      return res.status(400).json({ error: "ratings must be an array" });
-    }
     const caseId = requireParam(req, res, "id");
     if (!caseId) {
       return;
     }
 
+    const { normalized, errors } = normalizeRiskRatings(ratings);
+    if (errors.length) {
+      return res.status(400).json({ error: "Invalid ratings", details: errors });
+    }
+
     const { raService } = getServices(req);
-    const updated = await raService.setHazardRiskRatings(caseId, ratings);
+    const updated = await raService.setHazardRiskRatings(caseId, normalized);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -354,7 +537,21 @@ raCasesRouter.post("/:id/hazards/:hazardId/proposed-controls", async (req: Reque
     }
 
     const { raService } = getServices(req);
-    const control = await raService.addProposedControl(caseId, { hazardId, description, hierarchy });
+    const errors: string[] = [];
+    const normalizedHierarchy =
+      hierarchy !== undefined ? normalizeHierarchy(hierarchy) : undefined;
+    if (hierarchy !== undefined && !normalizedHierarchy) {
+      errors.push(`hierarchy must be one of ${CONTROL_HIERARCHY_LEVELS.join(", ")}`);
+    }
+    if (errors.length) {
+      return res.status(400).json({ error: "Invalid control data", details: errors });
+    }
+
+    const control = await raService.addProposedControl(caseId, {
+      hazardId,
+      description,
+      hierarchy: normalizedHierarchy
+    });
     if (!control) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -392,16 +589,18 @@ raCasesRouter.delete("/:id/hazards/:hazardId/proposed-controls/:controlId", asyn
 raCasesRouter.put("/:id/hazards/residual-risk", async (req: Request, res: Response) => {
   try {
     const { ratings } = req.body;
-    if (!Array.isArray(ratings)) {
-      return res.status(400).json({ error: "ratings must be an array" });
-    }
     const caseId = requireParam(req, res, "id");
     if (!caseId) {
       return;
     }
 
+    const { normalized, errors } = normalizeRiskRatings(ratings);
+    if (errors.length) {
+      return res.status(400).json({ error: "Invalid ratings", details: errors });
+    }
+
     const { raService } = getServices(req);
-    const updated = await raService.setResidualRiskRatings(caseId, ratings);
+    const updated = await raService.setResidualRiskRatings(caseId, normalized);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -428,6 +627,21 @@ raCasesRouter.put("/:id/steps/:stepId/hazards/order", async (req: Request, res: 
     }
 
     const { raService } = getServices(req);
+    const raCase = await raService.getCaseById(caseId);
+    if (!raCase) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    if (!raCase.steps.some((step) => step.id === stepId)) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const hazardIdsForStep = new Set(
+      raCase.hazards.filter((hazard) => hazard.stepIds.includes(stepId)).map((hazard) => hazard.id)
+    );
+    const invalidHazardIds = hazardIds.filter((hazardId: any) => typeof hazardId !== "string" || !hazardIdsForStep.has(hazardId));
+    if (invalidHazardIds.length) {
+      return res.status(400).json({ error: "Invalid hazardIds", details: invalidHazardIds });
+    }
+
     const success = await raService.reorderHazardsForStep(caseId, stepId, hazardIds);
     if (!success) {
       return res.status(404).json({ error: "Not found" });
@@ -474,7 +688,49 @@ raCasesRouter.put("/:id/actions/:actionId", async (req: Request, res: Response) 
     }
 
     const { raService } = getServices(req);
-    const updated = await raService.updateAction(caseId, actionId, req.body);
+    const patchRaw = typeof req.body === "object" && req.body ? req.body : {};
+    const errors: string[] = [];
+    const safePatch: any = {};
+
+    const descriptionRaw = (patchRaw as any).description;
+    const ownerRaw = (patchRaw as any).owner;
+    const dueDateRaw = (patchRaw as any).dueDate;
+    const statusRaw = (patchRaw as any).status;
+
+    if (descriptionRaw !== undefined) {
+      if (typeof descriptionRaw !== "string") {
+        errors.push("description must be a string");
+      } else {
+        safePatch.description = descriptionRaw;
+      }
+    }
+    if (ownerRaw !== undefined) {
+      if (typeof ownerRaw !== "string" && ownerRaw !== null) {
+        errors.push("owner must be a string or null");
+      } else {
+        safePatch.owner = ownerRaw;
+      }
+    }
+    if (dueDateRaw !== undefined) {
+      if (typeof dueDateRaw !== "string" && dueDateRaw !== null) {
+        errors.push("dueDate must be a string or null");
+      } else {
+        safePatch.dueDate = dueDateRaw;
+      }
+    }
+    if (statusRaw !== undefined) {
+      const normalizedStatus = normalizeActionStatus(statusRaw);
+      if (!normalizedStatus) {
+        errors.push(`status must be one of ${ACTION_STATUSES.join(", ")}`);
+      } else {
+        safePatch.status = normalizedStatus;
+      }
+    }
+    if (errors.length) {
+      return res.status(400).json({ error: "Invalid action patch", details: errors });
+    }
+
+    const updated = await raService.updateAction(caseId, actionId, safePatch);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -497,7 +753,8 @@ raCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const pdf = await reportService.generatePdfForCase(raCase);
+    const attachments = await raService.listAttachments(caseId);
+    const pdf = await reportService.generatePdfForCase(raCase, { attachments });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="ra-${caseId}.pdf"`);
     res.send(pdf);
@@ -519,7 +776,8 @@ raCasesRouter.get("/:id/export/xlsx", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const workbook = await reportService.generateXlsxForCase(raCase);
+    const attachments = await raService.listAttachments(caseId);
+    const workbook = await reportService.generateXlsxForCase(raCase, { attachments });
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -564,7 +822,9 @@ raCasesRouter.post("/:id/contextual-update/parse", async (req: Request, res: Res
         description: h.description,
         categoryCode: h.categoryCode,
         existingControls: h.existingControls,
-        stepIds: h.stepIds
+        stepIds: h.stepIds,
+        baseline: h.baseline,
+        residual: h.residual
       })),
       actions: raCase.actions.map((a) => ({
         id: a.id,
@@ -609,56 +869,133 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
       return res.status(404).json({ error: "Not found" });
     }
 
-    // Normalize intent to support synonyms
-    const intent = command.intent === "update" ? "modify" : command.intent;
-    const { target, location, data } = command;
+    const errors: string[] = [];
+    const rawIntent = typeof command.intent === "string" ? command.intent.trim().toLowerCase() : "";
+    const intent = rawIntent === "update" ? "modify" : rawIntent;
+    const rawTarget = typeof command.target === "string" ? command.target.trim().toLowerCase() : "";
+    const target = rawTarget;
+    const location = typeof command.location === "object" && command.location ? command.location : {};
+    const data = typeof command.data === "object" && command.data ? command.data : {};
 
-    const normalizeSeverity = (value: unknown): string | undefined => {
-      const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
-      return ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(normalized) ? normalized : undefined;
-    };
-    const normalizeLikelihood = (value: unknown): string | undefined => {
-      const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
-      return ["RARE", "UNLIKELY", "POSSIBLE", "LIKELY", "ALMOST_CERTAIN"].includes(normalized)
-        ? normalized
-        : undefined;
-    };
+    const allowedIntents = ["add", "modify", "delete", "insert"];
+    const allowedTargets = ["step", "hazard", "control", "action", "assessment"];
+    if (!allowedIntents.includes(intent)) {
+      errors.push(`intent must be one of ${allowedIntents.join(", ")}`);
+    }
+    if (!allowedTargets.includes(target)) {
+      errors.push(`target must be one of ${allowedTargets.join(", ")}`);
+    }
+    if (errors.length) {
+      return res.status(400).json({ error: "Invalid command", details: errors });
+    }
 
-    const reindexSteps = (steps: typeof raCase.steps) =>
+    const reindexSteps = (steps: Array<any>) =>
       steps.map((step, index) => ({
-        ...step,
+        id: step.id,
+        activity: step.activity,
+        equipment: step.equipment ?? [],
+        substances: step.substances ?? [],
+        description: step.description ?? null,
         orderIndex: index
       }));
 
     if (target === "step") {
-      if (intent === "modify" && (location?.stepId || location?.stepIndex !== undefined)) {
-        // Find the step and update via updateSteps (replaces all steps)
-        const stepIndex = location?.stepIndex ?? raCase.steps.findIndex((s) => s.id === location?.stepId);
-        if (stepIndex >= 0 && stepIndex < raCase.steps.length) {
-          const updatedSteps = reindexSteps(raCase.steps.map((step, i) => {
-            if (i === stepIndex) {
-              return {
-                ...step,
-                activity: data.activity ?? step.activity,
-                equipment: data.equipment ?? step.equipment,
-                substances: data.substances ?? step.substances,
-                description: data.description ?? step.description
-              };
-            }
-            return step;
-          }));
-          await raService.updateSteps(caseId, updatedSteps);
+      if (intent === "modify") {
+        const idxRaw = (location as any).stepIndex;
+        const stepIndex =
+          typeof idxRaw === "number"
+            ? idxRaw
+            : typeof idxRaw === "string"
+              ? Number.parseInt(idxRaw, 10)
+              : raCase.steps.findIndex((s) => s.id === (location as any).stepId);
+        if (!Number.isFinite(stepIndex) || stepIndex < 0 || stepIndex >= raCase.steps.length) {
+          return res.status(400).json({ error: "Invalid step location" });
         }
+        const activityRaw = (data as any).activity;
+        const equipmentRaw = (data as any).equipment;
+        const substancesRaw = (data as any).substances;
+        const descriptionRaw = (data as any).description;
+
+        if (activityRaw !== undefined && typeof activityRaw !== "string") {
+          errors.push("data.activity must be a string");
+        }
+        if (equipmentRaw !== undefined && normalizeStringArray(equipmentRaw) === undefined) {
+          errors.push("data.equipment must be an array of strings");
+        }
+        if (substancesRaw !== undefined && normalizeStringArray(substancesRaw) === undefined) {
+          errors.push("data.substances must be an array of strings");
+        }
+        if (
+          descriptionRaw !== undefined &&
+          typeof descriptionRaw !== "string" &&
+          descriptionRaw !== null
+        ) {
+          errors.push("data.description must be a string or null");
+        }
+        if (errors.length) {
+          return res.status(400).json({ error: "Invalid step data", details: errors });
+        }
+
+        const updatedSteps = reindexSteps(
+          raCase.steps.map((step, i) =>
+            i === stepIndex
+              ? {
+                  ...step,
+                  activity: typeof activityRaw === "string" ? activityRaw : step.activity,
+                  equipment:
+                    equipmentRaw !== undefined ? normalizeStringArray(equipmentRaw) ?? step.equipment : step.equipment,
+                  substances:
+                    substancesRaw !== undefined
+                      ? normalizeStringArray(substancesRaw) ?? step.substances
+                      : step.substances,
+                  description:
+                    descriptionRaw !== undefined ? (descriptionRaw as any) : step.description
+                }
+              : step
+          )
+        );
+        await raService.updateSteps(caseId, updatedSteps);
       } else if (intent === "add" || intent === "insert") {
-        // Add new step to the end or after specified position
-        const insertIndex = location?.insertAfter !== undefined
-          ? raCase.steps.findIndex((s) => s.id === location.insertAfter) + 1
-          : raCase.steps.length;
+        const insertAfter = (location as any).insertAfter;
+        let insertIndex = raCase.steps.length;
+        if (insertAfter !== undefined) {
+          const foundIndex = raCase.steps.findIndex((s) => s.id === insertAfter);
+          if (foundIndex < 0) {
+            return res.status(400).json({ error: "insertAfter does not match any stepId" });
+          }
+          insertIndex = foundIndex + 1;
+        }
+
+        const activityRaw = (data as any).activity;
+        const equipmentRaw = (data as any).equipment;
+        const substancesRaw = (data as any).substances;
+        const descriptionRaw = (data as any).description;
+
+        if (activityRaw !== undefined && typeof activityRaw !== "string") {
+          errors.push("data.activity must be a string");
+        }
+        if (equipmentRaw !== undefined && normalizeStringArray(equipmentRaw) === undefined) {
+          errors.push("data.equipment must be an array of strings");
+        }
+        if (substancesRaw !== undefined && normalizeStringArray(substancesRaw) === undefined) {
+          errors.push("data.substances must be an array of strings");
+        }
+        if (
+          descriptionRaw !== undefined &&
+          typeof descriptionRaw !== "string" &&
+          descriptionRaw !== null
+        ) {
+          errors.push("data.description must be a string or null");
+        }
+        if (errors.length) {
+          return res.status(400).json({ error: "Invalid step data", details: errors });
+        }
+
         const newStep = {
-          activity: data.activity ?? "New step",
-          equipment: data.equipment ?? [],
-          substances: data.substances ?? [],
-          description: data.description ?? null,
+          activity: typeof activityRaw === "string" ? activityRaw : "New step",
+          equipment: equipmentRaw !== undefined ? normalizeStringArray(equipmentRaw) ?? [] : [],
+          substances: substancesRaw !== undefined ? normalizeStringArray(substancesRaw) ?? [] : [],
+          description: descriptionRaw ?? null,
           orderIndex: insertIndex
         };
         const updatedSteps = reindexSteps([
@@ -667,72 +1004,360 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
           ...raCase.steps.slice(insertIndex)
         ]);
         await raService.updateSteps(caseId, updatedSteps);
-      } else if (intent === "delete" && (location?.stepId || location?.stepIndex !== undefined)) {
-        const removeIndex = location?.stepIndex ?? raCase.steps.findIndex((s) => s.id === location?.stepId);
-        if (removeIndex >= 0 && removeIndex < raCase.steps.length) {
-          const updatedSteps = reindexSteps(raCase.steps.filter((_, idx) => idx !== removeIndex));
-          await raService.updateSteps(caseId, updatedSteps);
+      } else if (intent === "delete") {
+        const idxRaw = (location as any).stepIndex;
+        const removeIndex =
+          typeof idxRaw === "number"
+            ? idxRaw
+            : typeof idxRaw === "string"
+              ? Number.parseInt(idxRaw, 10)
+              : raCase.steps.findIndex((s) => s.id === (location as any).stepId);
+        if (!Number.isFinite(removeIndex) || removeIndex < 0 || removeIndex >= raCase.steps.length) {
+          return res.status(400).json({ error: "Invalid step location" });
         }
+        const updatedSteps = reindexSteps(raCase.steps.filter((_, idx) => idx !== removeIndex));
+        await raService.updateSteps(caseId, updatedSteps);
       }
     } else if (target === "hazard") {
-      if (intent === "modify" && location?.hazardId) {
-        await raService.updateHazard(caseId, location.hazardId, data);
-      } else if (intent === "add") {
-        const stepId = location?.stepId ?? raCase.steps[0]?.id;
-        if (stepId) {
-          await raService.addManualHazard(caseId, {
-            stepId,
-            label: data.label ?? "New hazard",
-            description: data.description,
-            categoryCode: data.categoryCode,
-            existingControls: data.existingControls
-          });
+      const hazardId = (location as any).hazardId;
+      if ((intent === "modify" || intent === "delete") && typeof hazardId !== "string") {
+        return res.status(400).json({ error: "hazardId is required for this intent" });
+      }
+      if ((intent === "modify" || intent === "delete") && typeof hazardId === "string") {
+        const exists = raCase.hazards.some((h) => h.id === hazardId);
+        if (!exists) {
+          return res.status(400).json({ error: "Invalid hazardId" });
         }
-      } else if (intent === "delete" && location?.hazardId) {
-        await raService.deleteHazard(caseId, location.hazardId);
+      }
+      if (intent === "modify" && typeof hazardId === "string") {
+        const patch: any = {};
+        const labelRaw = (data as any).label;
+        const descriptionRaw = (data as any).description;
+        const categoryRaw = (data as any).categoryCode;
+        const existingControlsRaw = (data as any).existingControls;
+        const stepIdsRaw = (data as any).stepIds;
+
+        if (labelRaw !== undefined) {
+          if (typeof labelRaw !== "string" || !labelRaw.trim()) {
+            errors.push("data.label must be a non-empty string");
+          } else {
+            patch.label = labelRaw.trim();
+          }
+        }
+        if (descriptionRaw !== undefined) {
+          if (typeof descriptionRaw === "string" || descriptionRaw === null) {
+            patch.description = typeof descriptionRaw === "string" ? descriptionRaw : null;
+          } else {
+            errors.push("data.description must be a string or null");
+          }
+        }
+        if (categoryRaw !== undefined) {
+          if (categoryRaw === null) {
+            patch.categoryCode = null;
+          } else if (typeof categoryRaw === "string") {
+            const normalizedCategory = normalizeCategoryCode(categoryRaw);
+            if (!normalizedCategory) {
+              errors.push(`data.categoryCode must be one of ${HAZARD_CATEGORY_CODES.join(", ")}`);
+            } else {
+              patch.categoryCode = normalizedCategory;
+            }
+          } else {
+            errors.push("data.categoryCode must be a string or null");
+          }
+        }
+        if (existingControlsRaw !== undefined) {
+          const normalizedControls = normalizeStringArray(existingControlsRaw);
+          if (!normalizedControls) {
+            errors.push("data.existingControls must be an array of strings");
+          } else {
+            patch.existingControls = normalizedControls;
+          }
+        }
+        if (stepIdsRaw !== undefined) {
+          const normalizedStepIds = normalizeStringArray(stepIdsRaw);
+          if (!normalizedStepIds) {
+            errors.push("data.stepIds must be an array of strings");
+          } else {
+            const validStepIds = new Set(raCase.steps.map((s) => s.id));
+            const invalidIds = normalizedStepIds.filter((id) => !validStepIds.has(id));
+            if (invalidIds.length) {
+              errors.push(`data.stepIds contains invalid stepIds: ${invalidIds.join(", ")}`);
+            } else {
+              patch.stepIds = normalizedStepIds;
+            }
+          }
+        }
+
+        if (errors.length) {
+          return res.status(400).json({ error: "Invalid hazard data", details: errors });
+        }
+
+        const updatedHazard = await raService.updateHazard(caseId, hazardId, patch);
+        if (!updatedHazard) {
+          return res.status(404).json({ error: "Not found" });
+        }
+      } else if (intent === "add") {
+        const locationStepId = (location as any).stepId;
+        const stepId =
+          typeof locationStepId === "string" ? locationStepId : raCase.steps[0]?.id;
+        if (!stepId) {
+          return res.status(400).json({ error: "Cannot add hazard without a step" });
+        }
+        if (!raCase.steps.some((s) => s.id === stepId)) {
+          return res.status(400).json({ error: "Invalid stepId" });
+        }
+        const labelRaw = (data as any).label;
+        const descriptionRaw = (data as any).description;
+        const categoryRaw = (data as any).categoryCode;
+        const existingControlsRaw = (data as any).existingControls;
+
+        const label =
+          typeof labelRaw === "string" && labelRaw.trim().length > 0 ? labelRaw.trim() : "New hazard";
+        if (labelRaw !== undefined && typeof labelRaw !== "string") {
+          errors.push("data.label must be a string");
+        }
+        if (
+          descriptionRaw !== undefined &&
+          typeof descriptionRaw !== "string" &&
+          descriptionRaw !== null
+        ) {
+          errors.push("data.description must be a string or null");
+        }
+        let categoryCode: string | null | undefined = undefined;
+        if (categoryRaw !== undefined) {
+          if (categoryRaw === null) {
+            categoryCode = null;
+          } else if (typeof categoryRaw === "string") {
+            const normalizedCategory = normalizeCategoryCode(categoryRaw);
+            if (!normalizedCategory) {
+              errors.push(`data.categoryCode must be one of ${HAZARD_CATEGORY_CODES.join(", ")}`);
+            } else {
+              categoryCode = normalizedCategory;
+            }
+          } else {
+            errors.push("data.categoryCode must be a string or null");
+          }
+        }
+        let existingControls: string[] | undefined = undefined;
+        if (existingControlsRaw !== undefined) {
+          const normalizedControls = normalizeStringArray(existingControlsRaw);
+          if (!normalizedControls) {
+            errors.push("data.existingControls must be an array of strings");
+          } else {
+            existingControls = normalizedControls;
+          }
+        }
+        if (errors.length) {
+          return res.status(400).json({ error: "Invalid hazard data", details: errors });
+        }
+
+        const createdHazard = await raService.addManualHazard(caseId, {
+          stepId,
+          label,
+          description: typeof descriptionRaw === "string" ? descriptionRaw : undefined,
+          categoryCode,
+          existingControls
+        } as any);
+        if (!createdHazard) {
+          return res.status(404).json({ error: "Not found" });
+        }
+      } else if (intent === "delete" && typeof hazardId === "string") {
+        const removed = await raService.deleteHazard(caseId, hazardId);
+        if (!removed) {
+          return res.status(404).json({ error: "Not found" });
+        }
       }
     } else if (target === "control") {
       if (intent === "add") {
-        const hazardId = location?.hazardId ?? raCase.hazards[0]?.id;
-        if (hazardId) {
-          await raService.addProposedControl(caseId, {
-            hazardId,
-            description: data.description ?? "New control",
-            hierarchy: data.hierarchy
-          });
+        const hazardId = (location as any).hazardId ?? raCase.hazards[0]?.id;
+        if (typeof hazardId !== "string") {
+          return res.status(400).json({ error: "hazardId is required to add a control" });
         }
-      } else if (intent === "delete" && location?.controlId) {
-        await raService.deleteProposedControl(caseId, location.controlId);
+        if (!raCase.hazards.some((h) => h.id === hazardId)) {
+          return res.status(400).json({ error: "Invalid hazardId" });
+        }
+        const descriptionRaw = (data as any).description;
+        const hierarchyRaw = (data as any).hierarchy;
+        if (descriptionRaw !== undefined && typeof descriptionRaw !== "string") {
+          errors.push("data.description must be a string");
+        }
+        const hierarchy =
+          hierarchyRaw !== undefined ? normalizeHierarchy(hierarchyRaw) : undefined;
+        if (hierarchyRaw !== undefined && !hierarchy) {
+          errors.push(`data.hierarchy must be one of ${CONTROL_HIERARCHY_LEVELS.join(", ")}`);
+        }
+        if (errors.length) {
+          return res.status(400).json({ error: "Invalid control data", details: errors });
+        }
+        const updatedCaseForControl = await raService.addProposedControl(caseId, {
+          hazardId,
+          description: typeof descriptionRaw === "string" ? descriptionRaw : "New control",
+          hierarchy
+        } as any);
+        if (!updatedCaseForControl) {
+          return res.status(404).json({ error: "Not found" });
+        }
+      } else if (intent === "delete") {
+        const controlId = (location as any).controlId;
+        if (typeof controlId !== "string") {
+          return res.status(400).json({ error: "controlId is required to delete a control" });
+        }
+        const exists = raCase.hazards.some((h) =>
+          (h as any).proposedControls?.some((c: any) => c.id === controlId)
+        );
+        if (!exists) {
+          return res.status(400).json({ error: "Invalid controlId" });
+        }
+        const deleted = await raService.deleteProposedControl(caseId, controlId);
+        if (!deleted) {
+          return res.status(404).json({ error: "Not found" });
+        }
       }
     } else if (target === "action") {
       if (intent === "add") {
-        await raService.addAction(caseId, {
-          hazardId: location?.hazardId ?? raCase.hazards[0]?.id,
-          description: data.description ?? "New action",
-          owner: data.owner,
-          dueDate: data.dueDate
-        });
-      } else if (intent === "modify" && location?.actionId) {
-        await raService.updateAction(caseId, location.actionId, data);
-      } else if (intent === "delete" && location?.actionId) {
-        await raService.deleteAction(caseId, location.actionId);
-      }
-    } else if (target === "assessment") {
-      const hazardId = location?.hazardId ?? raCase.hazards[0]?.id;
-      const severity = normalizeSeverity((data as any).severity);
-      const likelihood = normalizeLikelihood((data as any).likelihood);
-      const requestedType = typeof (data as any).assessmentType === "string"
-        ? (data as any).assessmentType.toLowerCase()
-        : null;
+        const hazardId = (location as any).hazardId ?? raCase.hazards[0]?.id;
+        if (typeof hazardId !== "string") {
+          return res.status(400).json({ error: "hazardId is required to add an action" });
+        }
+        if (!raCase.hazards.some((h) => h.id === hazardId)) {
+          return res.status(400).json({ error: "Invalid hazardId" });
+        }
+        const descriptionRaw = (data as any).description;
+        const ownerRaw = (data as any).owner;
+        const dueDateRaw = (data as any).dueDate;
+        if (descriptionRaw !== undefined && typeof descriptionRaw !== "string") {
+          errors.push("data.description must be a string");
+        }
+        if (ownerRaw !== undefined && typeof ownerRaw !== "string") {
+          errors.push("data.owner must be a string");
+        }
+        if (dueDateRaw !== undefined && typeof dueDateRaw !== "string") {
+          errors.push("data.dueDate must be a string");
+        }
+        if (errors.length) {
+          return res.status(400).json({ error: "Invalid action data", details: errors });
+        }
+        const createdAction = await raService.addAction(caseId, {
+          hazardId,
+          description: typeof descriptionRaw === "string" ? descriptionRaw : "New action",
+          owner: typeof ownerRaw === "string" ? ownerRaw : undefined,
+          dueDate: typeof dueDateRaw === "string" ? dueDateRaw : undefined
+        } as any);
+        if (!createdAction) {
+          return res.status(404).json({ error: "Not found" });
+        }
+      } else if (intent === "modify") {
+        const actionId = (location as any).actionId;
+        if (typeof actionId !== "string") {
+          return res.status(400).json({ error: "actionId is required to modify an action" });
+        }
+        if (!raCase.actions.some((a) => a.id === actionId)) {
+          return res.status(400).json({ error: "Invalid actionId" });
+        }
+        const patch: any = {};
+        const descriptionRaw = (data as any).description;
+        const ownerRaw = (data as any).owner;
+        const dueDateRaw = (data as any).dueDate;
+        const statusRaw = (data as any).status;
+        if (descriptionRaw !== undefined) {
+          if (typeof descriptionRaw !== "string") {
+            errors.push("data.description must be a string");
+          } else {
+            patch.description = descriptionRaw;
+          }
+        }
+        if (ownerRaw !== undefined) {
+          if (typeof ownerRaw !== "string" && ownerRaw !== null) {
+            errors.push("data.owner must be a string or null");
+          } else {
+            patch.owner = ownerRaw;
+          }
+        }
+        if (dueDateRaw !== undefined) {
+          if (typeof dueDateRaw !== "string" && dueDateRaw !== null) {
+            errors.push("data.dueDate must be a string or null");
+          } else {
+            patch.dueDate = dueDateRaw;
+	          }
+	        }
+	        if (statusRaw !== undefined) {
+	          const normalizedStatus = normalizeActionStatus(statusRaw);
+	          if (!normalizedStatus) {
+	            errors.push(`data.status must be one of ${ACTION_STATUSES.join(", ")}`);
+	          } else {
+	            patch.status = normalizedStatus;
+	          }
+	        }
+	        if (errors.length) {
+	          return res.status(400).json({ error: "Invalid action data", details: errors });
+	        }
+	        const updatedAction = await raService.updateAction(caseId, actionId, patch);
+	        if (!updatedAction) {
+	          return res.status(404).json({ error: "Not found" });
+	        }
+	      } else if (intent === "delete") {
+	        const actionId = (location as any).actionId;
+	        if (typeof actionId !== "string") {
+	          return res.status(400).json({ error: "actionId is required to delete an action" });
+	        }
+	        if (!raCase.actions.some((a) => a.id === actionId)) {
+	          return res.status(400).json({ error: "Invalid actionId" });
+	        }
+	        const removed = await raService.deleteAction(caseId, actionId);
+	        if (!removed) {
+	          return res.status(404).json({ error: "Not found" });
+	        }
+	      }
+	    } else if (target === "assessment") {
+	      const hazardId = (location as any).hazardId ?? raCase.hazards[0]?.id;
+	      if (typeof hazardId !== "string") {
+	        return res.status(400).json({ error: "hazardId is required to update an assessment" });
+	      }
+      const requestedType =
+        typeof (data as any).assessmentType === "string"
+          ? (data as any).assessmentType.toLowerCase()
+          : null;
       const isResidual = requestedType === "residual" || raCase.phase === "RESIDUAL_RISK";
 
-      if (hazardId && severity && likelihood) {
-        if (isResidual) {
-          await raService.setResidualRiskRatings(caseId, [{ hazardId, severity, likelihood }]);
-        } else {
-          await raService.setHazardRiskRatings(caseId, [{ hazardId, severity, likelihood }]);
-        }
+	      const hazard = raCase.hazards.find((h) => h.id === hazardId);
+	      if (!hazard) {
+	        return res.status(400).json({ error: "Invalid hazardId" });
+	      }
+	      const currentSnapshot = isResidual
+	        ? hazard.residual
+	        : hazard.baseline;
+
+      const severityRaw = (data as any).severity;
+      const likelihoodRaw = (data as any).likelihood;
+      const severity =
+        severityRaw !== undefined ? normalizeSeverity(severityRaw) : currentSnapshot?.severity;
+      const likelihood =
+        likelihoodRaw !== undefined ? normalizeLikelihood(likelihoodRaw) : currentSnapshot?.likelihood;
+
+      if (severityRaw !== undefined && !severity) {
+        errors.push(`data.severity must be one of ${SEVERITY_LEVELS.join(", ")}`);
       }
+      if (likelihoodRaw !== undefined && !likelihood) {
+        errors.push(`data.likelihood must be one of ${LIKELIHOOD_LEVELS.join(", ")}`);
+      }
+      if (!severity || !likelihood) {
+        errors.push("severity and likelihood are required");
+      }
+      if (errors.length) {
+        return res.status(400).json({ error: "Invalid assessment data", details: errors });
+      }
+
+	      if (isResidual) {
+	        const updatedRatings = await raService.setResidualRiskRatings(caseId, [{ hazardId, severity, likelihood }]);
+	        if (!updatedRatings) {
+	          return res.status(404).json({ error: "Not found" });
+	        }
+	      } else {
+	        const updatedRatings = await raService.setHazardRiskRatings(caseId, [{ hazardId, severity, likelihood }]);
+	        if (!updatedRatings) {
+	          return res.status(404).json({ error: "Not found" });
+	        }
+	      }
     }
 
     // Return updated case

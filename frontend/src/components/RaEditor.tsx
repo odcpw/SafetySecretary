@@ -86,7 +86,14 @@ const WorkspaceTopBar = ({
           className="btn-outline"
           onClick={() => window.open(`/api/ra-cases/${caseId}/export/pdf`, "_blank", "noopener")}
         >
-          Export
+          Export PDF
+        </button>
+        <button
+          type="button"
+          className="btn-outline"
+          onClick={() => window.open(`/api/ra-cases/${caseId}/export/xlsx`, "_blank", "noopener")}
+        >
+          Export XLSX
         </button>
       </div>
     </header>

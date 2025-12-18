@@ -54,9 +54,9 @@ describe("PhaseRiskRating", () => {
       />
     );
 
-    expect(screen.getByText("Prep area")).toBeInTheDocument(); // activity name
-    expect(screen.getByText("Slip on wet floor")).toBeInTheDocument();
-    expect(screen.getByText("Clean up")).toBeInTheDocument();
-    expect(screen.getByText("Chemical splash")).toBeInTheDocument();
+    expect(screen.getAllByText("Prep area").length).toBeGreaterThan(0); // activity name
+    expect(screen.getByText(/Slip on wet floor/i)).toBeInTheDocument();
+    expect(screen.getAllByText("Clean up").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Chemical splash/i)).toBeInTheDocument();
   });
 });

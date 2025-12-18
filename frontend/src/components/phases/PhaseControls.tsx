@@ -255,6 +255,7 @@ export const PhaseControls = ({
         primaryLabel="Generate suggestions"
         status={llmStatus}
         disabled={saving}
+        enableVoice
         onChange={setAssistantNotes}
         onSubmit={handleExtractControls}
         onClear={() => setAssistantNotes("")}

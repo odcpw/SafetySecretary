@@ -105,6 +105,18 @@ export interface RiskAssessmentCaseSummary {
 export class RiskAssessmentService {
   constructor(private readonly db = prisma) {}
 
+  async connect(): Promise<void> {
+    if (typeof (this.db as any).$connect === "function") {
+      await (this.db as any).$connect();
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (typeof (this.db as any).$disconnect === "function") {
+      await (this.db as any).$disconnect();
+    }
+  }
+
   private async hazardIdsBelongToCase(caseId: string, hazardIds: string[]): Promise<boolean> {
     const uniqueHazardIds = [...new Set(hazardIds.filter((id) => typeof id === "string" && id.length > 0))];
     if (uniqueHazardIds.length === 0) {

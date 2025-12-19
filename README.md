@@ -16,7 +16,7 @@ This project scaffolds the backend for the SafetySecretary risk assessment flow 
    ```
 2. Boot Postgres via Docker Compose (defaults match `.env.example`):
    ```bash
-   docker compose up -d db
+   npm run db:up
    ```
 3. Install dependencies for both the backend and the Vite frontend (the `postinstall` script handles the latter automatically):
    ```bash
@@ -33,6 +33,8 @@ This project scaffolds the backend for the SafetySecretary risk assessment flow 
    The browser UI now has a **New case** button so you can create/seed a `RiskAssessmentCase` without touching curl or Postman. Loading an existing case is still available via the ID form. LLM extractions now run asynchronously—each request enqueues a job, the UI polls `/api/llm-jobs/:id`, and the case refreshes automatically once the job completes.
 
 > Need to run just one side? Use `npm run dev:server` (API only) or `npm run dev:client` (frontend only). Production builds run via `npm run build` which bundles both workspaces.
+
+If the API prints `Can't reach database server at localhost:5432`, Postgres is not running—start it with `npm run db:up` and re-run `npm run db:migrate`.
 
 ## Available Scripts
 

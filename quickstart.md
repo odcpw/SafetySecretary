@@ -11,7 +11,7 @@ Spin up the full MVP (Postgres + API + React UI) in a few commands.
 ## 2. Boot Postgres
 
 ```bash
-docker compose up -d db
+npm run db:up
 ```
 
 This starts a Postgres 16 instance with credentials matching `.env.example`.
@@ -48,6 +48,8 @@ This runs `prisma migrate deploy` against the Postgres instance using the pre-ge
 ```bash
 npm run dev
 ```
+
+If you see `Can't reach database server at localhost:5432`, Postgres is not running. Run `npm run db:up` and try again.
 
 This runs the Express API on `http://localhost:4000` and the Vite dev server on `http://localhost:5173` (proxying `/api` to the backend). LLM-powered extractions now run asynchronously—each request enqueues a job, the UI polls `/api/llm-jobs/:id`, and the case refreshes automatically when the job completes.
 

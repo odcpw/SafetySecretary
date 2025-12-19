@@ -19,7 +19,10 @@
     "prepare": "prisma generate",
     "postinstall": "npm install --prefix frontend",
     "db:migrate": "prisma migrate deploy",
-    "db:dev": "prisma migrate dev"
+    "db:dev": "prisma migrate dev",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f db"
   },
   "keywords": [],
   "author": "",

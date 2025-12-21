@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { GlobalLLMInput } from "../GlobalLLMInput";
+import { I18nProvider } from "@/i18n/I18nContext";
 
 const parseContextualUpdate = vi.fn();
 const applyContextualUpdate = vi.fn();
@@ -41,7 +42,11 @@ describe("GlobalLLMInput clarification loop", () => {
         needsClarification: false
       });
 
-    render(<GlobalLLMInput currentPhase="PROCESS_STEPS" />);
+    render(
+      <I18nProvider>
+        <GlobalLLMInput currentPhase="PROCESS_STEPS" />
+      </I18nProvider>
+    );
 
     await user.type(screen.getByPlaceholderText(/Describe changes in natural language/i), "Add a ladder");
     await user.click(screen.getByRole("button", { name: "Parse" }));

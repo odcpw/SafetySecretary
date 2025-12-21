@@ -3,18 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
+import { UserMenu } from "@/components/common/UserMenu";
+import { apiFetch } from "@/lib/api";
 import type { RiskAssessmentCaseSummary } from "@/types/riskAssessment";
-
-const createCaseSchema = z.object({
-  activityName: z.string().min(1, "Activity name is required"),
-  location: z.string().optional(),
-  team: z.string().optional()
-});
-
-type CreateCaseForm = z.infer<typeof createCaseSchema>;
+import { useI18n } from "@/i18n/I18nContext";
 
 export const CaseLanding = () => {
   const navigate = useNavigate();
+  const { t, formatDateTime } = useI18n();
   const [loadId, setLoadId] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -24,12 +21,24 @@ export const CaseLanding = () => {
   const [casesError, setCasesError] = useState<string | null>(null);
   const [casesLoading, setCasesLoading] = useState(false);
 
+  const createCaseSchema = useMemo(
+    () =>
+      z.object({
+        activityName: z.string().min(1, t("landing.hira.errors.activityRequired")),
+        location: z.string().optional(),
+        team: z.string().optional()
+      }),
+    [t]
+  );
+
+  type CreateCaseForm = z.infer<typeof createCaseSchema>;
+
   const titleSubtitle = useMemo(() => {
     if (!loadId) {
-      return "Start by creating a new case or load an existing case ID.";
+      return t("landing.hira.hero.subtitleDefault");
     }
-    return `Ready to open ${loadId}?`;
-  }, [loadId]);
+    return t("landing.hira.hero.subtitleReady", { values: { id: loadId } });
+  }, [loadId, t]);
 
   const {
     register,
@@ -47,7 +56,7 @@ export const CaseLanding = () => {
   const handleLoad = (event: React.FormEvent) => {
     event.preventDefault();
     if (!loadId.trim()) {
-      setLoadError("Enter a case ID");
+      setLoadError(t("landing.hira.errors.missingId"));
       return;
     }
     navigate(`/cases/${encodeURIComponent(loadId.trim())}`);
@@ -57,19 +66,19 @@ export const CaseLanding = () => {
     setCreating(true);
     setServerError(null);
     try {
-      const response = await fetch("/api/ra-cases", {
+      const response = await apiFetch("/api/ra-cases", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(values)
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || "Failed to create case");
+        throw new Error(text || t("landing.hira.errors.createFailed"));
       }
       const data = await response.json();
       navigate(`/cases/${data.id}`);
     } catch (error) {
-      setServerError(error instanceof Error ? error.message : "Unable to create case");
+      setServerError(error instanceof Error ? error.message : t("landing.hira.errors.createFailed"));
     } finally {
       setCreating(false);
     }
@@ -86,30 +95,30 @@ export const CaseLanding = () => {
     setCasesLoading(true);
     setCasesError(null);
     try {
-      const response = await fetch("/api/ra-cases?limit=20");
+      const response = await apiFetch("/api/ra-cases?limit=20");
       if (!response.ok) {
         throw new Error(await response.text());
       }
       const data = (await response.json()) as { cases: RiskAssessmentCaseSummary[] };
       setRecentCases(data.cases ?? []);
     } catch (error) {
-      setCasesError(error instanceof Error ? error.message : "Unable to load cases");
+      setCasesError(error instanceof Error ? error.message : t("landing.hira.errors.loadFailed"));
     } finally {
       setCasesLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void fetchRecentCases();
   }, [fetchRecentCases]);
 
   const handleRemoveSaved = async (id: string) => {
-    if (!window.confirm("Delete this case? This will remove it from the workspace.")) {
+    if (!window.confirm(t("landing.hira.confirmDelete"))) {
       return;
     }
-    const response = await fetch(`/api/ra-cases/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const response = await apiFetch(`/api/ra-cases/${encodeURIComponent(id)}`, { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
-      setCasesError("Unable to delete case.");
+      setCasesError(t("landing.hira.errors.deleteFailed"));
       return;
     }
     void fetchRecentCases();
@@ -123,15 +132,21 @@ export const CaseLanding = () => {
     <div className="landing-shell">
       <section className="landing-hero">
         <div className="landing-hero__inner">
-          <p className="text-label">SafetySecretary</p>
-          <h1>AI-assisted risk assessments for teams who care about detail.</h1>
+          <div className="landing-hero__header">
+            <p className="text-label">{t("common.appName")}</p>
+            <div className="landing-hero__meta">
+              <ThemeToggle />
+              <UserMenu />
+            </div>
+          </div>
+          <h1>{t("landing.hira.hero.title")}</h1>
           <p>{titleSubtitle}</p>
           <div className="landing-hero__actions">
             <button type="button" onClick={() => scrollTo("create-card")}>
-              Start new case
+              {t("landing.hira.hero.primaryAction")}
             </button>
             <button type="button" className="btn-outline" onClick={() => scrollTo("load-card")}>
-              Load existing case
+              {t("landing.hira.hero.secondaryAction")}
             </button>
           </div>
         </div>
@@ -140,12 +155,12 @@ export const CaseLanding = () => {
       <main className="landing-panels">
         <form id="load-card" className="landing-card app-panel" onSubmit={handleLoad}>
           <div className="landing-card__header">
-            <p className="text-label">Existing work</p>
-            <h2>Load an in-progress case</h2>
-            <p>Paste the RiskAssessmentCase ID from the API or PDF export.</p>
+            <p className="text-label">{t("landing.hira.load.label")}</p>
+            <h2>{t("landing.hira.load.title")}</h2>
+            <p>{t("landing.hira.load.subtitle")}</p>
           </div>
           <div className="landing-card__body">
-            <label htmlFor="load-id">RiskAssessmentCase ID</label>
+            <label htmlFor="load-id">{t("landing.hira.load.inputLabel")}</label>
             <input
               id="load-id"
               value={loadId}
@@ -153,53 +168,57 @@ export const CaseLanding = () => {
                 setLoadId(event.target.value);
                 setLoadError(null);
               }}
-              placeholder="e.g. 9b03b61e-..."
+              placeholder={t("landing.hira.load.inputPlaceholder")}
             />
             {loadError && <p className="text-error">{loadError}</p>}
           </div>
           <div className="landing-card__actions">
             <button type="submit" className="btn-outline" disabled={!loadId.trim()}>
-              Jump back in
+              {t("landing.hira.load.action")}
             </button>
           </div>
         </form>
 
         <form id="create-card" className="landing-card app-panel" onSubmit={onCreateCase}>
           <div className="landing-card__header">
-            <p className="text-label">New activity</p>
-            <h2>Create a fresh assessment</h2>
-            <p>Describe the work, then walk through the phases with your team.</p>
+            <p className="text-label">{t("landing.hira.create.label")}</p>
+            <h2>{t("landing.hira.create.title")}</h2>
+            <p>{t("landing.hira.create.subtitle")}</p>
           </div>
           <div className="landing-card__body">
-            <label htmlFor="activity-name">Activity name</label>
-            <input id="activity-name" {...register("activityName")} placeholder="Inspect mixing tank" />
+            <label htmlFor="activity-name">{t("landing.hira.create.activityLabel")}</label>
+            <input
+              id="activity-name"
+              {...register("activityName")}
+              placeholder={t("landing.hira.create.activityPlaceholder")}
+            />
             {errors.activityName && <p className="text-error">{errors.activityName.message}</p>}
 
-            <label htmlFor="location">Location (optional)</label>
-            <input id="location" {...register("location")} placeholder="Plant 3 mezzanine" />
+            <label htmlFor="location">{t("landing.hira.create.locationLabel")}</label>
+            <input id="location" {...register("location")} placeholder={t("landing.hira.create.locationPlaceholder")} />
 
-            <label htmlFor="team">Team (optional)</label>
-            <input id="team" {...register("team")} placeholder="Maintenance" />
+            <label htmlFor="team">{t("landing.hira.create.teamLabel")}</label>
+            <input id="team" {...register("team")} placeholder={t("landing.hira.create.teamPlaceholder")} />
             {serverError && <p className="text-error">{serverError}</p>}
           </div>
           <div className="landing-card__actions">
             <button type="submit" disabled={creating}>
-              {creating ? "Creating…" : "Create case"}
+              {creating ? t("landing.hira.create.creating") : t("landing.hira.create.action")}
             </button>
           </div>
         </form>
 
         <section className="landing-card app-panel">
           <div className="landing-card__header">
-            <p className="text-label">Recently opened</p>
-            <h2>Your saved cases</h2>
-            <p>Pick up where you left off. These entries stay in your browser.</p>
+            <p className="text-label">{t("landing.hira.recent.label")}</p>
+            <h2>{t("landing.hira.recent.title")}</h2>
+            <p>{t("landing.hira.recent.subtitle")}</p>
           </div>
           <div className="landing-card__body">
-            {casesLoading && <p className="text-muted">Loading latest cases…</p>}
+            {casesLoading && <p className="text-muted">{t("landing.hira.recent.loading")}</p>}
             {casesError && <p className="text-error">{casesError}</p>}
             {!casesLoading && recentCases.length === 0 && (
-              <p className="text-muted">No cases yet. Create one to see it here.</p>
+              <p className="text-muted">{t("landing.hira.recent.empty")}</p>
             )}
             {recentCases.length > 0 && (
               <ul className="saved-cases-list">
@@ -208,18 +227,20 @@ export const CaseLanding = () => {
                     <div className="saved-case-meta">
                       <h3>{entry.activityName}</h3>
                       <p>
-                        {entry.location || "Location pending"} · {entry.team || "Team pending"}
+                        {entry.location || t("workspace.locationPending")} · {entry.team || t("workspace.teamPending")}
                       </p>
                       <span className="status-pill">
-                        Updated {new Date(entry.updatedAt).toLocaleString()}
+                        {t("landing.hira.recent.updated", {
+                          values: { date: formatDateTime(entry.updatedAt) }
+                        })}
                       </span>
                     </div>
                     <div className="saved-case-actions">
                       <button type="button" className="btn-outline" onClick={() => handleLoadSaved(entry.id)}>
-                        Load
+                        {t("landing.hira.recent.load")}
                       </button>
                       <button type="button" className="btn-danger" onClick={() => handleRemoveSaved(entry.id)}>
-                        Delete
+                        {t("landing.hira.recent.delete")}
                       </button>
                     </div>
                   </li>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AssistantPanel } from "@/components/common/AssistantPanel";
+import { SaveStatus } from "@/components/common/SaveStatus";
 import {
   SheetBody,
   SheetButton,
@@ -13,11 +14,15 @@ import {
 } from "@/components/ui/SheetTable";
 import type { ControlHierarchy, RiskAssessmentCase } from "@/types/riskAssessment";
 import {
+  buildDefaultMatrixLabels,
   getRiskColorForAssessment,
+  getRiskLabelForAssessment,
   loadMatrixSettings,
   type RiskMatrixSettings
 } from "@/lib/riskMatrixSettings";
 import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
+import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseControlsProps {
   raCase: RiskAssessmentCase;
@@ -32,13 +37,6 @@ interface PhaseControlsProps {
   mode?: "controls" | "residual";
 }
 
-const HIERARCHY_OPTIONS: { value: ControlHierarchy; label: string; description: string }[] = [
-  { value: "SUBSTITUTION", label: "S - Substitution", description: "Replace the hazard entirely" },
-  { value: "TECHNICAL", label: "T - Technical", description: "Engineering controls (guards, barriers)" },
-  { value: "ORGANIZATIONAL", label: "O - Organizational", description: "Procedures, training, supervision" },
-  { value: "PPE", label: "P - PPE", description: "Personal protective equipment" }
-];
-
 const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
   const grouped = raCase.steps.map((step) => ({
     step,
@@ -48,9 +46,6 @@ const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
   }));
   return grouped.filter((entry) => entry.hazards.length > 0);
 };
-
-const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS.map(({ value, label }) => ({ value, label }));
-const LIKELIHOOD_OPTIONS = TEMPLATE_LIKELIHOOD_OPTIONS.map(({ value, label }) => ({ value, label }));
 
 // Form state for adding new proposed controls
 interface NewControlForm {
@@ -94,16 +89,46 @@ export const PhaseControls = ({
   canAdvance = true,
   mode = "controls"
 }: PhaseControlsProps) => {
+  const { t, locale } = useI18n();
+  const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
   const [residualDraft, setResidualDraft] = useState<Record<string, { severity: string; likelihood: string }>>(() =>
     getResidualDraft(raCase)
   );
   const [controlForms, setControlForms] = useState<Record<string, NewControlForm>>({});
-  const [status, setStatus] = useState<string | null>(null);
-  const [riskSettings, setRiskSettings] = useState<RiskMatrixSettings | null>(() => loadMatrixSettings());
+  const [riskSettings, setRiskSettings] = useState<RiskMatrixSettings | null>(() => loadMatrixSettings(defaultLabels));
   const [assistantNotes, setAssistantNotes] = useState("");
   const [llmStatus, setLlmStatus] = useState<string | null>(null);
   // State for inline editing of existing controls
   const [existingControlsEditing, setExistingControlsEditing] = useState<Record<string, string>>({});
+  const { status, show, showSuccess, showError, clear } = useSaveStatus();
+
+  const hierarchyOptions = useMemo(
+    () => [
+      { value: "SUBSTITUTION" as const, label: t("ra.controls.hierarchy.substitution"), description: t("ra.controls.hierarchy.substitutionHint") },
+      { value: "TECHNICAL" as const, label: t("ra.controls.hierarchy.technical"), description: t("ra.controls.hierarchy.technicalHint") },
+      { value: "ORGANIZATIONAL" as const, label: t("ra.controls.hierarchy.organizational"), description: t("ra.controls.hierarchy.organizationalHint") },
+      { value: "PPE" as const, label: t("ra.controls.hierarchy.ppe"), description: t("ra.controls.hierarchy.ppeHint") }
+    ],
+    [t]
+  );
+
+  const severityOptions = useMemo(
+    () =>
+      TEMPLATE_SEVERITY_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(`domain.severity.${option.value}`, { fallback: option.label })
+      })),
+    [t]
+  );
+
+  const likelihoodOptions = useMemo(
+    () =>
+      TEMPLATE_LIKELIHOOD_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(`domain.likelihood.${option.value}`, { fallback: option.label })
+      })),
+    [t]
+  );
 
   useEffect(() => {
     const handle = requestAnimationFrame(() => {
@@ -113,27 +138,36 @@ export const PhaseControls = ({
   }, [raCase]);
 
   useEffect(() => {
-    const syncSettings = () => setRiskSettings(loadMatrixSettings());
+    const syncSettings = () => setRiskSettings(loadMatrixSettings(defaultLabels));
     window.addEventListener("storage", syncSettings);
     return () => window.removeEventListener("storage", syncSettings);
-  }, []);
+  }, [defaultLabels]);
+
+  useEffect(() => {
+    setRiskSettings(loadMatrixSettings(defaultLabels));
+  }, [defaultLabels]);
 
   const grouped = groupHazardsByStep(raCase);
   const stepNumberMap = useMemo(() => new Map(raCase.steps.map((step, index) => [step.id, index + 1])), [raCase.steps]);
 
-  const saveResidualDraft = async (nextDraft?: Record<string, { severity: string; likelihood: string }>) => {
+  const saveResidualDraft = async (
+    hazardIds?: string[],
+    nextDraft?: Record<string, { severity: string; likelihood: string }>
+  ) => {
     const source = nextDraft ?? residualDraft;
-    const payload = raCase.hazards
-      .map((hazard) => ({
-        hazardId: hazard.id,
-        severity: source[hazard.id]?.severity ?? "",
-        likelihood: source[hazard.id]?.likelihood ?? ""
+    const ids = hazardIds ?? raCase.hazards.map((hazard) => hazard.id);
+    const payload = ids
+      .map((hazardId) => ({
+        hazardId,
+        severity: source[hazardId]?.severity ?? "",
+        likelihood: source[hazardId]?.likelihood ?? ""
       }))
-      .filter((entry) => entry.severity && entry.likelihood);
+      .filter((entry) => (entry.severity && entry.likelihood) || (!entry.severity && !entry.likelihood));
     if (!payload.length) {
-      return;
+      return false;
     }
     await onSaveResidualRisk(payload);
+    return true;
   };
 
   const handleAddControl = async (hazardId: string) => {
@@ -142,61 +176,106 @@ export const PhaseControls = ({
     if (!description) {
       return;
     }
-    setStatus("Adding proposed control...");
+    show({ message: t("ra.controls.addingProposed"), tone: "info" });
     const hierarchy = form.hierarchy || undefined;
-    await onAddProposedControl(hazardId, description, hierarchy);
-    setControlForms((prev) => ({ ...prev, [hazardId]: { description: "", hierarchy: "" } }));
-    setStatus("Proposed control added.");
-    setTimeout(() => setStatus(null), 1500);
+    try {
+      await onAddProposedControl(hazardId, description, hierarchy);
+      setControlForms((prev) => ({ ...prev, [hazardId]: { description: "", hierarchy: "" } }));
+      showSuccess(t("ra.controls.proposedAdded"));
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.controls.addFailed"),
+        () => void handleAddControl(hazardId),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleDeleteControl = async (hazardId: string, controlId: string) => {
-    if (!window.confirm("Remove this proposed control?")) {
+    if (!window.confirm(t("ra.controls.confirmRemove"))) {
       return;
     }
-    setStatus("Removing control...");
-    await onDeleteProposedControl(hazardId, controlId);
-    setStatus("Control removed.");
-    setTimeout(() => setStatus(null), 1200);
+    show({ message: t("ra.controls.removing"), tone: "info" });
+    try {
+      await onDeleteProposedControl(hazardId, controlId);
+      showSuccess(t("ra.controls.removed"), 1200);
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.controls.removeFailed"),
+        () => void handleDeleteControl(hazardId, controlId),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleResidualChange = (hazardId: string, patch: Partial<{ severity: string; likelihood: string }>) => {
     setResidualDraft((prev) => {
       const current = prev[hazardId] ?? { severity: "", likelihood: "" };
       const next = { ...current, ...patch };
-      void saveResidualDraft({ ...prev, [hazardId]: next });
+      const nextDraft = { ...prev, [hazardId]: next };
+      const shouldSave =
+        (next.severity && next.likelihood) || (!next.severity && !next.likelihood);
+      if (shouldSave) {
+        const isClearing = !next.severity && !next.likelihood;
+        show({ message: isClearing ? t("ra.controls.clearingResidual") : t("ra.controls.savingResidual"), tone: "info" });
+        void saveResidualDraft([hazardId], nextDraft)
+          .then((saved) => {
+            if (saved) {
+              showSuccess(isClearing ? t("ra.controls.residualCleared") : t("ra.controls.residualSaved"));
+            }
+          })
+          .catch((error) => {
+            console.error(error);
+            showError(
+              error instanceof Error ? error.message : t("ra.controls.residualSaveFailed"),
+              () => void handleResidualChange(hazardId, patch),
+              undefined,
+              t("common.retry")
+            );
+          });
+      }
       return { ...prev, [hazardId]: next };
     });
-    setStatus("Saving residual risk…");
-    setTimeout(() => setStatus(null), 1200);
   };
 
   const handleSaveResidual = async () => {
-    setStatus("Saving residual risk…");
-    await saveResidualDraft();
-    setStatus("Residual risk updated.");
-    setTimeout(() => setStatus(null), 1500);
+    show({ message: t("ra.controls.savingResidual"), tone: "info" });
+    try {
+      const saved = await saveResidualDraft();
+      showSuccess(saved ? t("ra.controls.residualUpdated") : t("ra.controls.nothingToSave"));
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.controls.residualSaveFailed"),
+        () => void handleSaveResidual(),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const statusHint =
-    status ??
-    (mode === "residual"
-      ? "Verify that your controls reduce risk to an acceptable level."
-      : "Document every safeguard and the target residual rating.");
+    mode === "residual"
+      ? t("ra.controls.residualHint")
+      : t("ra.controls.controlsHint");
 
   const handleExtractControls = async () => {
     if (!assistantNotes.trim()) {
       return;
     }
-    setLlmStatus("Requesting suggestions…");
+    setLlmStatus(t("ra.controls.requestingSuggestions"));
     try {
       await onExtractControls(assistantNotes);
       setAssistantNotes("");
-      setLlmStatus("Suggestions requested. Check back after the job completes.");
+      setLlmStatus(t("ra.controls.suggestionsRequested"));
       setTimeout(() => setLlmStatus(null), 2000);
     } catch (err) {
       console.error(err);
-      setLlmStatus(err instanceof Error ? err.message : "Failed to request suggestions");
+      setLlmStatus(err instanceof Error ? err.message : t("ra.controls.suggestionsFailed"));
       setTimeout(() => setLlmStatus(null), 5000);
     }
   };
@@ -210,15 +289,24 @@ export const PhaseControls = ({
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
 
-    setStatus("Updating existing controls…");
-    await onUpdateHazard(hazardId, { existingControls: controls });
-    setExistingControlsEditing((prev) => {
-      const next = { ...prev };
-      delete next[hazardId];
-      return next;
-    });
-    setStatus("Controls updated.");
-    setTimeout(() => setStatus(null), 1500);
+    show({ message: t("ra.controls.updatingExisting"), tone: "info" });
+    try {
+      await onUpdateHazard(hazardId, { existingControls: controls });
+      setExistingControlsEditing((prev) => {
+        const next = { ...prev };
+        delete next[hazardId];
+        return next;
+      });
+      showSuccess(t("ra.controls.existingUpdated"));
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.controls.existingUpdateFailed"),
+        () => void handleExistingControlsBlur(hazardId),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const getExistingControlsEditValue = (hazard: RiskAssessmentCase["hazards"][number]) => {
@@ -228,17 +316,20 @@ export const PhaseControls = ({
     return (hazard.existingControls ?? []).join("\n");
   };
 
+  const voiceLang = locale === "fr" ? "fr-FR" : locale === "de" ? "de-DE" : "en-US";
+
   return (
     <div className="space-y-6">
       <AssistantPanel
-        title="Let the assistant draft controls"
-        description="Paste observations or inspection notes and the assistant will propose controls plus a target residual rating."
+        title={t("ra.controls.assistantTitle")}
+        description={t("ra.controls.assistantDescription")}
         value={assistantNotes}
-        placeholder="Describe safeguards, audit findings, nagging worries..."
-        primaryLabel="Generate suggestions"
+        placeholder={t("ra.controls.assistantPlaceholder")}
+        primaryLabel={t("ra.controls.assistantAction")}
         status={llmStatus}
         disabled={saving}
         enableVoice
+        voiceLang={voiceLang}
         onChange={setAssistantNotes}
         onSubmit={handleExtractControls}
         onClear={() => setAssistantNotes("")}
@@ -260,10 +351,10 @@ export const PhaseControls = ({
               </colgroup>
               <SheetHead>
                 <SheetRow>
-                  <SheetHeaderCell>Hazard</SheetHeaderCell>
-                  <SheetHeaderCell>Controls</SheetHeaderCell>
-                  <SheetHeaderCell>Residual assessment</SheetHeaderCell>
-                  <SheetHeaderCell>Risk trend</SheetHeaderCell>
+                  <SheetHeaderCell>{t("ra.controls.table.hazard")}</SheetHeaderCell>
+                  <SheetHeaderCell>{t("ra.controls.table.controls")}</SheetHeaderCell>
+                  <SheetHeaderCell>{t("ra.controls.table.residualAssessment")}</SheetHeaderCell>
+                  <SheetHeaderCell>{t("ra.controls.table.riskTrend")}</SheetHeaderCell>
                 </SheetRow>
               </SheetHead>
               <SheetBody>
@@ -272,7 +363,7 @@ export const PhaseControls = ({
                   const residualPreview =
                     residual.severity && residual.likelihood
                       ? `${residual.severity} × ${residual.likelihood}`
-                      : "Pending";
+                      : t("ra.controls.pending");
                   const numbering =
                     stepNumberMap.get(step.id) !== undefined
                       ? `${stepNumberMap.get(step.id)}.${hazardIndex + 1}`
@@ -296,10 +387,12 @@ export const PhaseControls = ({
                         <div className="sheet-control-list space-y-3">
                           {/* Existing controls - editable */}
                           <div className="space-y-1">
-                            <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Existing</div>
+                            <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                              {t("ra.controls.existingLabel")}
+                            </div>
                             <textarea
                               className="w-full min-h-[50px] text-sm border border-slate-200 rounded p-2 resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="One control per line…"
+                              placeholder={t("ra.controls.onePerLine")}
                               value={getExistingControlsEditValue(hazard)}
                               onChange={(event) =>
                                 setExistingControlsEditing((prev) => ({ ...prev, [hazard.id]: event.target.value }))
@@ -311,9 +404,11 @@ export const PhaseControls = ({
                           {/* Proposed controls - with hierarchy badge and delete */}
                           {hazard.proposedControls && hazard.proposedControls.length > 0 && (
                             <div className="space-y-1">
-                              <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">Proposed</div>
+                              <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                                {t("ra.controls.proposedLabel")}
+                              </div>
                               {hazard.proposedControls.map((control) => {
-                                const hierarchyOption = HIERARCHY_OPTIONS.find((h) => h.value === control.hierarchy);
+                                const hierarchyOption = hierarchyOptions.find((h) => h.value === control.hierarchy);
                                 return (
                                   <div key={control.id} className="flex items-start gap-2 text-sm">
                                     {hierarchyOption && (
@@ -338,7 +433,7 @@ export const PhaseControls = ({
                           {/* Empty state */}
                           {(!hazard.existingControls || hazard.existingControls.length === 0) &&
                            (!hazard.proposedControls || hazard.proposedControls.length === 0) && (
-                            <p className="text-sm text-slate-500 italic">No controls yet.</p>
+                            <p className="text-sm text-slate-500 italic">{t("ra.controls.noControls")}</p>
                           )}
 
                           {/* Add proposed control form */}
@@ -357,7 +452,7 @@ export const PhaseControls = ({
                                   [hazard.id]: { ...prev[hazard.id], description: event.target.value, hierarchy: prev[hazard.id]?.hierarchy ?? "" }
                                 }))
                               }
-                              placeholder="Describe proposed control"
+                              placeholder={t("ra.controls.proposedPlaceholder")}
                             />
                             <div className="flex gap-2">
                               <SheetSelect
@@ -369,15 +464,15 @@ export const PhaseControls = ({
                                   }))
                                 }
                               >
-                                <option value="">S-T-O-P level…</option>
-                                {HIERARCHY_OPTIONS.map((option) => (
+                                <option value="">{t("ra.controls.hierarchySelect")}</option>
+                                {hierarchyOptions.map((option) => (
                                   <option key={option.value} value={option.value}>
                                     {option.label}
                                   </option>
                                 ))}
                               </SheetSelect>
                               <SheetButton type="submit" variant="primary" disabled={saving}>
-                                Add
+                                {t("common.add")}
                               </SheetButton>
                             </div>
                           </form>
@@ -386,15 +481,15 @@ export const PhaseControls = ({
                       <SheetCell>
                         <div className="sheet-risk-cell" style={{ backgroundColor: cellColor, color: textColor }}>
                           <label>
-                            Severity
+                            {t("ra.controls.severity")}
                             <SheetSelect
                               value={residual.severity}
                               onChange={(event) =>
                                 handleResidualChange(hazard.id, { severity: event.target.value })
                               }
                             >
-                              <option value="">Select…</option>
-                              {SEVERITY_OPTIONS.map((option) => (
+                              <option value="">{t("ra.controls.selectOption")}</option>
+                              {severityOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
                                 </option>
@@ -402,15 +497,15 @@ export const PhaseControls = ({
                             </SheetSelect>
                           </label>
                           <label>
-                            Likelihood
+                            {t("ra.controls.likelihood")}
                             <SheetSelect
                               value={residual.likelihood}
                               onChange={(event) =>
                                 handleResidualChange(hazard.id, { likelihood: event.target.value })
                               }
                             >
-                              <option value="">Select…</option>
-                              {LIKELIHOOD_OPTIONS.map((option) => (
+                              <option value="">{t("ra.controls.selectOption")}</option>
+                              {likelihoodOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
                                 </option>
@@ -420,12 +515,26 @@ export const PhaseControls = ({
                         </div>
                       </SheetCell>
                       <SheetCell className="sheet-cell-actions">
-                        <div className="text-xs text-slate-500">
-                          Baseline: {hazard.baseline?.riskRating ?? "n/a"}
-                        </div>
-                        <div className="text-xs font-semibold text-slate-700">
-                          Residual: {hazard.residual?.riskRating ?? residualPreview}
-                        </div>
+                        {(() => {
+                          const baselineLabel =
+                            hazard.baseline?.riskRating ??
+                            getRiskLabelForAssessment(hazard.baseline?.severity, hazard.baseline?.likelihood, riskSettings ?? undefined) ??
+                            t("common.noData");
+                          const residualLabel =
+                            hazard.residual?.riskRating ??
+                            getRiskLabelForAssessment(residual.severity, residual.likelihood, riskSettings ?? undefined) ??
+                            residualPreview;
+                          return (
+                            <>
+                              <div className="text-xs text-slate-500">
+                                {t("ra.controls.baselineLabel")}: {baselineLabel}
+                              </div>
+                              <div className="text-xs font-semibold text-slate-700">
+                                {t("ra.controls.residualLabel")}: {residualLabel}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </SheetCell>
                     </SheetRow>
                   );
@@ -433,7 +542,7 @@ export const PhaseControls = ({
                 {hazards.length === 0 && (
                   <SheetRow>
                     <SheetCell colSpan={5} className="sheet-empty-cell">
-                      No hazards assigned to this step.
+                      {t("ra.controls.noHazards")}
                     </SheetCell>
                   </SheetRow>
                 )}
@@ -444,14 +553,14 @@ export const PhaseControls = ({
       ))}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-500">{statusHint}</div>
+        {status ? <SaveStatus status={status} /> : <div className="text-sm text-slate-500">{statusHint}</div>}
         <div className="flex gap-2">
           <button type="button" onClick={handleSaveResidual} disabled={saving}>
-            Save residual
+            {t("ra.controls.saveResidual")}
           </button>
           {canAdvance && (
             <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
-              Continue
+              {t("common.continue")}
             </button>
           )}
         </div>

@@ -1,6 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { GlobalLLMInput } from "@/components/GlobalLLMInput";
+import { FocusModeToggle } from "@/components/common/FocusModeToggle";
+import { HotkeysBar } from "@/components/common/HotkeysBar";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
+import { UserMenu } from "@/components/common/UserMenu";
 import { RiskMatrixPanel } from "@/components/overview/RiskMatrixPanel";
 import { BrowserTuiSpreadsheetView } from "@/components/overview/BrowserTuiSpreadsheetView";
 import { WorkspaceTableView } from "@/components/overview/WorkspaceTableView";
@@ -11,8 +15,12 @@ import { PhaseProcessSteps } from "@/components/phases/PhaseProcessSteps";
 import { PhaseReviewPlaceholder } from "@/components/phases/PhaseReviewPlaceholder";
 import { PhaseRiskRating } from "@/components/phases/PhaseRiskRating";
 import { PHASES } from "@/lib/phases";
+import { useFocusMode } from "@/contexts/FocusModeContext";
 import { useRaContext } from "@/contexts/RaContext";
+import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import type { Phase } from "@/types/riskAssessment";
+import type { WorkspaceContext } from "@/types/workspace";
+import { useI18n } from "@/i18n/I18nContext";
 
 type WorkspaceView = "phases" | "table" | "matrix" | "actions" | "tui";
 
@@ -43,8 +51,9 @@ const WorkspaceTopBar = ({
   onLoadCase,
   onChangeView
 }: WorkspaceTopBarProps) => {
+  const { t } = useI18n();
   const handleLoad = () => {
-    const id = window.prompt("Enter a case id to load");
+    const id = window.prompt(t("ra.topbar.loadPrompt"));
     if (id?.trim()) {
       onLoadCase(id.trim());
     }
@@ -63,42 +72,45 @@ const WorkspaceTopBar = ({
   return (
     <header className="workspace-topbar">
       <div className="workspace-topbar__summary">
-        <p className="text-label">Risk assessment workspace</p>
+        <p className="text-label">{t("workspace.hiraWorkspace")}</p>
         <h1>{activityName}</h1>
         <p>
-          {location || "Location pending"} · {team || "Team pending"}
+          {location || t("workspace.locationPending")} · {team || t("workspace.teamPending")}
         </p>
-        {saving && <p className="text-saving">Saving latest edits…</p>}
+        {saving && <p className="text-saving">{t("workspace.saving")}</p>}
       </div>
       <div className="workspace-topbar__actions">
         <button type="button" className="btn-outline" onClick={onNewCase}>
-          New
+          {t("common.new")}
         </button>
         <button type="button" className="btn-outline" onClick={handleLoad}>
-          Load
+          {t("common.load")}
         </button>
         <button type="button" onClick={() => onRefresh()}>
-          Save
+          {t("common.refresh")}
         </button>
-        {viewButton("phases", "Guided")}
-        {viewButton("table", "Workspace")}
-        {viewButton("matrix", "Risk matrix")}
-        {viewButton("actions", "Action plan")}
-        {tuiEnabled && viewButton("tui", "TUI")}
+        {viewButton("phases", t("ra.topbar.viewGuided"))}
+        {viewButton("table", t("ra.topbar.viewWorkspace"))}
+        {viewButton("matrix", t("ra.topbar.viewMatrix"))}
+        {viewButton("actions", t("ra.topbar.viewActions"))}
+        {tuiEnabled && viewButton("tui", t("ra.topbar.viewTui"))}
         <button
           type="button"
           className="btn-outline"
           onClick={() => window.open(`/api/ra-cases/${caseId}/export/pdf`, "_blank", "noopener")}
         >
-          Export PDF
+          {t("common.exportPdf")}
         </button>
         <button
           type="button"
           className="btn-outline"
           onClick={() => window.open(`/api/ra-cases/${caseId}/export/xlsx`, "_blank", "noopener")}
         >
-          Export XLSX
+          {t("common.exportXlsx")}
         </button>
+        <ThemeToggle />
+        <FocusModeToggle />
+        <UserMenu />
       </div>
     </header>
   );
@@ -115,6 +127,7 @@ interface PhaseStepperProps {
 const HIDDEN_PHASES: Phase[] = [];
 
 const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvance }: PhaseStepperProps) => {
+  const { t } = useI18n();
   const viewIndex = PHASES.findIndex((phase) => phase.id === viewPhase);
   const prevPhase = viewIndex > 0 ? PHASES[viewIndex - 1]?.id : null;
   const nextPhase = viewIndex < PHASES.length - 1 ? PHASES[viewIndex + 1]?.id : null;
@@ -125,12 +138,14 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
     <footer className="phase-stepper">
       <div className="phase-stepper__nav">
         <button type="button" className="btn-outline" disabled={!prevPhase} onClick={() => prevPhase && onSelectPhase(prevPhase)}>
-          ← Previous
+          ← {t("ra.stepper.previous")}
         </button>
         <button type="button" className="btn-outline" disabled={!nextPhase} onClick={() => nextPhase && onSelectPhase(nextPhase)}>
-          Next →
+          {t("ra.stepper.next")} →
         </button>
-        <span className="text-label">Viewing: {PHASES[viewIndex]?.label ?? viewPhase}</span>
+        <span className="text-label">
+          {t("ra.stepper.viewing")}: {t(PHASES[viewIndex]?.labelKey ?? "", { fallback: PHASES[viewIndex]?.label ?? viewPhase })}
+        </span>
       </div>
       <div className="phase-stepper__chips">
         {chipPhases.map((phase) => {
@@ -149,17 +164,18 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
                 : "phase-chip";
           return (
             <button key={phase.id} type="button" className={chipClass} onClick={() => onSelectPhase(phase.id)}>
-              {phase.label}
+              {t(phase.labelKey, { fallback: phase.label })}
             </button>
           );
         })}
       </div>
       <div className="phase-stepper__status">
         <p>
-          Current phase: <strong>{currentPhaseMeta?.label ?? currentPhase}</strong>
+          {t("ra.stepper.currentPhase")}:{" "}
+          <strong>{t(currentPhaseMeta?.labelKey ?? "", { fallback: currentPhaseMeta?.label ?? currentPhase })}</strong>
         </p>
         <button type="button" disabled={saving} onClick={() => onAdvance()}>
-          Move forward
+          {t("ra.stepper.advance")}
         </button>
       </div>
     </footer>
@@ -168,12 +184,14 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
 
 export const RaEditor = () => {
   const { raCase, saving, actions, refreshCase } = useRaContext();
+  const { focusMode } = useFocusMode();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [stepsDirty, setStepsDirty] = useState(false);
 
-  const stepsSignature = raCase.steps
-    .map((step) => `${step.id}:${step.orderIndex}:${step.activity}:${step.description ?? ""}`)
-    .join("|");
+  const globalPromptRef = useRef<HTMLTextAreaElement>(null);
+
 
   const getPhaseFromParam = useCallback((param: string | null): Phase | null => {
     if (!param) {
@@ -226,23 +244,58 @@ export const RaEditor = () => {
     [setSearchParams]
   );
 
+  const confirmLeaveSteps = useCallback(
+    (message?: string) => {
+      if (!stepsDirty || safeViewPhase !== "PROCESS_STEPS") {
+        return true;
+      }
+      return window.confirm(message ?? t("ra.confirmLeaveSteps"));
+    },
+    [stepsDirty, safeViewPhase]
+  );
+
   const setViewPhase = useCallback(
     (phase: Phase) => {
+      if (phase !== safeViewPhase && !confirmLeaveSteps()) {
+        return;
+      }
       setViewPhaseState(phase);
       updateSearchParams({ phase });
     },
-    [updateSearchParams]
+    [confirmLeaveSteps, safeViewPhase, updateSearchParams]
   );
 
   const setWorkspaceView = useCallback(
     (view: WorkspaceView) => {
+      if (view !== workspaceView && !confirmLeaveSteps()) {
+        return;
+      }
       setWorkspaceViewState(view);
       updateSearchParams({ view: view === "phases" ? null : view });
     },
-    [updateSearchParams]
+    [confirmLeaveSteps, updateSearchParams, workspaceView]
   );
 
+  // Global hotkeys for focus mode
+  useGlobalHotkeys({
+    globalPromptRef,
+    onSave: refreshCase,
+    onChangeView: setWorkspaceView,
+    onChangePhase: setViewPhase,
+    currentPhase: safeViewPhase
+  });
+
+  // Determine workspace context for hotkeys bar hints
+  const getWorkspaceContext = (): WorkspaceContext => {
+    if (workspaceView === "tui") return "tui";
+    if (workspaceView === "table") return "table";
+    return "default";
+  };
+
   const handleAdvancePhase = async () => {
+    if (!confirmLeaveSteps(t("ra.confirmAdvanceSteps"))) {
+      return;
+    }
     const currentIndex = PHASES.findIndex((phase) => phase.id === raCase.phase);
     const nextPhase = PHASES[Math.min(currentIndex + 1, PHASES.length - 1)]?.id ?? raCase.phase;
     await actions.advancePhase();
@@ -255,13 +308,14 @@ export const RaEditor = () => {
       case "PROCESS_STEPS":
         return (
           <PhaseProcessSteps
-            key={`phase-process-${raCase.id}-${stepsSignature}`}
+            key={`phase-process-${raCase.id}`}
             raCase={raCase}
             saving={saving}
             onExtractSteps={actions.extractSteps}
             onSaveSteps={actions.saveSteps}
             onNext={actions.advancePhase}
             canAdvance={canAdvance}
+            onDirtyChange={setStepsDirty}
           />
         );
       case "HAZARD_IDENTIFICATION":
@@ -304,23 +358,6 @@ export const RaEditor = () => {
             onExtractControls={actions.extractControls}
             onNext={actions.advancePhase}
             canAdvance={canAdvance}
-            mode="controls"
-          />
-        );
-      case "RESIDUAL_RISK":
-        return (
-          <PhaseControls
-            key={`phase-residual-${raCase.id}-${phase}`}
-            raCase={raCase}
-            saving={saving}
-            onAddProposedControl={actions.addProposedControl}
-            onDeleteProposedControl={actions.deleteProposedControl}
-            onUpdateHazard={actions.updateHazard}
-            onSaveResidualRisk={actions.saveResidualRisk}
-            onExtractControls={actions.extractControls}
-            onNext={actions.advancePhase}
-            canAdvance={canAdvance}
-            mode="residual"
           />
         );
       case "ACTIONS":
@@ -331,6 +368,7 @@ export const RaEditor = () => {
             saving={saving}
             onAddAction={actions.addAction}
             onUpdateAction={actions.updateAction}
+            onDeleteAction={actions.deleteAction}
             onExtractActions={actions.extractActions}
             onNext={actions.advancePhase}
             canAdvance={canAdvance}
@@ -347,7 +385,7 @@ export const RaEditor = () => {
           />
         );
       default:
-        return <div className="p-4 text-sm text-red-600">Unknown phase {phase}</div>;
+        return <div className="p-4 text-sm text-red-600">{t("ra.unknownPhase", { values: { phase } })}</div>;
     }
   };
 
@@ -358,9 +396,13 @@ export const RaEditor = () => {
       return (
         <section className="workspace-phase-panel app-panel">
           <div className="workspace-phase-panel__header">
-            <p className="text-label">Phase workspace</p>
-            <h2>{currentPhaseMeta?.label ?? safeViewPhase}</h2>
-            <p className="workspace-phase-panel__description">{currentPhaseMeta?.description}</p>
+            <p className="text-label">{t("ra.workspace.phaseTitle")}</p>
+            <h2>
+              {t(currentPhaseMeta?.labelKey ?? "", { fallback: currentPhaseMeta?.label ?? safeViewPhase })}
+            </h2>
+            <p className="workspace-phase-panel__description">
+              {t(currentPhaseMeta?.descriptionKey ?? "", { fallback: currentPhaseMeta?.description ?? "" })}
+            </p>
           </div>
           <div className="workspace-phase-panel__body">
             <div className="phase-workspace">{renderPhase(safeViewPhase)}</div>
@@ -373,11 +415,9 @@ export const RaEditor = () => {
       return (
         <section className="workspace-phase-panel app-panel">
           <div className="workspace-phase-panel__header">
-            <p className="text-label">Workspace view</p>
-            <h2>Full editable worksheet</h2>
-            <p className="workspace-phase-panel__description">
-              Edit all fields inline. Most changes autosave as you move through the sheet.
-            </p>
+            <p className="text-label">{t("ra.workspace.tableTitle")}</p>
+            <h2>{t("ra.workspace.tableHeadline")}</h2>
+            <p className="workspace-phase-panel__description">{t("ra.workspace.tableDescription")}</p>
           </div>
           <div className="workspace-phase-panel__body">
             <WorkspaceTableView raCase={raCase} />
@@ -390,9 +430,9 @@ export const RaEditor = () => {
       return (
         <section className="workspace-phase-panel app-panel">
           <div className="workspace-phase-panel__header">
-            <p className="text-label">Risk matrix</p>
-            <h2>Severity vs likelihood</h2>
-            <p className="workspace-phase-panel__description">Customize axes, colours, and compare baseline vs residual.</p>
+            <p className="text-label">{t("ra.workspace.matrixTitle")}</p>
+            <h2>{t("ra.workspace.matrixHeadline")}</h2>
+            <p className="workspace-phase-panel__description">{t("ra.workspace.matrixDescription")}</p>
           </div>
           <div className="workspace-phase-panel__body">
             <RiskMatrixPanel raCase={raCase} />
@@ -405,10 +445,10 @@ export const RaEditor = () => {
       return (
         <section className="workspace-phase-panel app-panel">
           <div className="workspace-phase-panel__header">
-            <p className="text-label">Workspace view</p>
-            <h2>Browser TUI (prototype)</h2>
+            <p className="text-label">{t("ra.workspace.tuiTitle")}</p>
+            <h2>{t("ra.workspace.tuiHeadline")}</h2>
             <p className="workspace-phase-panel__description">
-              Keyboard-first worksheet. Enable via `?tui=1` or localStorage `ss_tui=1`.
+              {t("ra.workspace.tuiDescription")}
             </p>
           </div>
           <div className="workspace-phase-panel__body">
@@ -421,9 +461,9 @@ export const RaEditor = () => {
     return (
       <section className="workspace-phase-panel app-panel">
         <div className="workspace-phase-panel__header">
-          <p className="text-label">Action plan</p>
-          <h2>Corrective & monitoring tasks</h2>
-          <p className="workspace-phase-panel__description">Track owners, due dates, and status for every hazard.</p>
+          <p className="text-label">{t("ra.workspace.actionsTitle")}</p>
+          <h2>{t("ra.workspace.actionsHeadline")}</h2>
+          <p className="workspace-phase-panel__description">{t("ra.workspace.actionsDescription")}</p>
         </div>
         <div className="workspace-phase-panel__body">
           <PhaseControlsActions
@@ -431,6 +471,7 @@ export const RaEditor = () => {
             saving={saving}
             onAddAction={actions.addAction}
             onUpdateAction={actions.updateAction}
+            onDeleteAction={actions.deleteAction}
             onExtractActions={actions.extractActions}
             onNext={async () => undefined}
             canAdvance={false}
@@ -452,8 +493,16 @@ export const RaEditor = () => {
           currentView={workspaceView}
           tuiEnabled={tuiEnabled}
           onRefresh={refreshCase}
-          onNewCase={() => navigate("/")}
-          onLoadCase={(id) => navigate(`/cases/${encodeURIComponent(id)}`)}
+          onNewCase={() => {
+            if (confirmLeaveSteps()) {
+              navigate("/hira");
+            }
+          }}
+          onLoadCase={(id) => {
+            if (confirmLeaveSteps()) {
+              navigate(`/cases/${encodeURIComponent(id)}`);
+            }
+          }}
           onChangeView={setWorkspaceView}
         />
         {workspaceView === "phases" && (
@@ -466,12 +515,15 @@ export const RaEditor = () => {
           />
         )}
       </div>
+      <div className="workspace-prompt-pinned">
+        <GlobalLLMInput currentPhase={safeViewPhase} textareaRef={globalPromptRef} />
+      </div>
       <main className="workspace-main">
         <div className="workspace-main__inner">
-          <GlobalLLMInput currentPhase={safeViewPhase} />
           {renderWorkspace()}
         </div>
       </main>
+      <HotkeysBar context={getWorkspaceContext()} />
     </div>
   );
 };

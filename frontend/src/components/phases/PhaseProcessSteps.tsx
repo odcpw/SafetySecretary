@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AssistantPanel } from "@/components/common/AssistantPanel";
 import { StepPhotosPanel } from "@/components/common/StepPhotosPanel";
 import {
@@ -15,6 +15,7 @@ import {
   SheetTextarea
 } from "@/components/ui/SheetTable";
 import type { EditableProcessStep, RiskAssessmentCase } from "@/types/riskAssessment";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseProcessStepsProps {
   raCase: RiskAssessmentCase;
@@ -23,6 +24,7 @@ interface PhaseProcessStepsProps {
   onSaveSteps: (steps: EditableProcessStep[]) => Promise<void>;
   onNext: () => Promise<void>;
   canAdvance?: boolean;
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 const toEditable = (steps: RiskAssessmentCase["steps"]): EditableProcessStep[] =>
@@ -35,50 +37,151 @@ const toEditable = (steps: RiskAssessmentCase["steps"]): EditableProcessStep[] =
     orderIndex: step.orderIndex
   }));
 
+const normalizeList = (value?: string[] | null) => (value ?? []).filter((item) => item.trim().length > 0);
+
+const stepsMatch = (left: EditableProcessStep[], right: EditableProcessStep[]) => {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftStep = left[index]!;
+    const rightStep = right[index]!;
+    if (leftStep.id !== rightStep.id) {
+      return false;
+    }
+    if (leftStep.activity !== rightStep.activity) {
+      return false;
+    }
+    if ((leftStep.description ?? "") !== (rightStep.description ?? "")) {
+      return false;
+    }
+    const leftEquipment = normalizeList(leftStep.equipment);
+    const rightEquipment = normalizeList(rightStep.equipment);
+    if (leftEquipment.length !== rightEquipment.length || leftEquipment.some((value, idx) => value !== rightEquipment[idx])) {
+      return false;
+    }
+    const leftSubstances = normalizeList(leftStep.substances);
+    const rightSubstances = normalizeList(rightStep.substances);
+    if (leftSubstances.length !== rightSubstances.length || leftSubstances.some((value, idx) => value !== rightSubstances[idx])) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export const PhaseProcessSteps = ({
   raCase,
   saving,
   onExtractSteps,
   onSaveSteps,
   onNext,
-  canAdvance = true
+  canAdvance = true,
+  onDirtyChange
 }: PhaseProcessStepsProps) => {
+  const { t, locale } = useI18n();
   const [description, setDescription] = useState("");
-  const [draftSteps, setDraftSteps] = useState<EditableProcessStep[]>(() => toEditable(raCase.steps));
+  const baseSteps = useMemo(() => toEditable(raCase.steps), [raCase.steps]);
+  const [draftSteps, setDraftSteps] = useState<EditableProcessStep[]>(() => baseSteps);
   const [status, setStatus] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveInFlight, setSaveInFlight] = useState(false);
+  const draftStepsRef = useRef(draftSteps);
+  const prevBaseStepsRef = useRef(baseSteps);
+  const forceSyncRef = useRef(false);
+
+  const hasDraftChanges = !stepsMatch(draftSteps, baseSteps);
+  const isDirty = hasDraftChanges || saveInFlight || Boolean(saveError);
+
+  useEffect(() => {
+    draftStepsRef.current = draftSteps;
+  }, [draftSteps]);
+
+  useEffect(() => {
+    const previousBase = prevBaseStepsRef.current;
+    const shouldSync = forceSyncRef.current || stepsMatch(draftSteps, previousBase);
+    if (shouldSync) {
+      setDraftSteps(baseSteps);
+      setSaveError(null);
+      forceSyncRef.current = false;
+    }
+    prevBaseStepsRef.current = baseSteps;
+  }, [baseSteps, draftSteps]);
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => {
+    if (!isDirty) {
+      return;
+    }
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isDirty]);
 
   const handleExtract = async () => {
     if (!description.trim()) {
       return;
     }
-    setStatus("Extracting steps…");
+    setStatus(t("ra.steps.extracting"));
     try {
+      forceSyncRef.current = true;
       await onExtractSteps(description);
       setDescription("");
-      setStatus("Steps extracted from description.");
+      setSaveError(null);
+      setStatus(t("ra.steps.extracted"));
       setTimeout(() => setStatus(null), 2500);
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "Failed to extract steps");
+      setStatus(err instanceof Error ? err.message : t("ra.steps.extractFailed"));
       setTimeout(() => setStatus(null), 5000);
     }
   };
 
-  const handleSave = async () => {
-    setStatus("Saving steps…");
-    await onSaveSteps(
-      draftSteps.map((step, index) => ({
-        ...step,
-        orderIndex: index
-      }))
-    );
-    setStatus("Steps saved.");
-    setTimeout(() => setStatus(null), 2500);
-  };
+  const saveStepsNow = useCallback(async () => {
+    if (saveInFlight) {
+      return;
+    }
+    setSaveInFlight(true);
+    setStatus(t("ra.steps.saving"));
+    try {
+      await onSaveSteps(
+        draftStepsRef.current.map((step, index) => ({
+          ...step,
+          orderIndex: index
+        }))
+      );
+      setSaveError(null);
+      setStatus(t("ra.steps.saved"));
+      setTimeout(() => setStatus(null), 2000);
+    } catch (err) {
+      console.error(err);
+      const message = err instanceof Error ? err.message : t("ra.steps.saveFailed");
+      setSaveError(message);
+      setStatus(message);
+      setTimeout(() => setStatus(null), 4000);
+    } finally {
+      setSaveInFlight(false);
+    }
+  }, [onSaveSteps, saveInFlight]);
+
+  useEffect(() => {
+    if (!hasDraftChanges || saveInFlight || saving) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      void saveStepsNow();
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [hasDraftChanges, saveInFlight, saving, saveStepsNow, draftSteps]);
 
   const createStep = () => ({
     id: undefined,
-    activity: `New step ${draftSteps.length + 1}`,
+    activity: t("ra.steps.newStep", { values: { index: draftSteps.length + 1 } }),
     equipment: [] as string[],
     substances: [] as string[],
     description: "",
@@ -101,17 +204,20 @@ export const PhaseProcessSteps = ({
     });
   };
 
+  const voiceLang = locale === "fr" ? "fr-FR" : locale === "de" ? "de-DE" : "en-US";
+
   return (
     <div className="space-y-6">
       <AssistantPanel
-        title="Describe the activity"
-        description="Describe how this work is performed. Include what activities are done, what tools/equipment are used, and what materials/substances are involved. The assistant will extract steps with equipment and substances."
+        title={t("ra.steps.assistantTitle")}
+        description={t("ra.steps.assistantDescription")}
         value={description}
-        placeholder="Describe the work process, equipment used, and substances involved..."
-        primaryLabel="Generate steps"
+        placeholder={t("ra.steps.assistantPlaceholder")}
+        primaryLabel={t("ra.steps.assistantAction")}
         status={status}
         disabled={saving}
         enableVoice
+        voiceLang={voiceLang}
         onChange={setDescription}
         onSubmit={handleExtract}
         onClear={() => setDescription("")}
@@ -120,8 +226,8 @@ export const PhaseProcessSteps = ({
       <section className="rounded-lg border border-slate-200 p-4 space-y-4">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-semibold text-slate-900">Process steps</h3>
-            <p className="text-sm text-slate-500">Edit, reorder, or add missing steps.</p>
+            <h3 className="text-lg font-semibold text-slate-900">{t("ra.steps.title")}</h3>
+            <p className="text-sm text-slate-500">{t("ra.steps.subtitle")}</p>
           </div>
         </header>
 
@@ -136,12 +242,12 @@ export const PhaseProcessSteps = ({
           </colgroup>
           <SheetHead>
             <SheetRow>
-              <SheetHeaderCell>#</SheetHeaderCell>
-              <SheetHeaderCell>Activity</SheetHeaderCell>
-              <SheetHeaderCell>Equipment</SheetHeaderCell>
-              <SheetHeaderCell>Substances</SheetHeaderCell>
-              <SheetHeaderCell>Notes</SheetHeaderCell>
-              <SheetHeaderCell>Actions</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.common.number")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.steps.table.activity")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.steps.table.equipment")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.steps.table.substances")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.steps.table.notes")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.steps.table.actions")}</SheetHeaderCell>
             </SheetRow>
           </SheetHead>
           <SheetBody>
@@ -158,12 +264,12 @@ export const PhaseProcessSteps = ({
                             ? {
                               ...item,
                               activity: event.target.value
-                            }
-                            : item
+                    }
+                    : item
                         )
                       )
                     }
-                    placeholder="What is being done"
+                    placeholder={t("ra.steps.activityPlaceholder")}
                   />
                 </SheetCell>
                 <SheetCell>
@@ -176,12 +282,12 @@ export const PhaseProcessSteps = ({
                             ? {
                               ...item,
                               equipment: event.target.value.split(",").map(s => s.trim()).filter(Boolean)
-                            }
-                            : item
+                    }
+                    : item
                         )
                       )
                     }
-                    placeholder="Tools, machines (comma separated)"
+                    placeholder={t("ra.steps.equipmentPlaceholder")}
                   />
                 </SheetCell>
                 <SheetCell>
@@ -194,12 +300,12 @@ export const PhaseProcessSteps = ({
                             ? {
                               ...item,
                               substances: event.target.value.split(",").map(s => s.trim()).filter(Boolean)
-                            }
-                            : item
+                    }
+                    : item
                         )
                       )
                     }
-                    placeholder="Materials, chemicals (comma separated)"
+                    placeholder={t("ra.steps.substancesPlaceholder")}
                   />
                 </SheetCell>
                 <SheetCell className="sheet-cell--description">
@@ -213,12 +319,12 @@ export const PhaseProcessSteps = ({
                             ? {
                               ...item,
                               description: event.target.value
-                            }
-                            : item
+                    }
+                    : item
                         )
                       )
                     }
-                    placeholder="Additional context"
+                    placeholder={t("ra.steps.notesPlaceholder")}
                   />
                 </SheetCell>
                 <SheetCell className="sheet-cell-actions">
@@ -241,7 +347,7 @@ export const PhaseProcessSteps = ({
                       variant="danger"
                       onClick={() => removeStep(index)}
                     >
-                      Remove
+                      {t("common.remove")}
                     </SheetButton>
                   </div>
                 </SheetCell>
@@ -250,7 +356,7 @@ export const PhaseProcessSteps = ({
             {draftSteps.length === 0 && (
               <SheetRow>
                 <SheetCell colSpan={6} className="sheet-empty-cell">
-                  No steps yet. Use the generator above or add rows manually.
+                  {t("ra.steps.empty")}
                 </SheetCell>
               </SheetRow>
             )}
@@ -263,7 +369,7 @@ export const PhaseProcessSteps = ({
                   variant="primary"
                   onClick={() => setDraftSteps((prev) => [...prev, createStep()])}
                 >
-                  Add step
+                  {t("ra.steps.addStep")}
                 </SheetButton>
               </SheetCell>
             </SheetAddRow>
@@ -272,13 +378,20 @@ export const PhaseProcessSteps = ({
 
         <StepPhotosPanel caseId={raCase.id} steps={raCase.steps} />
 
-        <div className="flex flex-wrap gap-3">
-          <button type="button" disabled={saving || draftSteps.length === 0} onClick={handleSave}>
-            Save steps
-          </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {saveError && (
+            <button type="button" disabled={saving || saveInFlight} onClick={saveStepsNow}>
+              {t("common.retry")}
+            </button>
+          )}
           {canAdvance && (
-            <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
-              Continue
+            <button
+              type="button"
+              className="bg-emerald-600"
+              disabled={saving || isDirty || draftSteps.length === 0}
+              onClick={onNext}
+            >
+              {t("common.continue")}
             </button>
           )}
           {status && <span className="text-sm text-slate-500">{status}</span>}

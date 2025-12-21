@@ -55,7 +55,7 @@ export const useHazardDrafts = (hazards: Hazard[]) => {
     const hazard = hazardById.get(hazardId);
     const draft = drafts[hazardId];
     if (!hazard || !draft) {
-      return;
+      return false;
     }
 
     const normalizedDraft = normalizeDraft(draft);
@@ -65,7 +65,7 @@ export const useHazardDrafts = (hazards: Hazard[]) => {
       normalizedDraft.description === normalizedHazard.description &&
       normalizedDraft.existingControls === normalizedHazard.existingControls
     ) {
-      return;
+      return false;
     }
 
     const patch: { label?: string; description?: string; existingControls?: string[] } = {};
@@ -85,10 +85,11 @@ export const useHazardDrafts = (hazards: Hazard[]) => {
     }
 
     if (!Object.keys(patch).length) {
-      return;
+      return false;
     }
 
     await onUpdateHazard(hazardId, patch);
+    return true;
   };
 
   return {
@@ -97,4 +98,3 @@ export const useHazardDrafts = (hazards: Hazard[]) => {
     commitDraft
   };
 };
-

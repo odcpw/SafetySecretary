@@ -15,6 +15,7 @@ import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
 import { useRaContext } from "@/contexts/RaContext";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import {
+  buildDefaultMatrixLabels,
   getRiskColorForAssessment,
   loadMatrixSettings
 } from "@/lib/riskMatrixSettings";
@@ -32,6 +33,9 @@ import {
   SheetTextarea
 } from "@/components/ui/SheetTable";
 import { useHazardDrafts } from "@/hooks/useHazardDrafts";
+import { SaveStatus } from "@/components/common/SaveStatus";
+import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useI18n } from "@/i18n/I18nContext";
 
 const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS;
 const LIKELIHOOD_OPTIONS = TEMPLATE_LIKELIHOOD_OPTIONS;
@@ -52,7 +56,10 @@ const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
 
 export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   const { saving, actions } = useRaContext();
-  const [settings] = useState(() => loadMatrixSettings());
+  const { t } = useI18n();
+  const { status, show, showSuccess, showError } = useSaveStatus();
+  const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
+  const [settings, setSettings] = useState(() => loadMatrixSettings(defaultLabels));
   const [baselineDraft, setBaselineDraft] = useState<Record<string, { severity: string; likelihood: string }>>(() =>
     raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
       acc[hazard.id] = {
@@ -74,12 +81,14 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
 
   const grouped = useMemo(() => groupHazardsByStep(raCase), [raCase]);
   const actionsByHazard = useMemo(() => {
-    return raCase.actions.reduce<Record<string, RiskAssessmentCase["actions"]>>((acc, action) => {
+    const grouped = raCase.actions.reduce<Record<string, RiskAssessmentCase["actions"]>>((acc, action) => {
       if (!action.hazardId) return acc;
       acc[action.hazardId] = acc[action.hazardId] ?? [];
       acc[action.hazardId]!.push(action);
       return acc;
     }, {});
+    Object.values(grouped).forEach((items) => items.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)));
+    return grouped;
   }, [raCase.actions]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
@@ -105,6 +114,54 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   }, [raCase]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  useEffect(() => {
+    setSettings(loadMatrixSettings(defaultLabels));
+  }, [defaultLabels]);
+
+  useEffect(() => {
+    const syncSettings = () => setSettings(loadMatrixSettings(defaultLabels));
+    window.addEventListener("storage", syncSettings);
+    return () => window.removeEventListener("storage", syncSettings);
+  }, [defaultLabels]);
+
+  const notifySuccess = (message: string, duration = 1500) => {
+    showSuccess(message, duration);
+  };
+
+  const notifyError = (message: string, retry?: () => void) => {
+    showError(message, retry, undefined, t("common.retry"));
+  };
+
+  const saveBaselineRating = async (payload: { hazardId: string; severity: string; likelihood: string }) => {
+    const isClearing = !payload.severity && !payload.likelihood;
+    show({ message: isClearing ? t("ra.workspace.clearingBaseline") : t("ra.workspace.savingBaseline"), tone: "info" });
+    try {
+      await actions.saveRiskRatings([payload]);
+      notifySuccess(isClearing ? t("ra.workspace.baselineCleared") : t("ra.workspace.baselineSaved"));
+    } catch (error) {
+      console.error(error);
+      notifyError(
+        t("ra.workspace.baselineSaveFailed"),
+        () => void saveBaselineRating(payload)
+      );
+    }
+  };
+
+  const saveResidualRating = async (payload: { hazardId: string; severity: string; likelihood: string }) => {
+    const isClearing = !payload.severity && !payload.likelihood;
+    show({ message: isClearing ? t("ra.workspace.clearingResidual") : t("ra.workspace.savingResidual"), tone: "info" });
+    try {
+      await actions.saveResidualRisk([payload]);
+      notifySuccess(isClearing ? t("ra.workspace.residualCleared") : t("ra.workspace.residualSaved"));
+    } catch (error) {
+      console.error(error);
+      notifyError(
+        t("ra.workspace.residualSaveFailed"),
+        () => void saveResidualRating(payload)
+      );
+    }
+  };
+
   const handleBaselineChange = async (
     hazardId: string,
     patch: Partial<{ severity: string; likelihood: string }>
@@ -115,10 +172,15 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
       nextRecord = { ...current, ...patch };
       return { ...prev, [hazardId]: nextRecord! };
     });
-    if (nextRecord?.severity && nextRecord.likelihood) {
-      await actions.saveRiskRatings([
-        { hazardId, severity: nextRecord.severity, likelihood: nextRecord.likelihood }
-      ]);
+    const shouldSave =
+      (nextRecord?.severity && nextRecord.likelihood) ||
+      (!nextRecord?.severity && !nextRecord?.likelihood);
+    if (shouldSave) {
+      void saveBaselineRating({
+        hazardId,
+        severity: nextRecord?.severity ?? "",
+        likelihood: nextRecord?.likelihood ?? ""
+      });
     }
   };
 
@@ -132,17 +194,22 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
       nextRecord = { ...current, ...patch };
       return { ...prev, [hazardId]: nextRecord! };
     });
-    if (nextRecord?.severity && nextRecord.likelihood) {
-      await actions.saveResidualRisk([
-        { hazardId, severity: nextRecord.severity, likelihood: nextRecord.likelihood }
-      ]);
+    const shouldSave =
+      (nextRecord?.severity && nextRecord.likelihood) ||
+      (!nextRecord?.severity && !nextRecord?.likelihood);
+    if (shouldSave) {
+      void saveResidualRating({
+        hazardId,
+        severity: nextRecord?.severity ?? "",
+        likelihood: nextRecord?.likelihood ?? ""
+      });
     }
   };
 
   // Render colored risk pill based on matrix settings
   const renderRiskPill = (severity?: string | null, likelihood?: string | null) => {
     if (!severity || !likelihood) {
-      return <span className="risk-pill muted">—</span>;
+      return <span className="risk-pill muted">{t("common.noData")}</span>;
     }
     const color = getRiskColorForAssessment(severity, likelihood, settings);
     return (
@@ -157,16 +224,16 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
       <SheetTable className="sheet-table--grid">
         <SheetHead>
           <SheetRow>
-            <SheetHeaderCell className="sheet-col-step">Process step / Hazard</SheetHeaderCell>
-            <SheetHeaderCell>Category</SheetHeaderCell>
-            <SheetHeaderCell>Severity</SheetHeaderCell>
-            <SheetHeaderCell>Likelihood</SheetHeaderCell>
-            <SheetHeaderCell>Risk</SheetHeaderCell>
-            <SheetHeaderCell>Controls</SheetHeaderCell>
-            <SheetHeaderCell>Residual Sev.</SheetHeaderCell>
-            <SheetHeaderCell>Residual Lik.</SheetHeaderCell>
-            <SheetHeaderCell>Residual Risk</SheetHeaderCell>
-            <SheetHeaderCell className="sheet-col-actions">Actions</SheetHeaderCell>
+            <SheetHeaderCell className="sheet-col-step">{t("ra.workspace.table.processStep")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.category")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.severity")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.likelihood")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.risk")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.controls")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.residualSeverity")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.residualLikelihood")}</SheetHeaderCell>
+            <SheetHeaderCell>{t("ra.workspace.table.residualRisk")}</SheetHeaderCell>
+            <SheetHeaderCell className="sheet-col-actions">{t("ra.workspace.table.actions")}</SheetHeaderCell>
           </SheetRow>
         </SheetHead>
         <SheetBody>
@@ -179,6 +246,8 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
               actionsByHazard={actionsByHazard}
               saving={saving}
               actions={actions}
+              onSuccess={notifySuccess}
+              onError={notifyError}
               baselineDraft={baselineDraft}
               residualDraft={residualDraft}
               onBaselineChange={handleBaselineChange}
@@ -187,6 +256,9 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
           ))}
         </SheetBody>
       </SheetTable>
+      <div style={{ marginTop: "0.6rem" }}>
+        <SaveStatus status={status} />
+      </div>
     </div>
   );
 };
@@ -199,6 +271,8 @@ interface EditableStepRowsProps {
   actionsByHazard: Record<string, RiskAssessmentCase["actions"]>;
   saving: boolean;
   actions: ReturnType<typeof useRaContext>["actions"];
+  onSuccess: (message: string, duration?: number) => void;
+  onError: (message: string, retry?: () => void) => void;
   baselineDraft: Record<string, { severity: string; likelihood: string }>;
   residualDraft: Record<string, { severity: string; likelihood: string }>;
   onBaselineChange: (hazardId: string, patch: Partial<{ severity: string; likelihood: string }>) => Promise<void>;
@@ -213,6 +287,8 @@ const EditableStepRows = ({
   actionsByHazard,
   saving,
   actions,
+  onSuccess,
+  onError,
   baselineDraft,
   residualDraft,
   onBaselineChange,
@@ -221,18 +297,53 @@ const EditableStepRows = ({
   const [addingAction, setAddingAction] = useState<string | null>(null);
   const [newActionText, setNewActionText] = useState("");
   const { drafts, patchDraft, commitDraft } = useHazardDrafts(hazards);
+  const { t } = useI18n();
 
   // Handle category change
-  const handleCategoryChange = async (hazardId: string, categoryCode: string) => {
-    await actions.updateHazard(hazardId, { categoryCode });
+  const handleCategoryChange = async (
+    hazardId: string,
+    currentCategory: string | null | undefined,
+    categoryCode: string
+  ) => {
+    if ((currentCategory ?? "") === categoryCode) {
+      return;
+    }
+    try {
+      await actions.updateHazard(hazardId, { categoryCode });
+      onSuccess(t("ra.workspace.categoryUpdated"));
+    } catch (error) {
+      console.error(error);
+      onError(
+        t("ra.workspace.categoryUpdateFailed"),
+        () => void handleCategoryChange(hazardId, currentCategory, categoryCode)
+      );
+    }
   };
 
   // Handle adding new action
   const handleAddAction = async (hazardId: string) => {
     if (!newActionText.trim()) return;
-    await actions.addAction({ hazardId, description: newActionText.trim() });
-    setNewActionText("");
-    setAddingAction(null);
+    try {
+      await actions.addAction({ hazardId, description: newActionText.trim() });
+      setNewActionText("");
+      setAddingAction(null);
+      onSuccess(t("ra.workspace.actionAdded"));
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.actionAddFailed"), () => void handleAddAction(hazardId));
+    }
+  };
+
+  const handleHazardSave = async (hazardId: string) => {
+    try {
+      const saved = await commitDraft(hazardId, actions.updateHazard);
+      if (saved) {
+        onSuccess(t("ra.workspace.hazardSaved"));
+      }
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.hazardSaveFailed"), () => void handleHazardSave(hazardId));
+    }
   };
 
   // Render step header row
@@ -246,7 +357,7 @@ const EditableStepRows = ({
             {step.description && <p className="text-muted">{step.description}</p>}
             {(step.equipment?.length ?? 0) > 0 && (
               <p className="text-muted" style={{ fontSize: "0.8rem" }}>
-                Equipment: {step.equipment?.join(", ")}
+                {t("ra.workspace.equipmentLabel")}: {step.equipment?.join(", ")}
               </p>
             )}
           </div>
@@ -262,7 +373,7 @@ const EditableStepRows = ({
         {renderStepRow()}
         <SheetRow className="hazard-row empty">
           <SheetCell colSpan={10} className="sheet-empty-cell">
-            No hazards linked to this step.
+            {t("ra.workspace.noHazardsForStep")}
           </SheetCell>
         </SheetRow>
       </>
@@ -287,15 +398,15 @@ const EditableStepRows = ({
                 <SheetInput
                   value={draft?.label ?? hazard.label}
                   onChange={(event) => patchDraft(hazard.id, { label: event.target.value })}
-                  onBlur={() => void commitDraft(hazard.id, actions.updateHazard)}
-                  placeholder="Hazard label"
+                  onBlur={() => void handleHazardSave(hazard.id)}
+                  placeholder={t("ra.workspace.hazardLabelPlaceholder")}
                   disabled={saving}
                 />
                 <SheetTextarea
                   value={draft?.description ?? hazard.description ?? ""}
                   onChange={(event) => patchDraft(hazard.id, { description: event.target.value })}
-                  onBlur={() => void commitDraft(hazard.id, actions.updateHazard)}
-                  placeholder="Description"
+                  onBlur={() => void handleHazardSave(hazard.id)}
+                  placeholder={t("ra.workspace.hazardDescriptionPlaceholder")}
                   disabled={saving}
                   rows={2}
                 />
@@ -306,13 +417,14 @@ const EditableStepRows = ({
             <SheetCell>
               <SheetSelect
                 value={hazard.categoryCode ?? ""}
-                onChange={(e) => handleCategoryChange(hazard.id, e.target.value)}
+                onChange={(e) => handleCategoryChange(hazard.id, hazard.categoryCode, e.target.value)}
                 disabled={saving}
+                title={hazard.categoryCode ?? ""}
               >
-                <option value="">—</option>
+                <option value="">{t("common.noData")}</option>
                 {HAZARD_CATEGORIES.map((cat) => (
                   <option key={cat.code} value={cat.code}>
-                    {cat.code}
+                    {t(`domain.hazardCategories.${cat.code}`, { fallback: cat.label ?? cat.code })}
                   </option>
                 ))}
               </SheetSelect>
@@ -325,7 +437,7 @@ const EditableStepRows = ({
                 onChange={(e) => void onBaselineChange(hazard.id, { severity: e.target.value })}
                 disabled={saving}
               >
-                <option value="">—</option>
+                <option value="">{t("common.noData")}</option>
                 {SEVERITY_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.value}
@@ -341,7 +453,7 @@ const EditableStepRows = ({
                 onChange={(e) => void onBaselineChange(hazard.id, { likelihood: e.target.value })}
                 disabled={saving}
               >
-                <option value="">—</option>
+                <option value="">{t("common.noData")}</option>
                 {LIKELIHOOD_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.value}
@@ -357,7 +469,7 @@ const EditableStepRows = ({
 
             {/* Controls */}
             <SheetCell>
-              <ControlsCell hazard={hazard} saving={saving} actions={actions} />
+            <ControlsCell hazard={hazard} saving={saving} actions={actions} onSuccess={onSuccess} onError={onError} />
             </SheetCell>
 
             {/* Residual severity */}
@@ -367,7 +479,7 @@ const EditableStepRows = ({
                 onChange={(e) => void onResidualChange(hazard.id, { severity: e.target.value })}
                 disabled={saving}
               >
-                <option value="">—</option>
+                <option value="">{t("common.noData")}</option>
                 {SEVERITY_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.value}
@@ -383,7 +495,7 @@ const EditableStepRows = ({
                 onChange={(e) => void onResidualChange(hazard.id, { likelihood: e.target.value })}
                 disabled={saving}
               >
-                <option value="">—</option>
+                <option value="">{t("common.noData")}</option>
                 {LIKELIHOOD_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.value}
@@ -406,6 +518,9 @@ const EditableStepRows = ({
                     action={action}
                     saving={saving}
                     onUpdate={actions.updateAction}
+                    onDelete={actions.deleteAction}
+                    onSuccess={onSuccess}
+                    onError={onError}
                   />
                 ))}
               </ul>
@@ -414,7 +529,7 @@ const EditableStepRows = ({
                   <SheetInput
                     value={newActionText}
                     onChange={(e) => setNewActionText(e.target.value)}
-                    placeholder="Action description"
+                    placeholder={t("ra.workspace.actionDescriptionPlaceholder")}
                     disabled={saving}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleAddAction(hazard.id);
@@ -426,13 +541,13 @@ const EditableStepRows = ({
                     onClick={() => handleAddAction(hazard.id)}
                     disabled={saving || !newActionText.trim()}
                   >
-                    Add
+                    {t("common.add")}
                   </SheetButton>
                   <SheetButton
                     onClick={() => setAddingAction(null)}
                     disabled={saving}
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </SheetButton>
                 </div>
               ) : (
@@ -441,7 +556,7 @@ const EditableStepRows = ({
                   disabled={saving}
                   style={{ marginTop: "0.5rem" }}
                 >
-                  + Add action
+                  + {t("ra.workspace.addAction")}
                 </SheetButton>
               )}
             </SheetCell>
@@ -457,12 +572,15 @@ interface ControlsCellProps {
   hazard: Hazard;
   saving: boolean;
   actions: ReturnType<typeof useRaContext>["actions"];
+  onSuccess: (message: string, duration?: number) => void;
+  onError: (message: string, retry?: () => void) => void;
 }
 
-const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
+const ControlsCell = ({ hazard, saving, actions, onSuccess, onError }: ControlsCellProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [existingControls, setExistingControls] = useState("");
   const [newControl, setNewControl] = useState("");
+  const { t } = useI18n();
 
   const existing = hazard.existingControls ?? [];
   const proposed = hazard.proposedControls ?? [];
@@ -472,25 +590,47 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
       .split("\n")
       .map((c) => c.trim())
       .filter(Boolean);
-    await actions.updateHazard(hazard.id, { existingControls: controls });
-    setIsEditing(false);
+    try {
+      await actions.updateHazard(hazard.id, { existingControls: controls });
+      setIsEditing(false);
+      onSuccess(t("ra.workspace.controlsUpdated"));
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.controlsUpdateFailed"), () => void handleSaveExisting());
+    }
   };
 
   const handleAddProposed = async () => {
     if (!newControl.trim()) return;
-    await actions.addProposedControl(hazard.id, newControl.trim());
-    setNewControl("");
+    try {
+      await actions.addProposedControl(hazard.id, newControl.trim());
+      setNewControl("");
+      onSuccess(t("ra.workspace.proposedAdded"));
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.proposedAddFailed"), () => void handleAddProposed());
+    }
+  };
+
+  const handleDeleteProposed = async (controlId: string) => {
+    try {
+      await actions.deleteProposedControl(hazard.id, controlId);
+      onSuccess(t("ra.workspace.proposedRemoved"));
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.proposedRemoveFailed"), () => void handleDeleteProposed(controlId));
+    }
   };
 
   if (isEditing) {
     return (
       <div className="sheet-inline-form">
-        <label style={{ fontSize: "0.75rem" }}>Existing controls</label>
+        <label style={{ fontSize: "0.75rem" }}>{t("ra.workspace.existingControlsLabel")}</label>
         <textarea
           className="sheet-textarea"
           value={existingControls}
           onChange={(e) => setExistingControls(e.target.value)}
-          placeholder="One control per line"
+          placeholder={t("ra.workspace.controlsPlaceholder")}
           disabled={saving}
           rows={3}
         />
@@ -501,7 +641,7 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
             onClick={handleSaveExisting}
             disabled={saving}
           >
-            Save
+            {t("common.save")}
           </button>
           <button
             type="button"
@@ -509,7 +649,7 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
             onClick={() => setIsEditing(false)}
             disabled={saving}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       </div>
@@ -519,7 +659,7 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
   return (
     <div className="sheet-control-list">
       {existing.length === 0 && proposed.length === 0 ? (
-        <span className="sheet-empty-cell">No controls</span>
+        <span className="sheet-empty-cell">{t("ra.workspace.noControls")}</span>
       ) : (
         <>
           {existing.map((ctrl, idx) => (
@@ -535,9 +675,11 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
               <button
                 type="button"
                 className="sheet-button sheet-button--icon sheet-button--danger"
-                onClick={() => actions.deleteProposedControl(hazard.id, ctrl.id)}
+                onClick={() => {
+                  void handleDeleteProposed(ctrl.id);
+                }}
                 disabled={saving}
-                title="Remove"
+                title={t("common.delete")}
               >
                 ×
               </button>
@@ -555,7 +697,7 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
           }}
           disabled={saving}
         >
-          Edit existing
+          {t("ra.workspace.editExisting")}
         </button>
       </div>
       <div className="sheet-control-add-form">
@@ -564,7 +706,7 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
           className="sheet-input"
           value={newControl}
           onChange={(e) => setNewControl(e.target.value)}
-          placeholder="New proposed control"
+          placeholder={t("ra.workspace.proposedPlaceholder")}
           disabled={saving}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleAddProposed();
@@ -587,20 +729,55 @@ const ControlsCell = ({ hazard, saving, actions }: ControlsCellProps) => {
 interface ActionItemProps {
   action: RiskAssessmentCase["actions"][number];
   saving: boolean;
-  onUpdate: (actionId: string, patch: { description?: string; owner?: string | null; status?: string }) => Promise<void>;
+  onUpdate: (
+    actionId: string,
+    patch: { description?: string; owner?: string | null; dueDate?: string | null; status?: string }
+  ) => Promise<void>;
+  onDelete: (actionId: string) => Promise<void>;
+  onSuccess: (message: string, duration?: number) => void;
+  onError: (message: string, retry?: () => void) => void;
 }
 
-const ActionItem = ({ action, saving, onUpdate }: ActionItemProps) => {
+const ActionItem = ({ action, saving, onUpdate, onDelete, onSuccess, onError }: ActionItemProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [description, setDescription] = useState(action.description);
   const [owner, setOwner] = useState(action.owner ?? "");
+  const [dueDate, setDueDate] = useState(action.dueDate ? action.dueDate.slice(0, 10) : "");
+  const [status, setStatus] = useState(action.status ?? "OPEN");
+  const { t, formatDate } = useI18n();
+
+  useEffect(() => {
+    setDescription(action.description);
+    setOwner(action.owner ?? "");
+    setDueDate(action.dueDate ? action.dueDate.slice(0, 10) : "");
+    setStatus(action.status ?? "OPEN");
+  }, [action.description, action.owner, action.dueDate, action.status]);
 
   const handleSave = async () => {
-    await onUpdate(action.id, {
-      description,
-      owner: owner || null
-    });
-    setIsEditing(false);
+    try {
+      await onUpdate(action.id, {
+        description,
+        owner: owner || null,
+        dueDate: dueDate || null,
+        status
+      });
+      setIsEditing(false);
+      onSuccess(t("ra.workspace.actionUpdated"));
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.actionUpdateFailed"), () => void handleSave());
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await onDelete(action.id);
+      onSuccess(t("ra.workspace.actionDeleted"));
+      setIsEditing(false);
+    } catch (error) {
+      console.error(error);
+      onError(t("ra.workspace.actionDeleteFailed"), () => void handleDelete());
+    }
   };
 
   if (isEditing) {
@@ -611,7 +788,7 @@ const ActionItem = ({ action, saving, onUpdate }: ActionItemProps) => {
           className="sheet-input"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Description"
+          placeholder={t("ra.workspace.actionDescriptionPlaceholder")}
           disabled={saving}
         />
         <input
@@ -619,9 +796,26 @@ const ActionItem = ({ action, saving, onUpdate }: ActionItemProps) => {
           className="sheet-input"
           value={owner}
           onChange={(e) => setOwner(e.target.value)}
-          placeholder="Owner"
+          placeholder={t("ra.workspace.ownerPlaceholder")}
           disabled={saving}
         />
+        <input
+          type="date"
+          className="sheet-input"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          disabled={saving}
+        />
+        <select
+          className="sheet-input"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          disabled={saving}
+        >
+          <option value="OPEN">{t("ra.actions.status.open")}</option>
+          <option value="IN_PROGRESS">{t("ra.actions.status.inProgress")}</option>
+          <option value="COMPLETE">{t("ra.actions.status.complete")}</option>
+        </select>
         <div className="sheet-actions-grid">
           <button
             type="button"
@@ -629,7 +823,19 @@ const ActionItem = ({ action, saving, onUpdate }: ActionItemProps) => {
             onClick={handleSave}
             disabled={saving}
           >
-            Save
+            {t("common.save")}
+          </button>
+          <button
+            type="button"
+            className="sheet-button sheet-button--danger"
+            onClick={() => {
+              if (window.confirm(t("ra.actions.confirmDelete"))) {
+                void handleDelete();
+              }
+            }}
+            disabled={saving}
+          >
+            {t("common.delete")}
           </button>
           <button
             type="button"
@@ -637,7 +843,7 @@ const ActionItem = ({ action, saving, onUpdate }: ActionItemProps) => {
             onClick={() => setIsEditing(false)}
             disabled={saving}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       </li>
@@ -648,8 +854,14 @@ const ActionItem = ({ action, saving, onUpdate }: ActionItemProps) => {
     <li onClick={() => setIsEditing(true)} style={{ cursor: "pointer" }}>
       <strong>{action.description}</strong>
       <span>
-        {action.owner || "Unassigned"} ·{" "}
-        {action.dueDate ? new Date(action.dueDate).toLocaleDateString() : "No due date"}
+        {action.owner || t("ra.workspace.unassigned")} ·{" "}
+        {action.dueDate ? formatDate(action.dueDate) : t("ra.workspace.noDueDate")}
+        {" · "}
+        {action.status === "COMPLETE"
+          ? t("ra.actions.status.complete")
+          : action.status === "IN_PROGRESS"
+          ? t("ra.actions.status.inProgress")
+          : t("ra.actions.status.open")}
       </span>
     </li>
   );

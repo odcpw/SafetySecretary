@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { ProcessStep } from "@/types/riskAssessment";
 import type { CaseAttachment } from "@/types/attachments";
 import { useCaseAttachments } from "@/hooks/useCaseAttachments";
+import { useI18n } from "@/i18n/I18nContext";
 
 type DragPayload = { attachmentId: string; fromStepId: string | null };
 
@@ -24,6 +25,7 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
   const { attachments, loading, error, uploadToStep, moveToStep, reorderStepAttachments, deleteAttachment } =
     useCaseAttachments(caseId);
   const [status, setStatus] = useState<string | null>(null);
+  const { t } = useI18n();
 
   const stepAttachments = useMemo(() => {
     const grouped = new Map<string, CaseAttachment[]>();
@@ -46,13 +48,13 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
 
   const handleUpload = async (stepId: string, file: File | null) => {
     if (!file) return;
-    setStatus("Uploading photo…");
+    setStatus(t("photos.uploading"));
     try {
       await uploadToStep(stepId, file);
       setStatus(null);
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "Upload failed");
+      setStatus(err instanceof Error ? err.message : t("photos.uploadFailed"));
       setTimeout(() => setStatus(null), 4000);
     }
   };
@@ -61,13 +63,13 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
     if (payload.fromStepId === targetStepId) {
       return;
     }
-    setStatus("Moving photo…");
+    setStatus(t("photos.moving"));
     try {
       await moveToStep(payload.attachmentId, targetStepId);
       setStatus(null);
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "Move failed");
+      setStatus(err instanceof Error ? err.message : t("photos.moveFailed"));
       setTimeout(() => setStatus(null), 4000);
     }
   };
@@ -81,7 +83,7 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
         ? [...order.slice(0, insertIndex), payload.attachmentId, ...order.slice(insertIndex)]
         : [...order, payload.attachmentId];
 
-    setStatus("Reordering photos…");
+    setStatus(t("photos.reordering"));
     try {
       if (payload.fromStepId !== targetStepId) {
         await moveToStep(payload.attachmentId, targetStepId);
@@ -90,20 +92,20 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
       setStatus(null);
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "Reorder failed");
+      setStatus(err instanceof Error ? err.message : t("photos.reorderFailed"));
       setTimeout(() => setStatus(null), 4000);
     }
   };
 
   const handleDelete = async (attachmentId: string) => {
-    if (!confirm("Delete this attachment?")) return;
-    setStatus("Deleting…");
+    if (!confirm(t("photos.confirmDelete"))) return;
+    setStatus(t("photos.deleting"));
     try {
       await deleteAttachment(attachmentId);
       setStatus(null);
     } catch (err) {
       console.error(err);
-      setStatus(err instanceof Error ? err.message : "Delete failed");
+      setStatus(err instanceof Error ? err.message : t("photos.deleteFailed"));
       setTimeout(() => setStatus(null), 4000);
     }
   };
@@ -112,13 +114,13 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
     <section className="rounded-lg border border-slate-200 p-4 space-y-3">
       <header className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Photos by step</h3>
-          <p className="text-sm text-slate-500">Upload, reorder, or drag photos between steps.</p>
+          <h3 className="text-lg font-semibold text-slate-900">{t("photos.title")}</h3>
+          <p className="text-sm text-slate-500">{t("photos.subtitle")}</p>
         </div>
-        {loading && <span className="text-sm text-slate-500">Loading…</span>}
+        {loading && <span className="text-sm text-slate-500">{t("common.loading")}</span>}
       </header>
 
-      {error && <div className="bg-amber-50 text-amber-900 px-3 py-2 rounded text-sm">Photos: {error}</div>}
+      {error && <div className="bg-amber-50 text-amber-900 px-3 py-2 rounded text-sm">{t("photos.errorLabel")}: {error}</div>}
       {status && <div className="bg-slate-50 text-slate-700 px-3 py-2 rounded text-sm">{status}</div>}
 
       <div className="space-y-4">
@@ -141,10 +143,11 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
             >
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <div className="text-sm font-medium text-slate-900">
-                  Step {index + 1}: <span className="font-normal text-slate-700">{step.activity}</span>
+                  {t("photos.stepLabel", { values: { index: index + 1 } })}:{" "}
+                  <span className="font-normal text-slate-700">{step.activity}</span>
                 </div>
                 <label className="text-sm px-3 py-1 rounded bg-slate-900 text-white cursor-pointer">
-                  Upload
+                  {t("common.upload")}
                   <input
                     type="file"
                     accept="image/*"
@@ -155,7 +158,7 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
               </div>
 
               {photos.length === 0 ? (
-                <div className="text-sm text-slate-500">No photos yet. Drop a photo here or upload one.</div>
+                <div className="text-sm text-slate-500">{t("photos.empty")}</div>
               ) : (
                 <div className="flex flex-wrap gap-3">
                   {photos.map((photo) => {
@@ -189,7 +192,7 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
                             <img src={photo.url} alt={photo.originalName} className="h-20 w-full object-cover" />
                           ) : (
                             <div className="h-20 w-full flex items-center justify-center text-slate-500 text-sm">
-                              File
+                              {t("photos.fileLabel")}
                             </div>
                           )}
                           <button
@@ -215,4 +218,3 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
     </section>
   );
 };
-

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useSpeechToText } from "@/lib/useSpeechToText";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface AssistantPanelProps {
   title: string;
@@ -31,6 +32,7 @@ export const AssistantPanel = ({
   onClear
 }: AssistantPanelProps) => {
   const valueRef = useRef(value);
+  const { t } = useI18n();
   useEffect(() => {
     valueRef.current = value;
   }, [value]);
@@ -52,9 +54,9 @@ export const AssistantPanel = ({
     <section className="phase-llm-panel">
       <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
       <p className="text-sm text-slate-600">{description}</p>
-      <textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
-      <div className="phase-llm-panel__actions">
-        <button type="button" disabled={submitDisabled} onClick={onSubmit}>
+      <div className="phase-llm-panel__field">
+        <textarea value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+        <button type="button" className="btn-primary" disabled={submitDisabled} onClick={onSubmit}>
           {primaryLabel}
         </button>
         {enableVoice && (
@@ -63,18 +65,20 @@ export const AssistantPanel = ({
             className="btn-outline"
             onClick={() => (speech.listening ? speech.stop() : speech.start())}
             disabled={disabled || !speech.supported}
-            title={speech.supported ? "Dictate using your microphone" : "Speech recognition not supported"}
+            title={speech.supported ? t("assistant.voiceSupported") : t("assistant.voiceUnsupported")}
           >
-            {speech.listening ? "Stop mic" : "Start mic"}
+            {speech.listening ? t("assistant.stopMic") : t("assistant.startMic")}
           </button>
         )}
+      </div>
+      <div className="phase-llm-panel__actions">
         <button type="button" className="btn-outline" disabled={!value} onClick={handleClear}>
-          Clear
+          {t("common.clear")}
         </button>
         {status && <span className="text-sm text-slate-500">{status}</span>}
       </div>
       {enableVoice && speech.listening && speech.interimText && (
-        <p className="text-sm text-slate-500">Listening… {speech.interimText}</p>
+        <p className="text-sm text-slate-500">{t("assistant.listening", { values: { text: speech.interimText } })}</p>
       )}
       {enableVoice && speech.error && (
         <p className="text-sm text-slate-500">{speech.error}</p>

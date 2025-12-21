@@ -87,8 +87,16 @@ export function getCategoryByCode(code: string): HazardCategory | undefined {
 /**
  * Get the display label for a category code.
  */
-export function getCategoryLabel(code: string | null | undefined): string {
-  if (!code) return "—";
+export function getCategoryLabel(
+  code: string | null | undefined,
+  t?: (key: string, options?: { fallback?: string }) => string
+): string {
+  if (!code) {
+    return t ? t("common.noData", { fallback: "—" }) : "—";
+  }
   const category = getCategoryByCode(code);
+  if (t) {
+    return t(`domain.hazardCategories.${code}`, { fallback: category?.label ?? code });
+  }
   return category?.label ?? code;
 }

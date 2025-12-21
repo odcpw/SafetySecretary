@@ -1,29 +1,37 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RiskAssessmentCase } from "@/types/riskAssessment";
 import {
+  buildDefaultMatrixLabels,
   getDefaultMatrixSettings,
   loadMatrixSettings,
   persistMatrixSettings,
   projectAssessmentToCell,
   type RiskMatrixSettings
 } from "@/lib/riskMatrixSettings";
+import { useI18n } from "@/i18n/I18nContext";
 
 type Mode = "current" | "residual";
 
 export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
+  const { t } = useI18n();
+  const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
   const [mode, setMode] = useState<Mode>("current");
   const [selectedCell, setSelectedCell] = useState<{ row: number; column: number } | null>(null);
-  const [settings, setSettings] = useState<RiskMatrixSettings>(() => loadMatrixSettings());
+  const [settings, setSettings] = useState<RiskMatrixSettings>(() => loadMatrixSettings(defaultLabels));
   const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     persistMatrixSettings(settings);
   }, [settings]);
 
+  useEffect(() => {
+    setSettings(loadMatrixSettings(defaultLabels));
+  }, [defaultLabels]);
+
   const rowLabels = useMemo(() => {
     const labels = [...settings.rowLabels];
     while (labels.length < settings.rows) {
-      labels.push(`Row ${labels.length + 1}`);
+      labels.push(t("ra.matrix.rowFallback", { values: { index: labels.length + 1 } }));
     }
     return labels.slice(0, settings.rows);
   }, [settings.rowLabels, settings.rows]);
@@ -31,7 +39,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
   const columnLabels = useMemo(() => {
     const labels = [...settings.columnLabels];
     while (labels.length < settings.columns) {
-      labels.push(`Column ${labels.length + 1}`);
+      labels.push(t("ra.matrix.columnFallback", { values: { index: labels.length + 1 } }));
     }
     return labels.slice(0, settings.columns);
   }, [settings.columnLabels, settings.columns]);
@@ -92,7 +100,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
   };
 
   const resetSettings = () => {
-    const defaults = getDefaultMatrixSettings();
+    const defaults = getDefaultMatrixSettings(defaultLabels);
     setSettings(defaults);
     setSelectedCell(null);
   };
@@ -111,7 +119,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
               setSelectedCell(null);
             }}
           >
-            Current risk
+            {t("ra.matrix.current")}
           </button>
           <button
             type="button"
@@ -121,15 +129,15 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
               setSelectedCell(null);
             }}
           >
-            Residual risk
+            {t("ra.matrix.residual")}
           </button>
         </div>
         <div className="risk-matrix-toolbar__actions">
           <button type="button" className="btn-ghost" onClick={() => setShowSettings((prev) => !prev)}>
-            {showSettings ? "Hide settings" : "Customize matrix"}
+            {showSettings ? t("ra.matrix.hideSettings") : t("ra.matrix.customize")}
           </button>
           <button type="button" className="btn-outline" onClick={resetSettings}>
-            Reset defaults
+            {t("ra.matrix.resetDefaults")}
           </button>
         </div>
       </div>
@@ -137,7 +145,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
       {showSettings && (
         <section className="risk-matrix-settings">
           <div className="settings-group">
-            <label>Rows (likelihood levels)</label>
+            <label>{t("ra.matrix.rowsLabel")}</label>
             <input
               type="number"
               min={2}
@@ -163,7 +171,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
           </div>
 
           <div className="settings-group">
-            <label>Columns (severity levels)</label>
+            <label>{t("ra.matrix.columnsLabel")}</label>
             <input
               type="number"
               min={2}
@@ -189,7 +197,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
           </div>
 
           <div className="settings-group">
-            <label>Risk colors</label>
+            <label>{t("ra.matrix.colorsLabel")}</label>
             <div className="risk-colors">
               {settings.riskBuckets.map((bucket, index) => (
                 <div key={`bucket-${index}`} className="risk-color-item">
@@ -213,7 +221,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
                         return { ...prev, riskBuckets: next };
                       })
                     }
-                    placeholder="Label"
+                    placeholder={t("ra.matrix.labelPlaceholder")}
                   />
                 </div>
               ))}
@@ -226,7 +234,7 @@ export const RiskMatrixPanel = ({ raCase }: { raCase: RiskAssessmentCase }) => {
         <table className="risk-matrix-grid">
           <thead>
             <tr>
-              <th>Likelihood \\ Severity</th>
+              <th>{t("ra.matrix.axisHeader")}</th>
               {columnLabels.map((label, colIndex) => (
                 <th key={`col-${colIndex}`}>{label}</th>
               ))}

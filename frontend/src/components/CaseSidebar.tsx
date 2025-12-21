@@ -1,5 +1,6 @@
 import { PHASES } from "@/lib/phases";
 import type { Phase } from "@/types/riskAssessment";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface CaseSidebarProps {
   activityName: string;
@@ -11,16 +12,17 @@ interface CaseSidebarProps {
 
 export const CaseSidebar = ({ activityName, location, team, currentPhase, onRefresh }: CaseSidebarProps) => {
   const currentIndex = PHASES.findIndex((phase) => phase.id === currentPhase);
+  const { t } = useI18n();
 
   return (
     <aside className="w-full max-w-xs border-r border-slate-200 bg-slate-50/70 p-4">
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-slate-900">{activityName}</h2>
-        <p className="text-sm text-slate-600">{location || "Location not set"}</p>
-        <p className="text-sm text-slate-600">{team || "Team not set"}</p>
+        <p className="text-sm text-slate-600">{location || t("workspace.locationPending")}</p>
+        <p className="text-sm text-slate-600">{team || t("workspace.teamPending")}</p>
         {onRefresh && (
           <button type="button" className="mt-3 bg-slate-800 text-sm" onClick={onRefresh}>
-            Refresh
+            {t("common.refresh")}
           </button>
         )}
       </div>
@@ -39,8 +41,10 @@ export const CaseSidebar = ({ activityName, location, team, currentPhase, onRefr
                     : "border-slate-200 text-slate-500"
               }`}
             >
-              <div className="font-medium">{phase.label}</div>
-              <p className="text-xs">{phase.description}</p>
+              <div className="font-medium">
+                {t(phase.labelKey, { fallback: phase.label })}
+              </div>
+              <p className="text-xs">{t(phase.descriptionKey, { fallback: phase.description })}</p>
             </li>
           );
         })}

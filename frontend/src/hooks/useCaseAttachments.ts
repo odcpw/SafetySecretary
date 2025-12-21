@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import type { CaseAttachment } from "@/types/attachments";
 
 const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -6,7 +7,7 @@ const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   if (init?.body && !(init?.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || response.statusText);
@@ -19,7 +20,7 @@ const voidFetch = async (path: string, init?: RequestInit): Promise<void> => {
   if (init?.body && !(init?.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || response.statusText);
@@ -103,4 +104,3 @@ export const useCaseAttachments = (caseId: string) => {
     deleteAttachment
   };
 };
-

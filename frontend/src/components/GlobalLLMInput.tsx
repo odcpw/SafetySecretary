@@ -9,18 +9,21 @@
  *
  * The LLM parses the input and generates structured commands to update the table.
  */
-import { useState } from "react";
+import { useState, type RefObject } from "react";
 import { useRaContext } from "@/contexts/RaContext";
 import type { ContextualUpdateCommand, ParsedContextualUpdate } from "@/contexts/RaContext";
 import type { Phase } from "@/types/riskAssessment";
 import { useSpeechToText } from "@/lib/useSpeechToText";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface GlobalLLMInputProps {
   currentPhase: Phase;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
-export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
+export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProps) => {
   const { saving, actions } = useRaContext();
+  const { t, locale } = useI18n();
   const [input, setInput] = useState("");
   const [clarification, setClarification] = useState("");
   const [parsing, setParsing] = useState(false);
@@ -28,10 +31,11 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
+  const voiceLang = locale === "fr" ? "fr-FR" : locale === "de" ? "de-DE" : "en-US";
   const speech = useSpeechToText({
     onFinalText: (text) =>
       setInput((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text)),
-    lang: "en-US"
+    lang: voiceLang
   });
 
   // Parse the user's natural language input
@@ -52,7 +56,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
       setParsedResult(result);
     } catch (err) {
       console.error("Parse error:", err);
-      setError(err instanceof Error ? err.message : "Failed to parse input");
+      setError(err instanceof Error ? err.message : t("llm.parseFailed"));
     } finally {
       setParsing(false);
     }
@@ -66,7 +70,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
     setParsing(true);
 
     try {
-      const combined = `${input.trim()}\n\nClarification: ${clarification.trim()}`;
+      const combined = `${input.trim()}\n\n${t("llm.clarificationPrefix")}: ${clarification.trim()}`;
       const result = await actions.parseContextualUpdate(combined, currentPhase);
       setParsedResult(result);
       if (!result.needsClarification) {
@@ -74,7 +78,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
       }
     } catch (err) {
       console.error("Clarification parse error:", err);
-      setError(err instanceof Error ? err.message : "Failed to re-parse with clarification");
+      setError(err instanceof Error ? err.message : t("llm.reparseFailed"));
     } finally {
       setParsing(false);
     }
@@ -96,7 +100,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
       setParsedResult(null);
     } catch (err) {
       console.error("Apply error:", err);
-      setError(err instanceof Error ? err.message : "Failed to apply changes");
+      setError(err instanceof Error ? err.message : t("llm.applyFailed"));
     } finally {
       setApplying(false);
     }
@@ -123,7 +127,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
       }
     } catch (err) {
       console.error("Apply error:", err);
-      setError(err instanceof Error ? err.message : "Failed to apply change");
+      setError(err instanceof Error ? err.message : t("llm.applySingleFailed"));
     } finally {
       setApplying(false);
     }
@@ -157,10 +161,11 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
     <div className="global-llm-input">
       <div className="global-llm-input__field">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Describe changes in natural language... (e.g., 'add ladder to step 3', 'insert step between 2 and 3')"
+          placeholder={t("llm.inputPlaceholder")}
           disabled={isDisabled}
           rows={2}
         />
@@ -170,22 +175,22 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
           disabled={isDisabled || !input.trim()}
           className="btn-primary"
         >
-          {parsing ? "Parsing…" : "Parse"}
+          {parsing ? t("llm.parsing") : t("llm.parse")}
         </button>
         <button
           type="button"
           className="btn-outline"
           onClick={() => (speech.listening ? speech.stop() : speech.start())}
           disabled={isDisabled || !speech.supported}
-          title={speech.supported ? "Dictate using your microphone" : "Speech recognition not supported"}
+          title={speech.supported ? t("assistant.voiceSupported") : t("assistant.voiceUnsupported")}
         >
-          {speech.listening ? "Stop mic" : "Start mic"}
+          {speech.listening ? t("assistant.stopMic") : t("assistant.startMic")}
         </button>
       </div>
 
       {speech.listening && speech.interimText && (
         <div className="global-llm-input__clarification">
-          <p>Listening… {speech.interimText}</p>
+          <p>{t("assistant.listening", { values: { text: speech.interimText } })}</p>
         </div>
       )}
 
@@ -202,9 +207,9 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
       )}
 
       {parsedResult && (
-        <div className="global-llm-input__preview">
-          <div className="global-llm-input__preview-header">
-            <h4>Proposed Changes</h4>
+          <div className="global-llm-input__preview">
+            <div className="global-llm-input__preview-header">
+            <h4>{t("llm.proposedChanges")}</h4>
             <p className="text-label">{parsedResult.summary}</p>
           </div>
 
@@ -221,7 +226,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
                   value={clarification}
                   onChange={(e) => setClarification(e.target.value)}
                   onKeyDown={handleClarificationKeyDown}
-                  placeholder="Answer the question to clarify…"
+                  placeholder={t("llm.clarificationPlaceholder")}
                   disabled={isDisabled}
                   rows={2}
                 />
@@ -231,13 +236,13 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
                   disabled={isDisabled || !clarification.trim()}
                   className="btn-primary"
                 >
-                  {parsing ? "Re-parsing…" : "Re-parse"}
+                  {parsing ? t("llm.reparsing") : t("llm.reparse")}
                 </button>
               </div>
 
               <div className="global-llm-input__preview-actions">
                 <button type="button" onClick={handleCancel} disabled={applying || parsing} className="btn-outline">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </>
@@ -257,7 +262,7 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
                       disabled={applying}
                       className="btn-small"
                     >
-                      Apply
+                      {t("llm.apply")}
                     </button>
                   </li>
                 ))}
@@ -270,10 +275,10 @@ export const GlobalLLMInput = ({ currentPhase }: GlobalLLMInputProps) => {
                   disabled={applying || parsedResult.commands.length === 0}
                   className="btn-primary"
                 >
-                  {applying ? "Applying…" : "Apply All"}
+                  {applying ? t("llm.applying") : t("llm.applyAll")}
                 </button>
                 <button type="button" onClick={handleCancel} disabled={applying} className="btn-outline">
-                  Cancel
+                  {t("common.cancel")}
                 </button>
               </div>
             </>

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
 import {
+  buildDefaultMatrixLabels,
   getRiskColorForAssessment,
   loadMatrixSettings,
   type RiskMatrixSettings
@@ -16,6 +17,9 @@ import {
   SheetTable
 } from "@/components/ui/SheetTable";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
+import { SaveStatus } from "@/components/common/SaveStatus";
+import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseRiskRatingProps {
   raCase: RiskAssessmentCase;
@@ -25,9 +29,6 @@ interface PhaseRiskRatingProps {
   onNext: () => Promise<void>;
   canAdvance?: boolean;
 }
-
-const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS;
-const LIKELIHOOD_OPTIONS = TEMPLATE_LIKELIHOOD_OPTIONS;
 
 const initialRatingsFromHazards = (hazards: Hazard[]) =>
   hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
@@ -63,22 +64,49 @@ export const PhaseRiskRating = ({
   onNext,
   canAdvance = true
 }: PhaseRiskRatingProps) => {
+  const { t } = useI18n();
+  const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
   const [ratings, setRatings] = useState(() => initialRatingsFromHazards(raCase.hazards));
-  const [status, setStatus] = useState<string | null>(null);
+  const ratingsRef = useRef<Record<string, { severity: string; likelihood: string }>>(ratings);
   const [activeStepId, setActiveStepId] = useState<string>(ALL_STEPS);
-  const [riskSettings, setRiskSettings] = useState<RiskMatrixSettings | null>(() => loadMatrixSettings());
+  const [riskSettings, setRiskSettings] = useState<RiskMatrixSettings | null>(() => loadMatrixSettings(defaultLabels));
   // Local state for inline editing of existing controls
   const [controlsEditing, setControlsEditing] = useState<Record<string, string>>({});
+  const { status, show, showSuccess, showError, clear } = useSaveStatus();
+
+  const severityOptions = useMemo(
+    () =>
+      TEMPLATE_SEVERITY_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(`domain.severity.${option.value}`, { fallback: option.label })
+      })),
+    [t]
+  );
+
+  const likelihoodOptions = useMemo(
+    () =>
+      TEMPLATE_LIKELIHOOD_OPTIONS.map((option) => ({
+        value: option.value,
+        label: t(`domain.likelihood.${option.value}`, { fallback: option.label })
+      })),
+    [t]
+  );
 
   useEffect(() => {
-    setRatings(initialRatingsFromHazards(raCase.hazards));
+    const next = initialRatingsFromHazards(raCase.hazards);
+    ratingsRef.current = next;
+    setRatings(next);
   }, [raCase]);
 
   useEffect(() => {
-    const syncSettings = () => setRiskSettings(loadMatrixSettings());
+    const syncSettings = () => setRiskSettings(loadMatrixSettings(defaultLabels));
     window.addEventListener("storage", syncSettings);
     return () => window.removeEventListener("storage", syncSettings);
-  }, []);
+  }, [defaultLabels]);
+
+  useEffect(() => {
+    setRiskSettings(loadMatrixSettings(defaultLabels));
+  }, [defaultLabels]);
 
   const hazardsByStep = useMemo(() => {
     const grouped = raCase.steps.map((step) => ({
@@ -100,30 +128,49 @@ export const PhaseRiskRating = ({
   const stepNumberMap = useMemo(() => new Map(raCase.steps.map((step, index) => [step.id, index + 1])), [raCase.steps]);
 
   const handleRatingChange = (hazardId: string, patch: Partial<{ severity: string; likelihood: string }>) => {
-    setRatings((prev) => {
-      const current = prev[hazardId] ?? { severity: "", likelihood: "" };
-      const next = { ...current, ...patch };
-      void commitRating(hazardId, next);
-      return { ...prev, [hazardId]: next };
-    });
+    const current = ratingsRef.current[hazardId] ?? { severity: "", likelihood: "" };
+    const next = { ...current, ...patch };
+    ratingsRef.current = { ...ratingsRef.current, [hazardId]: next };
+    setRatings((prev) => ({ ...prev, [hazardId]: next }));
+    void commitRating(hazardId, next);
   };
 
   const commitRating = async (hazardId: string, value: { severity: string; likelihood: string }) => {
-    if (!value.severity || !value.likelihood) {
-      setStatus("Select severity and likelihood to save.");
+    const shouldSave =
+      (value.severity && value.likelihood) || (!value.severity && !value.likelihood);
+    if (!shouldSave) {
       return;
     }
-    setStatus("Saving risk rating…");
-    await onSaveRiskRatings([{ hazardId, severity: value.severity, likelihood: value.likelihood }]);
-    setStatus("Autosaved.");
-    setTimeout(() => setStatus(null), 1500);
+    const isClearing = !value.severity && !value.likelihood;
+    show({ message: isClearing ? t("ra.risk.clearingRating") : t("ra.risk.savingRating"), tone: "info" });
+    try {
+      await onSaveRiskRatings([{ hazardId, severity: value.severity, likelihood: value.likelihood }]);
+      showSuccess(isClearing ? t("ra.risk.ratingCleared") : t("ra.risk.autosaved"));
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.risk.saveFailed"),
+        () => void commitRating(hazardId, value),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleCategoryChange = async (hazardId: string, categoryCode: string) => {
-    setStatus("Updating category…");
-    await onUpdateHazard(hazardId, { categoryCode: categoryCode || undefined });
-    setStatus("Category updated.");
-    setTimeout(() => setStatus(null), 1500);
+    show({ message: t("ra.risk.updatingCategory"), tone: "info" });
+    try {
+      await onUpdateHazard(hazardId, { categoryCode: categoryCode || undefined });
+      showSuccess(t("ra.risk.categoryUpdated"));
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.risk.categoryUpdateFailed"),
+        () => void handleCategoryChange(hazardId, categoryCode),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleControlsBlur = async (hazardId: string) => {
@@ -135,15 +182,24 @@ export const PhaseRiskRating = ({
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
 
-    setStatus("Updating existing controls…");
-    await onUpdateHazard(hazardId, { existingControls: controls });
-    setControlsEditing((prev) => {
-      const next = { ...prev };
-      delete next[hazardId];
-      return next;
-    });
-    setStatus("Controls updated.");
-    setTimeout(() => setStatus(null), 1500);
+    show({ message: t("ra.risk.updatingControls"), tone: "info" });
+    try {
+      await onUpdateHazard(hazardId, { existingControls: controls });
+      setControlsEditing((prev) => {
+        const next = { ...prev };
+        delete next[hazardId];
+        return next;
+      });
+      showSuccess(t("ra.risk.controlsUpdated"));
+    } catch (error) {
+      console.error(error);
+      showError(
+        error instanceof Error ? error.message : t("ra.risk.controlsUpdateFailed"),
+        () => void handleControlsBlur(hazardId),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const getControlsEditValue = (hazard: Hazard) => {
@@ -157,8 +213,9 @@ export const PhaseRiskRating = ({
     <div className="space-y-6">
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
         <p className="text-sm text-blue-800">
-          <strong>Baseline Risk Assessment:</strong> Rate each hazard based on your <em>current adherence</em> to the existing controls.
-          Ask yourself: "Given these controls exist, how well are we following them? What&apos;s the actual risk today?"
+          <strong>{t("ra.risk.bannerTitle")}</strong>{" "}
+          {t("ra.risk.bannerBodyPrefix")} <em>{t("ra.risk.bannerBodyEmphasis")}</em>{" "}
+          {t("ra.risk.bannerBodySuffix")}
         </p>
       </div>
       <div className="phase-step-tabs">
@@ -167,7 +224,7 @@ export const PhaseRiskRating = ({
           className={activeStepId === ALL_STEPS ? "phase-chip phase-chip--active" : "phase-chip"}
           onClick={() => setActiveStepId(ALL_STEPS)}
         >
-          See all
+          {t("ra.common.seeAll")}
         </button>
         {raCase.steps.map((step) => (
           <button
@@ -196,10 +253,10 @@ export const PhaseRiskRating = ({
             </colgroup>
             <SheetHead>
               <SheetRow>
-                <SheetHeaderCell>Hazard</SheetHeaderCell>
-                <SheetHeaderCell>Category</SheetHeaderCell>
-                <SheetHeaderCell>Existing Controls</SheetHeaderCell>
-                <SheetHeaderCell>Assessment</SheetHeaderCell>
+                <SheetHeaderCell>{t("ra.risk.table.hazard")}</SheetHeaderCell>
+                <SheetHeaderCell>{t("ra.risk.table.category")}</SheetHeaderCell>
+                <SheetHeaderCell>{t("ra.risk.table.existingControls")}</SheetHeaderCell>
+                <SheetHeaderCell>{t("ra.risk.table.assessment")}</SheetHeaderCell>
               </SheetRow>
             </SheetHead>
             <SheetBody>
@@ -226,10 +283,10 @@ export const PhaseRiskRating = ({
                         value={hazard.categoryCode ?? ""}
                         onChange={(event) => handleCategoryChange(hazard.id, event.target.value)}
                       >
-                        <option value="">Select category…</option>
+                        <option value="">{t("ra.risk.selectCategory")}</option>
                         {HAZARD_CATEGORIES.map((cat) => (
                           <option key={cat.code} value={cat.code}>
-                            {cat.label}
+                            {t(`domain.hazardCategories.${cat.code}`, { fallback: cat.label })}
                           </option>
                         ))}
                       </SheetSelect>
@@ -237,7 +294,7 @@ export const PhaseRiskRating = ({
                     <SheetCell>
                       <textarea
                         className="w-full min-h-[60px] text-sm border border-slate-200 rounded p-2 resize-y focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder="One control per line…"
+                        placeholder={t("ra.risk.controlsPlaceholder")}
                         value={getControlsEditValue(hazard)}
                         onChange={(event) =>
                           setControlsEditing((prev) => ({ ...prev, [hazard.id]: event.target.value }))
@@ -248,15 +305,15 @@ export const PhaseRiskRating = ({
                     <SheetCell>
                       <div className="sheet-risk-cell" style={{ backgroundColor: cellColor, color: textColor }}>
                         <label>
-                          Severity
+                          {t("ra.risk.severity")}
                           <SheetSelect
                             value={current.severity}
                             onChange={(event) =>
                               handleRatingChange(hazard.id, { severity: event.target.value })
                             }
                           >
-                            <option value="">Select…</option>
-                            {SEVERITY_OPTIONS.map((option) => (
+                            <option value="">{t("ra.risk.selectOption")}</option>
+                            {severityOptions.map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
@@ -264,15 +321,15 @@ export const PhaseRiskRating = ({
                           </SheetSelect>
                         </label>
                         <label>
-                          Likelihood
+                          {t("ra.risk.likelihood")}
                           <SheetSelect
                             value={current.likelihood}
                             onChange={(event) =>
                               handleRatingChange(hazard.id, { likelihood: event.target.value })
                             }
                           >
-                            <option value="">Select…</option>
-                            {LIKELIHOOD_OPTIONS.map((option) => (
+                            <option value="">{t("ra.risk.selectOption")}</option>
+                            {likelihoodOptions.map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>
@@ -287,7 +344,7 @@ export const PhaseRiskRating = ({
               {hazards.length === 0 && (
                 <SheetRow>
                   <SheetCell colSpan={4} className="sheet-empty-cell">
-                    No hazards for this step.
+                    {t("ra.risk.noHazards")}
                   </SheetCell>
                 </SheetRow>
               )}
@@ -297,10 +354,10 @@ export const PhaseRiskRating = ({
       ))}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {status && <span className="text-sm text-slate-500">{status}</span>}
+        <SaveStatus status={status} />
         {canAdvance && (
           <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
-            Continue
+            {t("common.continue")}
           </button>
         )}
       </div>

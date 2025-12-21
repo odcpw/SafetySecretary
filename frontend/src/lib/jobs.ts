@@ -1,7 +1,16 @@
 import { z } from "zod";
+import { apiFetch } from "@/lib/api";
 
 export type LlmJobStatus = "queued" | "running" | "completed" | "failed";
-export type LlmJobType = "steps" | "hazards" | "controls" | "actions";
+export type LlmJobType =
+  | "steps"
+  | "hazards"
+  | "controls"
+  | "actions"
+  | "jha-rows"
+  | "incident-witness"
+  | "incident-merge"
+  | "incident-consistency";
 export type LlmJobTypeOrUnknown = LlmJobType | "unknown";
 
 const LlmJobStatusSchema = z.enum(["queued", "running", "completed", "failed"]);
@@ -15,7 +24,16 @@ const LlmJobResponseSchema = z.object({
   updatedAt: z.string()
 });
 
-const KNOWN_JOB_TYPES = new Set<LlmJobType>(["steps", "hazards", "controls", "actions"]);
+const KNOWN_JOB_TYPES = new Set<LlmJobType>([
+  "steps",
+  "hazards",
+  "controls",
+  "actions",
+  "jha-rows",
+  "incident-witness",
+  "incident-merge",
+  "incident-consistency"
+]);
 
 export interface LlmJobResponse {
   id: string;
@@ -42,7 +60,7 @@ export const pollJobUntilDone = async (
   const start = Date.now();
 
   while (true) {
-    const response = await fetch(`/api/llm-jobs/${jobId}`);
+    const response = await apiFetch(`/api/llm-jobs/${jobId}`);
     if (!response.ok) {
       if (response.status === 404) {
         throw new Error(

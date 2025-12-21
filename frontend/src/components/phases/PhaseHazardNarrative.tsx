@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AssistantPanel } from "@/components/common/AssistantPanel";
+import { SaveStatus } from "@/components/common/SaveStatus";
 import {
   SheetBody,
   SheetButton,
@@ -8,19 +9,22 @@ import {
   SheetHeaderCell,
   SheetInput,
   SheetRow,
+  SheetSelect,
   SheetTable,
   SheetTextarea
 } from "@/components/ui/SheetTable";
 import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
-import { getCategoryLabel } from "@/lib/hazardCategories";
+import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import { useHazardDrafts } from "@/hooks/useHazardDrafts";
+import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseHazardNarrativeProps {
   raCase: RiskAssessmentCase;
   saving: boolean;
   onExtractHazards: (narrative: string, stepId?: string) => Promise<void>;
   onAddHazard: (stepId: string, label: string, description: string) => Promise<void>;
-  onUpdateHazard: (hazardId: string, patch: { label?: string; description?: string; stepId?: string; existingControls?: string[] }) => Promise<void>;
+  onUpdateHazard: (hazardId: string, patch: { label?: string; description?: string; stepId?: string; existingControls?: string[]; categoryCode?: string }) => Promise<void>;
   onDeleteHazard: (hazardId: string) => Promise<void>;
   onReorderHazards: (stepId: string, hazardIds: string[]) => Promise<void>;
   onNext: () => Promise<void>;
@@ -41,7 +45,6 @@ export const PhaseHazardNarrative = ({
   canAdvance = true
 }: PhaseHazardNarrativeProps) => {
   const [narrative, setNarrative] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
   const [activeStepId, setActiveStepId] = useState<string>(ALL_STEPS);
   const [forms, setForms] = useState<Record<string, { label: string; description: string }>>({});
   const [moveMenuHazardId, setMoveMenuHazardId] = useState<string | null>(null);
@@ -58,6 +61,8 @@ export const PhaseHazardNarrative = ({
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
 
   const { drafts, patchDraft, commitDraft } = useHazardDrafts(raCase.hazards);
+  const { t, locale } = useI18n();
+  const { status, show, showSuccess, showError, clear } = useSaveStatus();
 
   const stepNumberMap = useMemo(
     () => new Map(raCase.steps.map((step, index) => [step.id, index + 1])),
@@ -86,36 +91,83 @@ export const PhaseHazardNarrative = ({
     if (!narrative.trim()) {
       return;
     }
-    setAssistantStatus("Extracting hazards…");
+    setAssistantStatus(t("ra.hazards.extracting"));
     const stepId = activeStepId === ALL_STEPS ? undefined : activeStepId;
     try {
       await onExtractHazards(narrative, stepId);
       setNarrative("");
-      setAssistantStatus("Hazards returned from assistant.");
+      setAssistantStatus(t("ra.hazards.extracted"));
       setTimeout(() => setAssistantStatus(null), 2500);
     } catch (err) {
       console.error(err);
-      setAssistantStatus(err instanceof Error ? err.message : "Failed to extract hazards");
+      setAssistantStatus(err instanceof Error ? err.message : t("ra.hazards.extractFailed"));
       setTimeout(() => setAssistantStatus(null), 5000);
     }
   };
 
   const handleAutoSave = useCallback(
     async (hazardId: string) => {
-      await commitDraft(hazardId, onUpdateHazard);
-      setStatus("Autosaved.");
-      setTimeout(() => setStatus(null), 1500);
+      try {
+        show({ message: t("status.savingChanges"), tone: "info" });
+        const saved = await commitDraft(hazardId, onUpdateHazard);
+        if (saved) {
+          showSuccess(t("status.saved"));
+        } else {
+          clear();
+        }
+      } catch (err) {
+        console.error(err);
+        showError(
+          err instanceof Error ? err.message : t("status.saveFailed"),
+          () => void handleAutoSave(hazardId),
+          undefined,
+          t("common.retry")
+        );
+      }
     },
-    [commitDraft, onUpdateHazard]
+    [commitDraft, onUpdateHazard, show, showSuccess, showError, clear, t]
   );
 
   const handleDelete = async (hazardId: string) => {
-    if (!window.confirm("Delete this hazard?")) {
+    if (!window.confirm(t("ra.hazards.confirmDelete"))) {
       return;
     }
-    await onDeleteHazard(hazardId);
-    setStatus("Hazard deleted.");
-    setTimeout(() => setStatus(null), 2000);
+    show({ message: t("ra.hazards.deleting"), tone: "info" });
+    try {
+      await onDeleteHazard(hazardId);
+      showSuccess(t("ra.hazards.deleted"), 2000);
+    } catch (err) {
+      console.error(err);
+      showError(
+        err instanceof Error ? err.message : t("ra.hazards.deleteFailed"),
+        () => void handleDelete(hazardId),
+        undefined,
+        t("common.retry")
+      );
+    }
+  };
+
+  const handleCategoryChange = async (
+    hazardId: string,
+    currentCategory: string | null | undefined,
+    nextCategory: string
+  ) => {
+    if ((currentCategory ?? "") === nextCategory) {
+      return;
+    }
+    show({ message: t("ra.risk.updatingCategory"), tone: "info" });
+    try {
+      await onUpdateHazard(hazardId, { categoryCode: nextCategory || undefined });
+      showSuccess(t("ra.risk.categoryUpdated"));
+    } catch (err) {
+      console.error(err);
+      showError(
+        err instanceof Error ? err.message : t("ra.risk.categoryUpdateFailed"),
+        () => void handleCategoryChange(hazardId, currentCategory, nextCategory),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleReorder = async (stepId: string, hazardId: string, direction: "up" | "down") => {
@@ -132,19 +184,41 @@ export const PhaseHazardNarrative = ({
       return;
     }
     [hazards[index], hazards[targetIndex]] = [hazards[targetIndex], hazards[index]];
-    await onReorderHazards(
-      stepId,
-      hazards.map((hazard) => hazard.id)
-    );
+    show({ message: t("ra.hazards.reordering"), tone: "info" });
+    try {
+      await onReorderHazards(
+        stepId,
+        hazards.map((hazard) => hazard.id)
+      );
+      showSuccess(t("ra.hazards.orderUpdated"));
+    } catch (err) {
+      console.error(err);
+      showError(
+        err instanceof Error ? err.message : t("ra.hazards.reorderFailed"),
+        () => void handleReorder(stepId, hazardId, direction),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleMoveToStep = async (hazardId: string, targetStepId: string) => {
     setMoveMenuHazardId(null);
-    await onUpdateHazard(hazardId, {
-      stepId: targetStepId
-    });
-    setStatus("Hazard moved.");
-    setTimeout(() => setStatus(null), 2000);
+    show({ message: t("ra.hazards.moving"), tone: "info" });
+    try {
+      await onUpdateHazard(hazardId, {
+        stepId: targetStepId
+      });
+      showSuccess(t("ra.hazards.moved"), 2000);
+    } catch (err) {
+      console.error(err);
+      showError(
+        err instanceof Error ? err.message : t("ra.hazards.moveFailed"),
+        () => void handleMoveToStep(hazardId, targetStepId),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleAddHazard = async (stepId: string) => {
@@ -152,15 +226,24 @@ export const PhaseHazardNarrative = ({
     if (!form?.label || !form?.description) {
       return;
     }
-    setStatus("Adding hazard…");
-    await onAddHazard(stepId, form.label, form.description);
-    setForms((prev) => ({ ...prev, [stepId]: { label: "", description: "" } }));
-    setStatus("Hazard added.");
-    setTimeout(() => setStatus(null), 2000);
+    show({ message: t("ra.hazards.adding"), tone: "info" });
+    try {
+      await onAddHazard(stepId, form.label, form.description);
+      setForms((prev) => ({ ...prev, [stepId]: { label: "", description: "" } }));
+      showSuccess(t("ra.hazards.added"), 2000);
+    } catch (err) {
+      console.error(err);
+      showError(
+        err instanceof Error ? err.message : t("ra.hazards.addFailed"),
+        () => void handleAddHazard(stepId),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   const handleDuplicateHazard = async (stepId: string, hazard: Hazard) => {
-    setStatus("Duplicating hazard…");
+    show({ message: t("ra.hazards.duplicating"), tone: "info" });
     const duplicateId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
     setPendingDuplicates((queue) => [
       ...queue,
@@ -173,7 +256,18 @@ export const PhaseHazardNarrative = ({
         description: hazard.description ?? ""
       }
     ]);
-    await onAddHazard(stepId, hazard.label, hazard.description ?? "");
+    try {
+      await onAddHazard(stepId, hazard.label, hazard.description ?? "");
+      showSuccess(t("ra.hazards.duplicated"), 2000);
+    } catch (err) {
+      console.error(err);
+      showError(
+        err instanceof Error ? err.message : t("ra.hazards.duplicateFailed"),
+        () => void handleDuplicateHazard(stepId, hazard),
+        undefined,
+        t("common.retry")
+      );
+    }
   };
 
   useEffect(() => {
@@ -212,13 +306,12 @@ export const PhaseHazardNarrative = ({
           await onReorderHazards(duplicate.stepId, reordered);
         }
         setPendingDuplicates((queue) => queue.filter((item) => item.id !== duplicate.id));
-        setStatus("Hazard duplicated.");
-        setTimeout(() => setStatus(null), 2000);
+        showSuccess(t("ra.hazards.duplicated"), 2000);
         return;
       }
     };
     void processDuplicates();
-  }, [pendingDuplicates, raCase.hazards, hazardsByStep, onReorderHazards]);
+  }, [pendingDuplicates, raCase.hazards, hazardsByStep, onReorderHazards, showSuccess, t]);
 
   useEffect(() => {
     if (!moveMenuHazardId) {
@@ -237,17 +330,20 @@ export const PhaseHazardNarrative = ({
     return () => document.removeEventListener("mousedown", handleClickAway);
   }, [moveMenuHazardId]);
 
+  const voiceLang = locale === "fr" ? "fr-FR" : locale === "de" ? "de-DE" : "en-US";
+
   return (
     <div className="space-y-6">
       <AssistantPanel
-        title="Identify hazards and existing controls"
-        description="Describe what can go wrong, past incidents, near-misses, and what controls/rules are already in place."
+        title={t("ra.hazards.assistantTitle")}
+        description={t("ra.hazards.assistantDescription")}
         value={narrative}
-        placeholder="Describe hazards, incidents, and existing controls..."
-        primaryLabel="Extract hazards"
+        placeholder={t("ra.hazards.assistantPlaceholder")}
+        primaryLabel={t("ra.hazards.assistantAction")}
         status={assistantStatus}
         disabled={saving}
         enableVoice
+        voiceLang={voiceLang}
         onChange={setNarrative}
         onSubmit={handleExtract}
         onClear={() => setNarrative("")}
@@ -260,7 +356,7 @@ export const PhaseHazardNarrative = ({
             className={activeStepId === ALL_STEPS ? "phase-chip phase-chip--active" : "phase-chip"}
             onClick={() => setActiveStepId(ALL_STEPS)}
           >
-            See all
+            {t("ra.common.seeAll")}
           </button>
           {raCase.steps.map((step) => (
             <button
@@ -286,13 +382,13 @@ export const PhaseHazardNarrative = ({
           </colgroup>
           <SheetHead>
             <SheetRow>
-              <SheetHeaderCell>Process step</SheetHeaderCell>
-              <SheetHeaderCell>#</SheetHeaderCell>
-              <SheetHeaderCell>Hazard</SheetHeaderCell>
-              <SheetHeaderCell>Category</SheetHeaderCell>
-              <SheetHeaderCell>Description / incidents</SheetHeaderCell>
-              <SheetHeaderCell>Existing controls</SheetHeaderCell>
-              <SheetHeaderCell>Actions</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.hazards.table.processStep")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.common.number")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.hazards.table.hazard")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.hazards.table.category")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.hazards.table.description")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.hazards.table.existingControls")}</SheetHeaderCell>
+              <SheetHeaderCell>{t("ra.hazards.table.actions")}</SheetHeaderCell>
             </SheetRow>
           </SheetHead>
           <SheetBody>
@@ -316,12 +412,16 @@ export const PhaseHazardNarrative = ({
                           <div>
                             <strong>{step.activity}</strong>
                             {step.equipment && step.equipment.length > 0 && (
-                              <p className="text-xs text-slate-500">Equipment: {step.equipment.join(", ")}</p>
+                              <p className="text-xs text-slate-500">
+                                {t("ra.hazards.equipmentLabel")}: {step.equipment.join(", ")}
+                              </p>
                             )}
                             {step.substances && step.substances.length > 0 && (
-                              <p className="text-xs text-slate-500">Substances: {step.substances.join(", ")}</p>
+                              <p className="text-xs text-slate-500">
+                                {t("ra.hazards.substancesLabel")}: {step.substances.join(", ")}
+                              </p>
                             )}
-                            <p>{step.description || "No description"}</p>
+                            <p>{step.description || t("ra.common.noDescription")}</p>
                           </div>
                         </div>
                         <div className="sheet-control-list">
@@ -343,7 +443,7 @@ export const PhaseHazardNarrative = ({
                                   }
                                 }))
                               }
-                              placeholder="Hazard label"
+                              placeholder={t("ra.hazards.form.labelPlaceholder")}
                             />
                             <SheetTextarea
                               className="sheet-hazard-add-textarea"
@@ -357,14 +457,14 @@ export const PhaseHazardNarrative = ({
                                   }
                                 }))
                               }
-                              placeholder="Description / anecdote"
+                              placeholder={t("ra.hazards.form.descriptionPlaceholder")}
                             />
                             <SheetButton
                               type="submit"
                               variant="primary"
                               disabled={saving || !forms[step.id]?.label || !forms[step.id]?.description}
                             >
-                              Add hazard
+                              {t("ra.hazards.form.addHazard")}
                             </SheetButton>
                           </form>
                         </div>
@@ -385,9 +485,21 @@ export const PhaseHazardNarrative = ({
                           />
                         </SheetCell>
                         <SheetCell>
-                          <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded">
-                            {getCategoryLabel(hazard.categoryCode)}
-                          </span>
+                          <SheetSelect
+                            value={hazard.categoryCode ?? ""}
+                            onChange={(event) =>
+                              void handleCategoryChange(hazard.id, hazard.categoryCode, event.target.value)
+                            }
+                            disabled={saving}
+                            title={hazard.categoryCode ?? ""}
+                          >
+                            <option value="">{t("ra.risk.selectCategory")}</option>
+                            {HAZARD_CATEGORIES.map((category) => (
+                              <option key={category.code} value={category.code}>
+                                {t(`domain.hazardCategories.${category.code}`, { fallback: category.label })}
+                              </option>
+                            ))}
+                          </SheetSelect>
                         </SheetCell>
                         <SheetCell className="sheet-cell--description">
                           <SheetTextarea
@@ -399,7 +511,7 @@ export const PhaseHazardNarrative = ({
                             onBlur={() => {
                               void handleAutoSave(hazard.id);
                             }}
-                            placeholder="What can happen? Past incidents?"
+                            placeholder={t("ra.hazards.form.descriptionHint")}
                           />
                         </SheetCell>
                         <SheetCell className="sheet-cell--description">
@@ -412,7 +524,7 @@ export const PhaseHazardNarrative = ({
                             onBlur={() => {
                               void handleAutoSave(hazard.id);
                             }}
-                            placeholder="What rules/controls are in place? (one per line)"
+                            placeholder={t("ra.hazards.form.controlsHint")}
                           />
                         </SheetCell>
                         <SheetCell className="sheet-cell-actions">
@@ -442,13 +554,13 @@ export const PhaseHazardNarrative = ({
                                 onClick={() =>
                                   setMoveMenuHazardId((current) => (current === hazard.id ? null : hazard.id))
                                 }
-                                title="Move to another step"
+                                title={t("ra.hazards.moveTitle")}
                               >
                                 ⇢
                               </SheetButton>
                               {moveMenuHazardId === hazard.id && (
                                 <div className="sheet-move-menu">
-                                  <p>Move hazard to:</p>
+                                  <p>{t("ra.hazards.movePrompt")}</p>
                                   <ul>
                                     {raCase.steps.map((stepOption) => (
                                       <li key={stepOption.id}>
@@ -472,20 +584,20 @@ export const PhaseHazardNarrative = ({
                               variant="duplicate"
                               onClick={() => handleDuplicateHazard(step.id, hazard)}
                             >
-                              Duplicate
+                              {t("common.duplicate")}
                             </SheetButton>
                             <SheetButton
                               variant="danger"
                               onClick={() => handleDelete(hazard.id)}
                             >
-                              Delete
+                              {t("common.delete")}
                             </SheetButton>
                           </div>
                         </SheetCell>
                       </>
                     ) : (
                       <SheetCell colSpan={6} className="sheet-empty-cell">
-                        No hazards yet. Use the form in the step cell to add one.
+                        {t("ra.hazards.empty")}
                       </SheetCell>
                     )}
                   </SheetRow>
@@ -494,13 +606,13 @@ export const PhaseHazardNarrative = ({
             })}
           </SheetBody>
         </SheetTable>
-        {status && <p className="text-sm text-slate-500">{status}</p>}
+        <SaveStatus status={status} />
       </section>
 
       {canAdvance && (
         <div className="flex justify-end gap-3">
           <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
-            Continue
+            {t("common.continue")}
           </button>
         </div>
       )}

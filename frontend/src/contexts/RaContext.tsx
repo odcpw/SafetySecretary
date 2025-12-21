@@ -3,6 +3,10 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import type { ReactNode } from "react";
 import type { ControlHierarchy, CorrectiveAction, EditableProcessStep, Hazard, ProposedControl, RiskAssessmentCase } from "@/types/riskAssessment";
 import { pollJobUntilDone } from "@/lib/jobs";
+import { apiFetch } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+import { useDemoMode } from "@/hooks/useDemoMode";
+import { DemoCaseActions } from "@/components/common/DemoCaseActions";
 
 // Types for contextual update parsing (LLM-assisted natural language input)
 export type ContextualUpdateIntent = "add" | "modify" | "delete" | "insert" | "reorder" | "clarify";
@@ -50,6 +54,8 @@ interface RaActions {
     actionId: string,
     patch: { description?: string; owner?: string | null; dueDate?: string | null; status?: string }
   ) => Promise<void>;
+  deleteAction: (actionId: string) => Promise<void>;
+  reorderActionsForHazard: (hazardId: string, actionIds: string[]) => Promise<void>;
   advancePhase: () => Promise<void>;
   // Contextual update actions for natural language input
   parseContextualUpdate: (userInput: string, currentPhase: string) => Promise<ParsedContextualUpdate>;
@@ -70,7 +76,7 @@ const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   if (init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || response.statusText);
@@ -83,7 +89,7 @@ const voidFetch = async (path: string, init?: RequestInit): Promise<void> => {
   if (init?.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(text || response.statusText);
@@ -95,6 +101,8 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const isDemo = useDemoMode();
 
   const refreshCase = useCallback(async () => {
     try {
@@ -196,6 +204,31 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
       }),
     saveRiskRatings: (ratings) =>
       mutate(async () => {
+        if (raCase) {
+          const byHazardId = new Map(ratings.map((item) => [item.hazardId, item]));
+          setRaCase((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              hazards: prev.hazards.map((hazard) => {
+                const next = byHazardId.get(hazard.id);
+                if (!next) return hazard;
+                const isClearing = !next.severity && !next.likelihood;
+                return {
+                  ...hazard,
+                  baseline: isClearing
+                    ? null
+                    : {
+                        severity: next.severity,
+                        likelihood: next.likelihood,
+                        riskRating: hazard.baseline?.riskRating ?? null
+                      }
+                };
+              })
+            };
+          });
+        }
+
         await jsonFetch(`/api/ra-cases/${caseId}/hazards/risk`, {
           method: "PUT",
           body: JSON.stringify({ ratings })
@@ -216,6 +249,31 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
       }),
     saveResidualRisk: (ratings) =>
       mutate(async () => {
+        if (raCase) {
+          const byHazardId = new Map(ratings.map((item) => [item.hazardId, item]));
+          setRaCase((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              hazards: prev.hazards.map((hazard) => {
+                const next = byHazardId.get(hazard.id);
+                if (!next) return hazard;
+                const isClearing = !next.severity && !next.likelihood;
+                return {
+                  ...hazard,
+                  residual: isClearing
+                    ? null
+                    : {
+                        severity: next.severity,
+                        likelihood: next.likelihood,
+                        riskRating: hazard.residual?.riskRating ?? null
+                      }
+                };
+              })
+            };
+          });
+        }
+
         await jsonFetch(`/api/ra-cases/${caseId}/hazards/residual-risk`, {
           method: "PUT",
           body: JSON.stringify({ ratings })
@@ -233,6 +291,17 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
         await jsonFetch<CorrectiveAction>(`/api/ra-cases/${caseId}/actions/${actionId}`, {
           method: "PUT",
           body: JSON.stringify(patch)
+        });
+      }),
+    deleteAction: (actionId) =>
+      mutate(async () => {
+        await voidFetch(`/api/ra-cases/${caseId}/actions/${actionId}`, { method: "DELETE" });
+      }),
+    reorderActionsForHazard: (hazardId, actionIds) =>
+      mutate(async () => {
+        await voidFetch(`/api/ra-cases/${caseId}/hazards/${hazardId}/actions/order`, {
+          method: "PUT",
+          body: JSON.stringify({ actionIds })
         });
       }),
     advancePhase: () =>
@@ -288,11 +357,14 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
   if (!raCase) {
     if (error) {
       return (
-        <div className="p-6 text-red-600">
-          Failed to load case: {error}
-          <button type="button" className="ml-3 bg-slate-800" onClick={() => refreshCase()}>
-            Retry
-          </button>
+        <div className="p-6">
+          <p className="text-red-600">
+            Failed to load case: {error}
+            <button type="button" className="ml-3 bg-slate-800" onClick={() => refreshCase()}>
+              Retry
+            </button>
+          </p>
+          {isDemo && <DemoCaseActions kind="ra" onCreated={(id) => navigate(`/cases/${id}`)} />}
         </div>
       );
     }

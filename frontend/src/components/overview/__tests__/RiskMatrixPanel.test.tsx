@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { RiskMatrixPanel } from "../RiskMatrixPanel";
 import type { RiskAssessmentCase } from "@/types/riskAssessment";
 import { getDefaultMatrixSettings } from "@/lib/riskMatrixSettings";
+import { I18nProvider } from "@/i18n/I18nContext";
 
 const buildCase = (): RiskAssessmentCase => ({
   id: "case-1",
@@ -88,7 +89,11 @@ beforeEach(() => {
 describe("RiskMatrixPanel", () => {
   it("plots hazards into matrix cells (current vs residual) without losing counts", async () => {
     const user = userEvent.setup();
-    const { container } = render(<RiskMatrixPanel raCase={buildCase()} />);
+    const { container } = render(
+      <I18nProvider>
+        <RiskMatrixPanel raCase={buildCase()} />
+      </I18nProvider>
+    );
 
     expect(sumMatrixCounts(container)).toBe(2);
 

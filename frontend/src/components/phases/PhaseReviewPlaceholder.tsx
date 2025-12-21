@@ -1,4 +1,5 @@
 import type { Phase, RiskAssessmentCase } from "@/types/riskAssessment";
+import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseReviewPlaceholderProps {
   phase: Phase;
@@ -7,40 +8,36 @@ interface PhaseReviewPlaceholderProps {
   onNext: () => Promise<void>;
 }
 
-const COPY: Record<
-  "SIGN_OFF" | "COMPLETE",
-  { title: string; body: string; actionLabel: string | null }
-> = {
-  SIGN_OFF: {
-    title: "Review & share the latest cut",
-    body: "Use this space to pause, export, and gather signatures. You can always jump back to any phase to keep iterating—cases stay editable forever.",
-    actionLabel: "Mark this version as shared"
-  },
-  COMPLETE: {
-    title: "Living document snapshot",
-    body: "This workspace treats every case as a living document. Switch phases to edit, then export or duplicate as needed to capture new revisions.",
-    actionLabel: null
-  }
-};
-
 export const PhaseReviewPlaceholder = ({
   phase,
   raCase,
   canAdvance = false,
   onNext
 }: PhaseReviewPlaceholderProps) => {
-  const copy = COPY[phase === "COMPLETE" ? "COMPLETE" : "SIGN_OFF"];
-  const latestEdit = new Date(raCase.createdAt).toLocaleString();
+  const { t, formatDateTime } = useI18n();
+  const copy =
+    phase === "COMPLETE"
+      ? {
+          title: t("ra.review.complete.title"),
+          body: t("ra.review.complete.body"),
+          actionLabel: null
+        }
+      : {
+          title: t("ra.review.signoff.title"),
+          body: t("ra.review.signoff.body"),
+          actionLabel: t("ra.review.signoff.action")
+        };
+  const latestEdit = formatDateTime(raCase.createdAt);
   const stats = [
-    { label: "Process steps", value: raCase.steps.length },
-    { label: "Hazards", value: raCase.hazards.length },
-    { label: "Actions", value: raCase.actions.length }
+    { label: t("ra.review.stats.steps"), value: raCase.steps.length },
+    { label: t("ra.review.stats.hazards"), value: raCase.hazards.length },
+    { label: t("ra.review.stats.actions"), value: raCase.actions.length }
   ];
 
   return (
     <section className="phase-review app-panel">
       <header className="phase-review__header">
-        <p className="text-label">Living document</p>
+        <p className="text-label">{t("ra.review.badge")}</p>
         <h3>{copy.title}</h3>
         <p>{copy.body}</p>
       </header>
@@ -55,8 +52,7 @@ export const PhaseReviewPlaceholder = ({
       </dl>
 
       <div className="phase-review__note">
-        Latest version captured: <strong>{latestEdit}</strong>. Use the phase chips below to move backwards or forwards;
-        nothing locks when you advance.
+        {t("ra.review.latest", { values: { date: latestEdit } })}
       </div>
 
       {canAdvance && copy.actionLabel && (

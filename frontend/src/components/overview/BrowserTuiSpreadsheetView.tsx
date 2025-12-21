@@ -3,6 +3,7 @@ import { useRaContext } from "@/contexts/RaContext";
 import type { RiskAssessmentCase } from "@/types/riskAssessment";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
+import { useI18n } from "@/i18n/I18nContext";
 
 type TuiColumnKey =
   | "step"
@@ -22,24 +23,49 @@ interface TuiColumn {
   type: TuiColumnType;
 }
 
-const COLUMNS: TuiColumn[] = [
-  { key: "step", label: "STEP", width: 6, type: "readonly" },
-  { key: "hazard", label: "HAZARD", width: 34, type: "text" },
-  { key: "category", label: "CAT", width: 10, type: "select" },
-  { key: "baselineSeverity", label: "S", width: 6, type: "select" },
-  { key: "baselineLikelihood", label: "L", width: 6, type: "select" },
-  { key: "residualSeverity", label: "RS", width: 6, type: "select" },
-  { key: "residualLikelihood", label: "RL", width: 6, type: "select" }
-];
-
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const formatStepIndex = (index: number) => String(index).padStart(2, "0");
 
-const displayValue = (value: string | null | undefined) => (value && value.trim() ? value : "—");
-
 export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCase }) => {
   const { saving, actions } = useRaContext();
+  const { t } = useI18n();
+
+  const columns = useMemo<TuiColumn[]>(
+    () => [
+      { key: "step", label: t("tui.columns.step"), width: 6, type: "readonly" },
+      { key: "hazard", label: t("tui.columns.hazard"), width: 34, type: "text" },
+      { key: "category", label: t("tui.columns.category"), width: 12, type: "select" },
+      { key: "baselineSeverity", label: t("tui.columns.baselineSeverity"), width: 6, type: "select" },
+      { key: "baselineLikelihood", label: t("tui.columns.baselineLikelihood"), width: 6, type: "select" },
+      { key: "residualSeverity", label: t("tui.columns.residualSeverity"), width: 6, type: "select" },
+      { key: "residualLikelihood", label: t("tui.columns.residualLikelihood"), width: 6, type: "select" }
+    ],
+    [t]
+  );
+
+  const displayValue = (value: string | null | undefined) =>
+    value && value.trim() ? value : t("common.noData");
+
+  const [baselineDraft, setBaselineDraft] = useState<Record<string, { severity: string; likelihood: string }>>(() =>
+    raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
+      acc[hazard.id] = {
+        severity: hazard.baseline?.severity ?? "",
+        likelihood: hazard.baseline?.likelihood ?? ""
+      };
+      return acc;
+    }, {})
+  );
+
+  const [residualDraft, setResidualDraft] = useState<Record<string, { severity: string; likelihood: string }>>(() =>
+    raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
+      acc[hazard.id] = {
+        severity: hazard.residual?.severity ?? "",
+        likelihood: hazard.residual?.likelihood ?? ""
+      };
+      return acc;
+    }, {})
+  );
 
   const rows = useMemo(() => {
     const stepNumberById = new Map(raCase.steps.map((step, index) => [step.id, index + 1]));
@@ -67,8 +93,31 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
 
   const cellRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const activeKey = `${activeRow}:${activeCol}`;
-  const activeColumn = COLUMNS[activeCol];
+  const activeColumn = columns[activeCol];
   const activeHazard = rows[activeRow]?.hazard ?? null;
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    setBaselineDraft(
+      raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
+        acc[hazard.id] = {
+          severity: hazard.baseline?.severity ?? "",
+          likelihood: hazard.baseline?.likelihood ?? ""
+        };
+        return acc;
+      }, {})
+    );
+    setResidualDraft(
+      raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
+        acc[hazard.id] = {
+          severity: hazard.residual?.severity ?? "",
+          likelihood: hazard.residual?.likelihood ?? ""
+        };
+        return acc;
+      }, {})
+    );
+  }, [raCase]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     const el = cellRefs.current[activeKey];
@@ -83,7 +132,7 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
   }, [rows.length]);
 
   const beginEdit = () => {
-    const column = COLUMNS[activeCol];
+    const column = columns[activeCol];
     const row = rows[activeRow];
     if (!column || !row || column.type === "readonly") {
       return;
@@ -98,19 +147,19 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
       return;
     }
     if (column.key === "baselineSeverity") {
-      setEditValue(row.hazard.baseline?.severity ?? "");
+      setEditValue(baselineDraft[row.hazard.id]?.severity ?? row.hazard.baseline?.severity ?? "");
       return;
     }
     if (column.key === "baselineLikelihood") {
-      setEditValue(row.hazard.baseline?.likelihood ?? "");
+      setEditValue(baselineDraft[row.hazard.id]?.likelihood ?? row.hazard.baseline?.likelihood ?? "");
       return;
     }
     if (column.key === "residualSeverity") {
-      setEditValue(row.hazard.residual?.severity ?? "");
+      setEditValue(residualDraft[row.hazard.id]?.severity ?? row.hazard.residual?.severity ?? "");
       return;
     }
     if (column.key === "residualLikelihood") {
-      setEditValue(row.hazard.residual?.likelihood ?? "");
+      setEditValue(residualDraft[row.hazard.id]?.likelihood ?? row.hazard.residual?.likelihood ?? "");
       return;
     }
   };
@@ -121,7 +170,7 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
   };
 
   const commitEdit = async () => {
-    const column = COLUMNS[activeCol];
+    const column = columns[activeCol];
     const row = rows[activeRow];
     if (!column || !row) {
       cancelEdit();
@@ -141,20 +190,38 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
           await actions.updateHazard(hazard.id, { categoryCode: next });
         }
       } else if (column.key === "baselineSeverity" || column.key === "baselineLikelihood") {
-        const severity =
-          column.key === "baselineSeverity" ? editValue : hazard.baseline?.severity ?? "";
-        const likelihood =
-          column.key === "baselineLikelihood" ? editValue : hazard.baseline?.likelihood ?? "";
-        if (severity && likelihood) {
-          await actions.saveRiskRatings([{ hazardId: hazard.id, severity, likelihood }]);
+        const current = baselineDraft[hazard.id] ?? {
+          severity: hazard.baseline?.severity ?? "",
+          likelihood: hazard.baseline?.likelihood ?? ""
+        };
+        const next = {
+          severity: column.key === "baselineSeverity" ? editValue : current.severity,
+          likelihood: column.key === "baselineLikelihood" ? editValue : current.likelihood
+        };
+        setBaselineDraft((prev) => ({ ...prev, [hazard.id]: next }));
+        const shouldSave =
+          (next.severity && next.likelihood) || (!next.severity && !next.likelihood);
+        if (shouldSave) {
+          await actions.saveRiskRatings([
+            { hazardId: hazard.id, severity: next.severity ?? "", likelihood: next.likelihood ?? "" }
+          ]);
         }
       } else if (column.key === "residualSeverity" || column.key === "residualLikelihood") {
-        const severity =
-          column.key === "residualSeverity" ? editValue : hazard.residual?.severity ?? "";
-        const likelihood =
-          column.key === "residualLikelihood" ? editValue : hazard.residual?.likelihood ?? "";
-        if (severity && likelihood) {
-          await actions.saveResidualRisk([{ hazardId: hazard.id, severity, likelihood }]);
+        const current = residualDraft[hazard.id] ?? {
+          severity: hazard.residual?.severity ?? "",
+          likelihood: hazard.residual?.likelihood ?? ""
+        };
+        const next = {
+          severity: column.key === "residualSeverity" ? editValue : current.severity,
+          likelihood: column.key === "residualLikelihood" ? editValue : current.likelihood
+        };
+        setResidualDraft((prev) => ({ ...prev, [hazard.id]: next }));
+        const shouldSave =
+          (next.severity && next.likelihood) || (!next.severity && !next.likelihood);
+        if (shouldSave) {
+          await actions.saveResidualRisk([
+            { hazardId: hazard.id, severity: next.severity ?? "", likelihood: next.likelihood ?? "" }
+          ]);
         }
       }
     } finally {
@@ -174,10 +241,10 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
       setActiveRow((prev) => clamp(prev - 1, 0, Math.max(0, rows.length - 1)));
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
-      setActiveCol((prev) => clamp(prev - 1, 0, COLUMNS.length - 1));
+      setActiveCol((prev) => clamp(prev - 1, 0, columns.length - 1));
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      setActiveCol((prev) => clamp(prev + 1, 0, COLUMNS.length - 1));
+      setActiveCol((prev) => clamp(prev + 1, 0, columns.length - 1));
     } else if (event.key === "Enter") {
       event.preventDefault();
       beginEdit();
@@ -193,25 +260,28 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
       return displayValue(hazard.label);
     }
     if (column.key === "category") {
-      return displayValue(hazard.categoryCode);
+      const label = hazard.categoryCode
+        ? t(`domain.hazardCategories.${hazard.categoryCode}`, { fallback: hazard.categoryCode })
+        : "";
+      return displayValue(label);
     }
     if (column.key === "baselineSeverity") {
-      return displayValue(hazard.baseline?.severity);
+      return displayValue(baselineDraft[hazard.id]?.severity ?? hazard.baseline?.severity);
     }
     if (column.key === "baselineLikelihood") {
-      return displayValue(hazard.baseline?.likelihood);
+      return displayValue(baselineDraft[hazard.id]?.likelihood ?? hazard.baseline?.likelihood);
     }
     if (column.key === "residualSeverity") {
-      return displayValue(hazard.residual?.severity);
+      return displayValue(residualDraft[hazard.id]?.severity ?? hazard.residual?.severity);
     }
     if (column.key === "residualLikelihood") {
-      return displayValue(hazard.residual?.likelihood);
+      return displayValue(residualDraft[hazard.id]?.likelihood ?? hazard.residual?.likelihood);
     }
-    return "—";
+    return t("common.noData");
   };
 
   const renderEditor = (rowIndex: number, column: TuiColumn) => {
-    if (!editing || rowIndex !== activeRow || COLUMNS[activeCol]?.key !== column.key) {
+    if (!editing || rowIndex !== activeRow || columns[activeCol]?.key !== column.key) {
       return null;
     }
 
@@ -242,10 +312,19 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
 
     const options =
       column.key === "category"
-        ? HAZARD_CATEGORIES.map((cat) => ({ value: cat.code, label: cat.code }))
+        ? HAZARD_CATEGORIES.map((cat) => ({
+          value: cat.code,
+          label: t(`domain.hazardCategories.${cat.code}`, { fallback: cat.label ?? cat.code })
+        }))
         : column.key === "baselineSeverity" || column.key === "residualSeverity"
-          ? TEMPLATE_SEVERITY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.value }))
-          : TEMPLATE_LIKELIHOOD_OPTIONS.map((opt) => ({ value: opt.value, label: opt.value }));
+          ? TEMPLATE_SEVERITY_OPTIONS.map((opt) => ({
+            value: opt.value,
+            label: t(`domain.severity.${opt.value}`, { fallback: opt.label })
+          }))
+          : TEMPLATE_LIKELIHOOD_OPTIONS.map((opt) => ({
+            value: opt.value,
+            label: t(`domain.likelihood.${opt.value}`, { fallback: opt.label })
+          }));
 
     return (
       <select
@@ -257,7 +336,7 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
         disabled={saving}
         autoFocus
       >
-        <option value="">{hazard ? "—" : "—"}</option>
+        <option value="">{t("common.noData")}</option>
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
@@ -271,10 +350,10 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
     return (
       <section className="tui-panel">
         <header className="tui-panel__header">
-          <h3>Browser TUI (prototype)</h3>
-          <p>Arrow keys to navigate, Enter to edit.</p>
+          <h3>{t("tui.title")}</h3>
+          <p>{t("tui.instructionsShort")}</p>
         </header>
-        <div className="tui-empty">No hazards yet. Add hazards first.</div>
+        <div className="tui-empty">{t("tui.empty")}</div>
       </section>
     );
   }
@@ -282,12 +361,12 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
   return (
     <section className="tui-panel">
       <header className="tui-panel__header">
-        <h3>Browser TUI (prototype)</h3>
-        <p>Arrow keys to navigate, Enter to edit, Esc to cancel.</p>
+        <h3>{t("tui.title")}</h3>
+        <p>{t("tui.instructions")}</p>
       </header>
       <div className="tui-grid" role="grid" tabIndex={0} onKeyDown={handleGridKeyDown}>
         <div className="tui-row tui-row--header" role="row">
-          {COLUMNS.map((col) => (
+          {columns.map((col) => (
             <div
               key={col.key}
               className="tui-cell tui-cell--header"
@@ -300,7 +379,7 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
         </div>
         {rows.map((_, rowIndex) => (
           <div key={rows[rowIndex]!.hazard.id} className="tui-row" role="row">
-            {COLUMNS.map((col, colIndex) => {
+            {columns.map((col, colIndex) => {
               const key = `${rowIndex}:${colIndex}`;
               const active = rowIndex === activeRow && colIndex === activeCol;
               return (
@@ -329,10 +408,18 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
       </div>
       <footer className="tui-status">
         <span>
-          Row {activeRow + 1}/{rows.length} · Col {activeColumn?.label ?? "—"}
-          {activeHazard ? ` · ${activeHazard.label}` : ""}
+          {t("tui.status", {
+            values: {
+              row: activeRow + 1,
+              total: rows.length,
+              column: activeColumn?.label ?? t("common.noData"),
+              hazard: activeHazard ? ` · ${activeHazard.label}` : ""
+            }
+          })}
         </span>
-        <span>{saving ? "Saving…" : editing ? "Editing…" : "Ready"}</span>
+        <span>
+          {saving ? t("tui.saving") : editing ? t("tui.editing") : t("tui.ready")}
+        </span>
       </footer>
     </section>
   );

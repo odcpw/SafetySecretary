@@ -10,7 +10,6 @@ export type Phase =
   | "RISK_RATING"             // 3. Baseline risk assessment (adherence to existing controls)
   | "CONTROL_DISCUSSION"      // 4. Discuss possible additional controls
   | "ACTIONS"                 // 5. Structure controls into action plan
-  | "RESIDUAL_RISK"           // 6. Rate risk after proposed controls
   | "COMPLETE";               // Final state
 
 // S-T-O-P control hierarchy (effectiveness: high to low)
@@ -69,6 +68,10 @@ export type ActionStatus = "OPEN" | "IN_PROGRESS" | "COMPLETE";
 export interface CorrectiveAction {
   id: string;
   hazardId: string | null;
+  controlId?: string | null;
+  orderIndex?: number;
+  createdAt?: string;
+  updatedAt?: string;
   description: string;
   owner: string | null;
   dueDate: string | null;

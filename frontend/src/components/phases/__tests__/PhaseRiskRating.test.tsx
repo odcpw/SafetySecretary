@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PhaseRiskRating } from "../PhaseRiskRating";
 import type { RiskAssessmentCase } from "@/types/riskAssessment";
+import { I18nProvider } from "@/i18n/I18nContext";
 
 const buildCase = (): RiskAssessmentCase => ({
   id: "case-1",
@@ -48,18 +50,48 @@ describe("PhaseRiskRating", () => {
   it("groups hazards by step", () => {
     const mockNext = vi.fn();
     render(
-      <PhaseRiskRating
-        raCase={buildCase()}
-        saving={false}
-        onSaveRiskRatings={vi.fn()}
-        onUpdateHazard={vi.fn()}
-        onNext={mockNext}
-      />
+      <I18nProvider>
+        <PhaseRiskRating
+          raCase={buildCase()}
+          saving={false}
+          onSaveRiskRatings={vi.fn()}
+          onUpdateHazard={vi.fn()}
+          onNext={mockNext}
+        />
+      </I18nProvider>
     );
 
     expect(screen.getAllByText("Prep area").length).toBeGreaterThan(0); // activity name
     expect(screen.getByText(/Slip on wet floor/i)).toBeInTheDocument();
     expect(screen.getAllByText("Clean up").length).toBeGreaterThan(0);
     expect(screen.getByText(/Chemical splash/i)).toBeInTheDocument();
+  });
+
+  it("sends a clear payload when ratings are reset", async () => {
+    const user = userEvent.setup();
+    const onSaveRiskRatings = vi.fn().mockResolvedValue(undefined);
+    render(
+      <I18nProvider>
+        <PhaseRiskRating
+          raCase={buildCase()}
+          saving={false}
+          onSaveRiskRatings={onSaveRiskRatings}
+          onUpdateHazard={vi.fn()}
+          onNext={vi.fn()}
+        />
+      </I18nProvider>
+    );
+
+    const severitySelects = screen.getAllByLabelText("Severity");
+    const likelihoodSelects = screen.getAllByLabelText("Likelihood");
+
+    await user.selectOptions(severitySelects[0]!, "");
+    await user.selectOptions(likelihoodSelects[0]!, "");
+
+    await waitFor(() => {
+      expect(onSaveRiskRatings).toHaveBeenCalledWith([
+        { hazardId: "haz-1", severity: "", likelihood: "" }
+      ]);
+    });
   });
 });

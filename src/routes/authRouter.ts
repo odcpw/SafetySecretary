@@ -13,7 +13,7 @@ const authRouter = Router();
 const getRegistry = (req: Request): RegistryService => (req.app.locals as AppLocals).registryService;
 
 const getRequestMeta = (req: Request) => ({
-  ipAddress: req.ip,
+  ipAddress: req.ip ?? null,
   userAgent: req.headers["user-agent"] ?? null
 });
 

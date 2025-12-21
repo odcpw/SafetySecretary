@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type JhaAttachment } from "@prisma/client";
 import prisma from "./prismaClient";
 import { CreateJhaCaseInput, JhaHazardInput, JhaStepInput } from "../types/jha";
 
@@ -19,7 +19,7 @@ type CaseWithRelations = Prisma.JhaCaseGetPayload<{
 }>;
 
 export type JhaCaseDto = CaseWithRelations;
-export type JhaAttachmentDto = Prisma.JhaAttachment;
+export type JhaAttachmentDto = JhaAttachment;
 
 export interface JhaCaseSummary {
   id: string;
@@ -54,9 +54,9 @@ export class JhaService {
   async listCases(params: { createdBy?: string | null; limit?: number } = {}): Promise<JhaCaseSummary[]> {
     const { createdBy, limit } = params;
     const cases = await this.db.jhaCase.findMany({
-      where: createdBy ? { createdBy } : undefined,
+      ...(createdBy ? { where: { createdBy } } : {}),
       orderBy: { updatedAt: "desc" },
-      take: limit
+      ...(typeof limit === "number" ? { take: limit } : {})
     });
     return cases.map((item) => ({
       id: item.id,
@@ -99,21 +99,44 @@ export class JhaService {
 
   async updateCaseMeta(id: string, patch: Partial<CreateJhaCaseInput>): Promise<JhaCaseDto | null> {
     try {
+      const data: Prisma.JhaCaseUpdateInput = {};
+      if (patch.jobTitle !== undefined) {
+        data.jobTitle = patch.jobTitle;
+      }
+      if (patch.site !== undefined) {
+        data.site = patch.site;
+      }
+      if (patch.supervisor !== undefined) {
+        data.supervisor = patch.supervisor;
+      }
+      if (patch.workersInvolved !== undefined) {
+        data.workersInvolved = patch.workersInvolved;
+      }
+      if (patch.jobDate !== undefined) {
+        data.jobDate = parseDate(patch.jobDate);
+      }
+      if (patch.revision !== undefined) {
+        data.revision = patch.revision;
+      }
+      if (patch.preparedBy !== undefined) {
+        data.preparedBy = patch.preparedBy;
+      }
+      if (patch.reviewedBy !== undefined) {
+        data.reviewedBy = patch.reviewedBy;
+      }
+      if (patch.approvedBy !== undefined) {
+        data.approvedBy = patch.approvedBy;
+      }
+      if (patch.signoffDate !== undefined) {
+        data.signoffDate = parseDate(patch.signoffDate);
+      }
+      if (patch.workflowStage !== undefined) {
+        data.workflowStage = patch.workflowStage;
+      }
+
       const updated = await this.db.jhaCase.update({
         where: { id },
-        data: {
-          jobTitle: patch.jobTitle,
-          site: patch.site,
-          supervisor: patch.supervisor,
-          workersInvolved: patch.workersInvolved,
-          jobDate: patch.jobDate !== undefined ? parseDate(patch.jobDate) : undefined,
-          revision: patch.revision,
-          preparedBy: patch.preparedBy,
-          reviewedBy: patch.reviewedBy,
-          approvedBy: patch.approvedBy,
-          signoffDate: patch.signoffDate !== undefined ? parseDate(patch.signoffDate) : undefined,
-          workflowStage: patch.workflowStage
-        },
+        data,
         include: caseInclude
       });
       return updated;

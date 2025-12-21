@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import type { Prisma } from "@prisma/client";
 import { TenantServiceFactory } from "./tenantServiceFactory";
 import {
   ActionSuggestion,
@@ -331,7 +332,7 @@ export class LlmJobManager {
       facts: extraction.facts,
       timeline: extraction.timeline,
       clarifications: extraction.clarifications
-    };
+    } as unknown as Prisma.InputJsonValue;
     const updated = await incidentService.updateAssistantDraft(job.input.caseId, {
       narrative: job.input.narrative,
       draft
@@ -391,9 +392,10 @@ export class LlmJobManager {
     }));
 
     const merge = await this.llmService.mergeIncidentTimeline(accounts);
+    type TimelineSourceInput = { accountId: string; factId?: string | null; personalEventId?: string | null };
     const rows = merge.timeline.map((row) => {
       const sources = row.sources
-        .map((source) => {
+        .map((source): TimelineSourceInput | null => {
           const account = incidentCase.accounts.find((item) => item.id === source.accountId);
           if (!account) return null;
           const factId =
@@ -407,9 +409,7 @@ export class LlmJobManager {
           if (!factId && !personalEventId) return null;
           return { accountId: account.id, factId, personalEventId };
         })
-        .filter(
-          (item): item is { accountId: string; factId?: string | null; personalEventId?: string | null } => Boolean(item)
-        );
+        .filter((item): item is TimelineSourceInput => item !== null);
 
       return {
         timeLabel: row.timeLabel ?? null,

@@ -1,7 +1,4 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "crypto";
-import { promisify } from "util";
-
-const scrypt = promisify(scryptCallback);
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual, type ScryptOptions } from "crypto";
 
 const SCRYPT_PARAMS = {
   N: 16384,
@@ -9,6 +6,17 @@ const SCRYPT_PARAMS = {
   p: 1,
   keyLen: 64
 };
+
+const scryptAsync = (password: string, salt: Buffer, keyLen: number, options: ScryptOptions) =>
+  new Promise<Buffer>((resolve, reject) => {
+    scryptCallback(password, salt, keyLen, options, (error, derivedKey) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(derivedKey as Buffer);
+    });
+  });
 
 const encodeParams = () => `scrypt$${SCRYPT_PARAMS.N}$${SCRYPT_PARAMS.r}$${SCRYPT_PARAMS.p}`;
 
@@ -31,11 +39,11 @@ const parseParams = (value: string) => {
 
 export const hashPassword = async (password: string): Promise<string> => {
   const salt = randomBytes(16);
-  const derived = (await scrypt(password, salt, SCRYPT_PARAMS.keyLen, {
+  const derived = await scryptAsync(password, salt, SCRYPT_PARAMS.keyLen, {
     N: SCRYPT_PARAMS.N,
     r: SCRYPT_PARAMS.r,
     p: SCRYPT_PARAMS.p
-  })) as Buffer;
+  });
   return `${encodeParams()}$${salt.toString("base64")}$${derived.toString("base64")}`;
 };
 
@@ -50,11 +58,11 @@ export const verifyPassword = async (password: string, stored: string): Promise<
   if (!salt.length || !expected.length) {
     return false;
   }
-  const derived = (await scrypt(password, salt, params.keyLen, {
+  const derived = await scryptAsync(password, salt, params.keyLen, {
     N: params.N,
     r: params.r,
     p: params.p
-  })) as Buffer;
+  });
   if (derived.length !== expected.length) {
     return false;
   }

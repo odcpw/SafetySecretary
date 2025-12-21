@@ -5,7 +5,7 @@ import { RegistryService, normalizeOrgSlug } from "../services/registryService";
 import { TenantProvisioner } from "../services/tenantProvisioner";
 import { hashPassword } from "../services/passwordHasher";
 import { AppLocals } from "../types/app";
-import type { OrgRole, OrgUser } from "../../prisma/generated/registry";
+import type { OrgRole, OrgUser, UserStatus } from "../../prisma/generated/registry";
 
 const adminRouter = Router();
 
@@ -60,12 +60,13 @@ adminRouter.post("/orgs", requirePlatformAdmin, async (req: Request, res: Respon
     }
 
     const provisioner = new TenantProvisioner(getRegistry(req));
-    const result = await provisioner.provisionOrg({
+    const input = {
       slug: normalized,
       name: name.trim(),
-      storageRoot: typeof storageRoot === "string" ? storageRoot : undefined,
-      dbConnectionString: typeof dbConnectionString === "string" ? dbConnectionString : undefined
-    });
+      ...(typeof storageRoot === "string" ? { storageRoot } : {}),
+      ...(typeof dbConnectionString === "string" ? { dbConnectionString } : {})
+    };
+    const result = await provisioner.provisionOrg(input);
 
     res.status(201).json(result);
   } catch (error) {
@@ -148,14 +149,14 @@ adminRouter.patch("/orgs/:orgId/users/:userId", requirePlatformAdmin, async (req
       if (!["OWNER", "ADMIN", "MEMBER"].includes(normalizedRole)) {
         return res.status(400).json({ error: "role must be OWNER, ADMIN, or MEMBER" });
       }
-      patch.role = normalizedRole;
+      patch.role = normalizedRole as OrgRole;
     }
     if (typeof status === "string") {
       const normalizedStatus = status.toUpperCase();
       if (!["ACTIVE", "LOCKED", "DISABLED"].includes(normalizedStatus)) {
         return res.status(400).json({ error: "status must be ACTIVE, LOCKED, or DISABLED" });
       }
-      patch.status = normalizedStatus;
+      patch.status = normalizedStatus as UserStatus;
     }
     if (typeof email === "string") {
       patch.email = email.trim();
@@ -263,10 +264,14 @@ adminRouter.get("/audit/logins", requirePlatformAdmin, async (req: Request, res:
     const { orgId, limit } = req.query as { orgId?: string; limit?: string };
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
     const registry = getRegistry(req);
-    const entries = await registry.listLoginAudit({
-      orgId: typeof orgId === "string" && orgId.trim() ? orgId.trim() : undefined,
-      limit: Number.isFinite(parsedLimit ?? NaN) ? parsedLimit : undefined
-    });
+    const params: { orgId?: string; limit?: number } = {};
+    if (typeof orgId === "string" && orgId.trim()) {
+      params.orgId = orgId.trim();
+    }
+    if (typeof parsedLimit === "number" && Number.isFinite(parsedLimit)) {
+      params.limit = parsedLimit;
+    }
+    const entries = await registry.listLoginAudit(params);
     res.json({ entries });
   } catch (error) {
     console.error("[adminRouter] list login audit", error);

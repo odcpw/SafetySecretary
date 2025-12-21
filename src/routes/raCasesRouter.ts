@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import express from "express";
 import { AppLocals } from "../types/app";
 import { TEMPLATE_LIKELIHOOD_LEVELS, TEMPLATE_SEVERITY_LEVELS } from "../types/templateRisk";
+import type { AttachmentDto } from "../services/raService";
 
 export const raCasesRouter = express.Router();
 
@@ -939,12 +940,22 @@ raCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) => {
     if (!encryptionKey) {
       return;
     }
-    const pdf = await reportService.generatePdfForCase(raCase, {
+    const pdfOptions: {
+      attachments: AttachmentDto[];
+      storageRoot?: string;
+      encryptionKey: Buffer;
+      locale?: string;
+    } = {
       attachments,
-      storageRoot,
-      encryptionKey,
-      locale: req.auth?.locale
-    });
+      encryptionKey
+    };
+    if (storageRoot) {
+      pdfOptions.storageRoot = storageRoot;
+    }
+    if (req.auth?.locale) {
+      pdfOptions.locale = req.auth.locale;
+    }
+    const pdf = await reportService.generatePdfForCase(raCase, pdfOptions);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="ra-${caseId}.pdf"`);
     res.send(pdf);
@@ -973,12 +984,22 @@ raCasesRouter.get("/:id/export/xlsx", async (req: Request, res: Response) => {
     if (!encryptionKey) {
       return;
     }
-    const workbook = await reportService.generateXlsxForCase(raCase, {
+    const workbookOptions: {
+      attachments: AttachmentDto[];
+      storageRoot?: string;
+      encryptionKey: Buffer;
+      locale?: string;
+    } = {
       attachments,
-      storageRoot,
-      encryptionKey,
-      locale: req.auth?.locale
-    });
+      encryptionKey
+    };
+    if (storageRoot) {
+      workbookOptions.storageRoot = storageRoot;
+    }
+    if (req.auth?.locale) {
+      workbookOptions.locale = req.auth.locale;
+    }
+    const workbook = await reportService.generateXlsxForCase(raCase, workbookOptions);
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

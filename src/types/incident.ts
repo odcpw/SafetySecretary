@@ -1,22 +1,6 @@
-export enum IncidentType {
-  NEAR_MISS = "NEAR_MISS",
-  FIRST_AID = "FIRST_AID",
-  LOST_TIME = "LOST_TIME",
-  PROPERTY_DAMAGE = "PROPERTY_DAMAGE"
-}
+import { IncidentActionType, IncidentTimelineConfidence, IncidentType } from "@prisma/client";
 
-export enum IncidentTimelineConfidence {
-  CONFIRMED = "CONFIRMED",
-  LIKELY = "LIKELY",
-  UNCLEAR = "UNCLEAR"
-}
-
-export enum IncidentActionType {
-  ENGINEERING = "ENGINEERING",
-  ORGANISATIONAL = "ORGANISATIONAL",
-  PPE = "PPE",
-  TRAINING = "TRAINING"
-}
+export { IncidentActionType, IncidentTimelineConfidence, IncidentType };
 
 export interface IncidentAssistantClarification {
   id?: string;

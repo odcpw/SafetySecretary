@@ -600,7 +600,8 @@ export class ReportService {
         const filePath = resolveStoragePath(attachment.storageKey);
         const raw = await fs.readFile(filePath);
         const buffer = encryptionKey ? decryptAttachment(raw, encryptionKey) : raw;
-        const imageId = workbook.addImage({ buffer, extension: ext });
+        const imageBuffer: Buffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+        const imageId = workbook.addImage({ buffer: imageBuffer as any, extension: ext });
         sheet.getRow(rowNumber).height = 120;
         sheet.addImage(imageId, {
           tl: { col: 3, row: rowNumber - 1 },
@@ -963,14 +964,14 @@ export class ReportService {
     };
 
     const renderMetaBlock = () => {
-      const leftRows = [
+      const leftRows: Array<[string, string]> = [
         [i18n.t("jha.jobTitle"), jhaCase.jobTitle],
         [i18n.t("jha.site"), jhaCase.site ?? placeholder],
         [i18n.t("jha.supervisor"), jhaCase.supervisor ?? placeholder],
         [i18n.t("jha.workersInvolved"), jhaCase.workersInvolved ?? placeholder],
         [i18n.t("jha.jobDate"), formatDateValue(jhaCase.jobDate ?? null)]
       ];
-      const rightRows = [
+      const rightRows: Array<[string, string]> = [
         [i18n.t("jha.revision"), jhaCase.revision ?? placeholder],
         [i18n.t("jha.preparedBy"), jhaCase.preparedBy ?? placeholder],
         [i18n.t("jha.reviewedBy"), jhaCase.reviewedBy ?? placeholder],

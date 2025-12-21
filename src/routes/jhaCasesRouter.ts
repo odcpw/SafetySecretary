@@ -258,7 +258,8 @@ jhaCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const pdf = await reportService.generateJhaPdf(jhaCase, { locale: req.auth?.locale });
+    const pdfOptions = req.auth?.locale ? { locale: req.auth.locale } : undefined;
+    const pdf = await reportService.generateJhaPdf(jhaCase, pdfOptions);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="jha-${caseId}.pdf"`);
     res.send(pdf);
@@ -282,7 +283,8 @@ jhaCasesRouter.get("/:id/export/xlsx", async (req: Request, res: Response) => {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const workbook = await reportService.generateJhaXlsx(jhaCase, { locale: req.auth?.locale });
+    const workbookOptions = req.auth?.locale ? { locale: req.auth.locale } : undefined;
+    const workbook = await reportService.generateJhaXlsx(jhaCase, workbookOptions);
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

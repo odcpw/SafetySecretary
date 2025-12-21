@@ -1,6 +1,9 @@
 import type { Request, Response } from "express";
+import type { Prisma } from "@prisma/client";
 import express from "express";
 import { AppLocals } from "../types/app";
+import type { CreateIncidentCaseInput } from "../types/incident";
+import { IncidentActionType, IncidentTimelineConfidence, IncidentType } from "../types/incident";
 
 export const incidentCasesRouter = express.Router();
 
@@ -31,32 +34,28 @@ const requireParam = (req: Request, res: Response, key: string): string | null =
   return value;
 };
 
-const INCIDENT_TYPES = ["NEAR_MISS", "FIRST_AID", "LOST_TIME", "PROPERTY_DAMAGE"] as const;
-const CONFIDENCE_LEVELS = ["CONFIRMED", "LIKELY", "UNCLEAR"] as const;
-const ACTION_TYPES = ["ENGINEERING", "ORGANISATIONAL", "PPE", "TRAINING"] as const;
+const INCIDENT_TYPES = new Set(Object.values(IncidentType) as IncidentType[]);
+const CONFIDENCE_LEVELS = new Set(Object.values(IncidentTimelineConfidence) as IncidentTimelineConfidence[]);
+const ACTION_TYPES = new Set(Object.values(IncidentActionType) as IncidentActionType[]);
 
-type IncidentTypeNormalized = (typeof INCIDENT_TYPES)[number];
-type ConfidenceNormalized = (typeof CONFIDENCE_LEVELS)[number];
-type ActionTypeNormalized = (typeof ACTION_TYPES)[number];
-
-const normalizeIncidentType = (value: unknown): IncidentTypeNormalized | undefined => {
+const normalizeIncidentType = (value: unknown): IncidentType | undefined => {
   const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
-  return INCIDENT_TYPES.includes(normalized as IncidentTypeNormalized)
-    ? (normalized as IncidentTypeNormalized)
+  return INCIDENT_TYPES.has(normalized as IncidentType)
+    ? (normalized as IncidentType)
     : undefined;
 };
 
-const normalizeConfidence = (value: unknown): ConfidenceNormalized | undefined => {
+const normalizeConfidence = (value: unknown): IncidentTimelineConfidence | undefined => {
   const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
-  return CONFIDENCE_LEVELS.includes(normalized as ConfidenceNormalized)
-    ? (normalized as ConfidenceNormalized)
+  return CONFIDENCE_LEVELS.has(normalized as IncidentTimelineConfidence)
+    ? (normalized as IncidentTimelineConfidence)
     : undefined;
 };
 
-const normalizeActionType = (value: unknown): ActionTypeNormalized | undefined => {
+const normalizeActionType = (value: unknown): IncidentActionType | undefined => {
   const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/\s+/g, "_") : "";
-  return ACTION_TYPES.includes(normalized as ActionTypeNormalized)
-    ? (normalized as ActionTypeNormalized)
+  return ACTION_TYPES.has(normalized as IncidentActionType)
+    ? (normalized as IncidentActionType)
     : undefined;
 };
 
@@ -142,15 +141,29 @@ incidentCasesRouter.patch("/:id", async (req: Request, res: Response) => {
     }
 
     const { incidentService } = getTenantServices(req);
-    const updated = await incidentService.updateCaseMeta(caseId, {
-      title: patch.title,
-      incidentAt: patch.incidentAt,
-      incidentTimeNote: patch.incidentTimeNote,
-      location: patch.location,
-      incidentType: normalizedType,
-      coordinatorRole: patch.coordinatorRole,
-      coordinatorName: patch.coordinatorName
-    });
+    const updateInput: Partial<CreateIncidentCaseInput> = {};
+    if (patch.title !== undefined) {
+      updateInput.title = patch.title;
+    }
+    if (patch.incidentAt !== undefined) {
+      updateInput.incidentAt = patch.incidentAt;
+    }
+    if (patch.incidentTimeNote !== undefined) {
+      updateInput.incidentTimeNote = patch.incidentTimeNote;
+    }
+    if (patch.location !== undefined) {
+      updateInput.location = patch.location;
+    }
+    if (normalizedType !== undefined) {
+      updateInput.incidentType = normalizedType;
+    }
+    if (patch.coordinatorRole !== undefined) {
+      updateInput.coordinatorRole = patch.coordinatorRole;
+    }
+    if (patch.coordinatorName !== undefined) {
+      updateInput.coordinatorName = patch.coordinatorName;
+    }
+    const updated = await incidentService.updateCaseMeta(caseId, updateInput);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -365,10 +378,14 @@ incidentCasesRouter.put("/:id/assistant-draft", async (req: Request, res: Respon
     }
 
     const { incidentService } = getTenantServices(req);
-    const updated = await incidentService.updateAssistantDraft(caseId, {
-      narrative: narrative ?? undefined,
-      draft: draft === undefined ? undefined : (draft as Record<string, unknown> | null)
-    });
+    const draftInput: { narrative?: string | null; draft?: Prisma.InputJsonValue | null } = {};
+    if (narrative !== undefined) {
+      draftInput.narrative = narrative;
+    }
+    if (draft !== undefined) {
+      draftInput.draft = draft as Prisma.InputJsonValue | null;
+    }
+    const updated = await incidentService.updateAssistantDraft(caseId, draftInput);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -633,7 +650,8 @@ incidentCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) =
       return res.status(404).json({ error: "Not found" });
     }
 
-    const pdfBuffer = await reportService.generateIncidentPdf(incidentCase, { locale: req.auth?.locale });
+    const pdfOptions = req.auth?.locale ? { locale: req.auth.locale } : undefined;
+    const pdfBuffer = await reportService.generateIncidentPdf(incidentCase, pdfOptions);
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="incident-${caseId}.pdf"`);

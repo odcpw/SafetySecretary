@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type IncidentAccount, type IncidentAttachment, type IncidentPerson } from "@prisma/client";
 import prisma from "./prismaClient";
 import {
   CreateIncidentCaseInput,
@@ -52,7 +52,7 @@ type CaseWithRelations = Prisma.IncidentCaseGetPayload<{
 }>;
 
 export type IncidentCaseDto = CaseWithRelations;
-export type IncidentAttachmentDto = Prisma.IncidentAttachment;
+export type IncidentAttachmentDto = IncidentAttachment;
 
 type TimelineSourceInput = {
   accountId: string;
@@ -87,9 +87,9 @@ export class IncidentService {
   async listCases(params: { createdBy?: string | null; limit?: number } = {}): Promise<IncidentCaseSummary[]> {
     const { createdBy, limit } = params;
     const cases = await this.db.incidentCase.findMany({
-      where: createdBy ? { createdBy } : undefined,
+      ...(createdBy ? { where: { createdBy } } : {}),
       orderBy: { updatedAt: "desc" },
-      take: limit
+      ...(typeof limit === "number" ? { take: limit } : {})
     });
     return cases.map((item) => ({
       id: item.id,
@@ -128,17 +128,32 @@ export class IncidentService {
 
   async updateCaseMeta(id: string, patch: Partial<CreateIncidentCaseInput>): Promise<IncidentCaseDto | null> {
     try {
+      const data: Prisma.IncidentCaseUpdateInput = {};
+      if (patch.title !== undefined) {
+        data.title = patch.title;
+      }
+      if (patch.incidentAt !== undefined) {
+        data.incidentAt = parseDate(patch.incidentAt);
+      }
+      if (patch.incidentTimeNote !== undefined) {
+        data.incidentTimeNote = patch.incidentTimeNote;
+      }
+      if (patch.location !== undefined) {
+        data.location = patch.location;
+      }
+      if (patch.incidentType !== undefined) {
+        data.incidentType = patch.incidentType;
+      }
+      if (patch.coordinatorRole !== undefined) {
+        data.coordinatorRole = patch.coordinatorRole;
+      }
+      if (patch.coordinatorName !== undefined) {
+        data.coordinatorName = patch.coordinatorName;
+      }
+
       return await this.db.incidentCase.update({
         where: { id },
-        data: {
-          title: patch.title,
-          incidentAt: patch.incidentAt !== undefined ? parseDate(patch.incidentAt) : undefined,
-          incidentTimeNote: patch.incidentTimeNote,
-          location: patch.location,
-          incidentType: patch.incidentType,
-          coordinatorRole: patch.coordinatorRole,
-          coordinatorName: patch.coordinatorName
-        },
+        data,
         include: caseInclude
       });
     } catch (error) {
@@ -158,7 +173,7 @@ export class IncidentService {
       data.assistantNarrative = input.narrative;
     }
     if (input.draft !== undefined) {
-      data.assistantDraft = input.draft;
+      data.assistantDraft = input.draft === null ? Prisma.DbNull : input.draft;
     }
     if (!Object.keys(data).length) {
       return this.getCaseById(caseId);
@@ -191,7 +206,7 @@ export class IncidentService {
     }
   }
 
-  async addPerson(caseId: string, input: IncidentPersonInput): Promise<Prisma.IncidentPerson | null> {
+  async addPerson(caseId: string, input: IncidentPersonInput): Promise<IncidentPerson | null> {
     const incidentCase = await this.db.incidentCase.findUnique({ where: { id: caseId } });
     if (!incidentCase) return null;
 
@@ -204,7 +219,7 @@ export class IncidentService {
     });
   }
 
-  async updatePerson(caseId: string, personId: string, patch: IncidentPersonInput): Promise<Prisma.IncidentPerson | null> {
+  async updatePerson(caseId: string, personId: string, patch: IncidentPersonInput): Promise<IncidentPerson | null> {
     const person = await this.db.incidentPerson.findFirst({ where: { id: personId, caseId } });
     if (!person) return null;
 
@@ -217,7 +232,7 @@ export class IncidentService {
     });
   }
 
-  async addAccount(caseId: string, personId: string, rawStatement?: string): Promise<Prisma.IncidentAccount | null> {
+  async addAccount(caseId: string, personId: string, rawStatement?: string): Promise<IncidentAccount | null> {
     const person = await this.db.incidentPerson.findFirst({ where: { id: personId, caseId } });
     if (!person) return null;
 
@@ -230,7 +245,7 @@ export class IncidentService {
     });
   }
 
-  async updateAccount(caseId: string, accountId: string, rawStatement?: string): Promise<Prisma.IncidentAccount | null> {
+  async updateAccount(caseId: string, accountId: string, rawStatement?: string): Promise<IncidentAccount | null> {
     const account = await this.db.incidentAccount.findFirst({ where: { id: accountId, caseId } });
     if (!account) return null;
 

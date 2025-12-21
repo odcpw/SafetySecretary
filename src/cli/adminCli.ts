@@ -68,12 +68,13 @@ const main = async () => {
       const dbUrl = options["db-url"];
 
       const provisioner = new TenantProvisioner(registry);
-      const result = await provisioner.provisionOrg({
+      const input = {
         slug,
         name,
-        storageRoot: storageRoot || undefined,
-        dbConnectionString: dbUrl || undefined
-      });
+        ...(storageRoot ? { storageRoot } : {}),
+        ...(dbUrl ? { dbConnectionString: dbUrl } : {})
+      };
+      const result = await provisioner.provisionOrg(input);
       console.log(JSON.stringify(result, null, 2));
       return;
     }

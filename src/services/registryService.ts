@@ -183,7 +183,7 @@ export class RegistryService {
   async listLoginAudit(input?: { orgId?: string; limit?: number }): Promise<LoginAudit[]> {
     const limit = input?.limit && input.limit > 0 ? Math.min(input.limit, 200) : 50;
     return this.db.loginAudit.findMany({
-      where: input?.orgId ? { orgId: input.orgId } : undefined,
+      ...(input?.orgId ? { where: { orgId: input.orgId } } : {}),
       orderBy: { createdAt: "desc" },
       take: limit
     });

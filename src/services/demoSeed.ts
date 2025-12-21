@@ -34,7 +34,7 @@ const seedRiskAssessmentCase = async (
     activityName: "Replace hydraulic hose on forklift",
     location: "Loading bay 3",
     team: "Maintenance",
-    createdBy: createdBy ?? undefined
+    ...(createdBy ? { createdBy } : {})
   });
 
   const raWithSteps = await raService.updateSteps(raCase.id, [
@@ -62,7 +62,12 @@ const seedRiskAssessmentCase = async (
     throw new Error("Demo seed failed: unable to create risk assessment steps.");
   }
 
-  const [stepOne, stepTwo, stepThree] = raWithSteps.steps;
+  const stepOne = raWithSteps.steps[0];
+  const stepTwo = raWithSteps.steps[1];
+  const stepThree = raWithSteps.steps[2];
+  if (!stepOne || !stepTwo || !stepThree) {
+    throw new Error("Demo seed failed: missing risk assessment steps.");
+  }
   const hazardOne = await raService.addManualHazard(raCase.id, {
     stepId: stepOne.id,
     label: "Unexpected movement",
@@ -128,7 +133,7 @@ const seedJhaCase = async (jhaService: JhaService, createdBy?: string | null): P
     preparedBy: "Safety lead",
     reviewedBy: "Operations manager",
     workflowStage: "review",
-    createdBy: createdBy ?? undefined
+    ...(createdBy ? { createdBy } : {})
   });
 
   const jhaWithSteps = await jhaService.updateSteps(jhaCase.id, [
@@ -142,7 +147,12 @@ const seedJhaCase = async (jhaService: JhaService, createdBy?: string | null): P
     throw new Error("Demo seed failed: unable to create JHA steps.");
   }
 
-  const [jhaStepOne, jhaStepTwo, jhaStepThree] = jhaWithSteps.steps;
+  const jhaStepOne = jhaWithSteps.steps[0];
+  const jhaStepTwo = jhaWithSteps.steps[1];
+  const jhaStepThree = jhaWithSteps.steps[2];
+  if (!jhaStepOne || !jhaStepTwo || !jhaStepThree) {
+    throw new Error("Demo seed failed: missing JHA steps.");
+  }
   await jhaService.updateHazards(jhaCase.id, [
     {
       stepId: jhaStepOne.id,
@@ -176,7 +186,7 @@ const seedIncidentCase = async (incidentService: IncidentService, createdBy?: st
     incidentType: IncidentType.NEAR_MISS,
     coordinatorRole: "Safety lead",
     coordinatorName: "Jamie Patel",
-    createdBy: createdBy ?? undefined
+    ...(createdBy ? { createdBy } : {})
   });
 
   const person = await incidentService.addPerson(incidentCase.id, {
@@ -194,12 +204,12 @@ const seedIncidentCase = async (incidentService: IncidentService, createdBy?: st
 
   if (account) {
     await incidentService.replaceAccountFacts(incidentCase.id, account.id, [
-      { text: "Pallet jack left in aisle 4 without a spotter." },
-      { text: "Operator had limited visibility while reversing." }
+      { accountId: account.id, text: "Pallet jack left in aisle 4 without a spotter." },
+      { accountId: account.id, text: "Operator had limited visibility while reversing." }
     ]);
     await incidentService.replaceAccountPersonalEvents(incidentCase.id, account.id, [
-      { timeLabel: "09:05", text: "Finished loading pallet and began to reverse." },
-      { timeLabel: "09:06", text: "Stopped just before hitting the pallet jack." }
+      { accountId: account.id, timeLabel: "09:05", text: "Finished loading pallet and began to reverse." },
+      { accountId: account.id, timeLabel: "09:06", text: "Stopped just before hitting the pallet jack." }
     ]);
   }
 

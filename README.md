@@ -6,6 +6,8 @@ This project scaffolds the backend for the SafetySecretary risk assessment flow 
 - Persistence via Prisma + Postgres (steps, hazards, actions)
 - LLM helper service for extracting steps/hazards (OpenAI with deterministic fallbacks)
 - Simple PDF export for each risk assessment case
+- Job Hazard Analysis (JHA) cases with step/hazard tables and one-page exports
+- A standalone Incident Investigation (II) workflow with multi-witness timelines and one-page PDF summaries
 
 ## Quick Start
 
@@ -35,6 +37,10 @@ This project scaffolds the backend for the SafetySecretary risk assessment flow 
 > Need to run just one side? Use `npm run dev:server` (API only) or `npm run dev:client` (frontend only). Production builds run via `npm run build` which bundles both workspaces.
 
 If the API prints `Can't reach database server at localhost:5432`, Postgres is not running—start it with `npm run db:up` and re-run `npm run db:migrate`.
+
+## Demo Mode
+
+For isolated internal testing, enable demo mode and use the built-in demo login. See `docs/demo_mode.md` for required env vars, reset/seed endpoints, and the QA checklist. Demo mode should never be enabled in production.
 
 ## Available Scripts
 
@@ -82,6 +88,25 @@ Add `OPENAI_API_KEY` to enable live extraction. When the key is missing or the A
 ## PDF Export
 
 `GET /api/ra-cases/:id/export/pdf` streams a lightweight summary PDF. Replace `ReportService` with a richer templating stack (e.g. HTML -> Playwright) when ready.
+
+## Incident Investigations
+
+Incident investigations are stored separately from HIRA/JHA and live under `/api/incident-cases`. The flow captures:
+
+- incident metadata (title, time, location, type, coordinator)
+- multiple witness accounts with extracted facts + personal timelines
+- a merged timeline with confidence tags
+- deviations, causes, and corrective actions
+- one-page PDF summary (`/api/incident-cases/:id/export/pdf`)
+
+## Job Hazard Analysis (JHA)
+
+JHAs live under `/api/jha-cases` and capture:
+
+- job metadata (title, site, supervisor, signoff)
+- ordered steps with hazards, consequences, and controls
+- optional attachments per step/hazard
+- one-page exports (`/api/jha-cases/:id/export/pdf` + `/api/jha-cases/:id/export/xlsx`)
 
 ## Testing
 

@@ -43,6 +43,14 @@ npm run db:migrate
 
 This runs `prisma migrate deploy` against the Postgres instance using the pre-generated migration in `prisma/migrations/`.
 
+If you hit a Prisma `P3018` migration error on a fresh setup, wipe the local Postgres volume and try again:
+
+```bash
+npm run db:down -- -v
+npm run db:up
+npm run db:migrate
+```
+
 ## 6. Launch Everything
 
 ```bash

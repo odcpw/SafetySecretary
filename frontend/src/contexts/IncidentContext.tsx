@@ -2,12 +2,13 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type {
-  IncidentAction,
   IncidentAssistantDraft,
   IncidentCase,
-  IncidentDeviation,
   IncidentTimelineConfidence,
-  IncidentTimelineEvent
+  IncidentTimelineEventInput,
+  IncidentDeviationInput,
+  IncidentCauseInput,
+  IncidentActionInput
 } from "@/types/incident";
 import { pollJobUntilDone } from "@/lib/jobs";
 import { apiFetch } from "@/lib/api";
@@ -30,10 +31,10 @@ interface IncidentActions {
   ) => Promise<void>;
   mergeTimeline: () => Promise<void>;
   checkConsistency: () => Promise<unknown>;
-  saveTimeline: (events: IncidentTimelineEvent[]) => Promise<void>;
-  saveDeviations: (deviations: IncidentDeviation[]) => Promise<void>;
-  saveCauses: (causes: { id?: string; deviationId: string; orderIndex?: number; statement: string }[]) => Promise<void>;
-  saveActions: (actions: IncidentAction[]) => Promise<void>;
+  saveTimeline: (events: IncidentTimelineEventInput[]) => Promise<void>;
+  saveDeviations: (deviations: IncidentDeviationInput[]) => Promise<void>;
+  saveCauses: (causes: IncidentCauseInput[]) => Promise<void>;
+  saveActions: (actions: IncidentActionInput[]) => Promise<void>;
 }
 
 interface IncidentContextValue {
@@ -56,18 +57,6 @@ const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
     throw new Error(text || response.statusText);
   }
   return (await response.json()) as T;
-};
-
-const voidFetch = async (path: string, init?: RequestInit): Promise<void> => {
-  const headers = new Headers(init?.headers ?? {});
-  if (init?.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const response = await apiFetch(path, { ...init, headers });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || response.statusText);
-  }
 };
 
 export const IncidentProvider = ({ caseId, children }: { caseId: string; children: ReactNode }) => {

@@ -37,7 +37,7 @@ const normalizeAssistantDraft = (draft: unknown): IncidentAssistantDraft | null 
     : [];
   const timeline = Array.isArray(raw.timeline)
     ? raw.timeline
-        .map((event) => {
+        .map((event): IncidentAssistantDraft["timeline"][number] | null => {
           if (typeof (event as any)?.text !== "string") return null;
           const confidence = CONFIDENCE_LEVELS.includes((event as any).confidence)
             ? ((event as any).confidence as IncidentTimelineConfidence)
@@ -49,13 +49,12 @@ const normalizeAssistantDraft = (draft: unknown): IncidentAssistantDraft | null 
           };
         })
         .filter(
-          (event): event is { timeLabel?: string | null; text: string; confidence?: IncidentTimelineConfidence } =>
-            Boolean(event)
+          (event): event is IncidentAssistantDraft["timeline"][number] => event !== null
         )
     : [];
   const clarifications = Array.isArray(raw.clarifications)
     ? raw.clarifications
-        .map((item) => {
+        .map((item): IncidentAssistantDraft["clarifications"][number] | null => {
           if (typeof item === "string") {
             return { question: item, rationale: null, answer: null, targetField: null };
           }
@@ -68,7 +67,7 @@ const normalizeAssistantDraft = (draft: unknown): IncidentAssistantDraft | null 
           };
         })
         .filter(
-          (item): item is IncidentAssistantDraft["clarifications"][number] => Boolean(item)
+          (item): item is IncidentAssistantDraft["clarifications"][number] => item !== null
         )
     : [];
 
@@ -101,6 +100,13 @@ type DraftAction = {
   actionType?: IncidentActionType | null;
 };
 
+type TimelineDraft = {
+  id?: string;
+  timeLabel: string;
+  text: string;
+  confidence: IncidentTimelineConfidence;
+};
+
 export const IncidentEditor = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
@@ -109,7 +115,7 @@ export const IncidentEditor = () => {
   const [personName, setPersonName] = useState("");
   const [accountDrafts, setAccountDrafts] = useState<Record<string, string>>({});
   const [accountStatus, setAccountStatus] = useState<string | null>(null);
-  const [timelineDrafts, setTimelineDrafts] = useState(
+  const [timelineDrafts, setTimelineDrafts] = useState<TimelineDraft[]>(
     incidentCase.timelineEvents.map((event) => ({
       id: event.id,
       timeLabel: event.timeLabel ?? "",
@@ -948,7 +954,7 @@ export const IncidentEditor = () => {
                     <SheetCell>
                       {incidentCase.timelineEvents
                         .find((item) => item.id === event.id)
-                        ?.sources?.map((source) => source.account?.role || source.accountId)
+                        ?.sources?.map((source) => source.account?.person?.role || source.accountId)
                         .join(", ") || t("common.noData")}
                     </SheetCell>
                     <SheetCell>

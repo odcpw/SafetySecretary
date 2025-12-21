@@ -63,6 +63,12 @@ export interface Hazard {
 export type SeverityChoice = "A" | "B" | "C" | "D" | "E";
 export type LikelihoodChoice = "1" | "2" | "3" | "4" | "5";
 
+export type RatingInput = {
+  hazardId: string;
+  severity: SeverityChoice | "";
+  likelihood: LikelihoodChoice | "";
+};
+
 export type ActionStatus = "OPEN" | "IN_PROGRESS" | "COMPLETE";
 
 export interface CorrectiveAction {

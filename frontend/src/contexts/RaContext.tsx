@@ -1,7 +1,17 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { ControlHierarchy, CorrectiveAction, EditableProcessStep, Hazard, ProposedControl, RiskAssessmentCase } from "@/types/riskAssessment";
+import type {
+  ControlHierarchy,
+  CorrectiveAction,
+  EditableProcessStep,
+  Hazard,
+  LikelihoodChoice,
+  ProposedControl,
+  RatingInput,
+  RiskAssessmentCase,
+  SeverityChoice
+} from "@/types/riskAssessment";
 import { pollJobUntilDone } from "@/lib/jobs";
 import { apiFetch } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
@@ -45,10 +55,10 @@ interface RaActions {
   updateHazard: (hazardId: string, patch: { label?: string; description?: string; stepId?: string; existingControls?: string[]; categoryCode?: string }) => Promise<void>;
   deleteHazard: (hazardId: string) => Promise<void>;
   reorderHazards: (stepId: string, hazardIds: string[]) => Promise<void>;
-  saveRiskRatings: (ratings: { hazardId: string; severity: string; likelihood: string }[]) => Promise<void>;
+  saveRiskRatings: (ratings: RatingInput[]) => Promise<void>;
   addProposedControl: (hazardId: string, description: string, hierarchy?: ControlHierarchy) => Promise<void>;
   deleteProposedControl: (hazardId: string, controlId: string) => Promise<void>;
-  saveResidualRisk: (ratings: { hazardId: string; severity: string; likelihood: string }[]) => Promise<void>;
+  saveResidualRisk: (ratings: RatingInput[]) => Promise<void>;
   addAction: (payload: { hazardId: string; description: string; owner?: string; dueDate?: string }) => Promise<void>;
   updateAction: (
     actionId: string,
@@ -213,14 +223,16 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
               hazards: prev.hazards.map((hazard) => {
                 const next = byHazardId.get(hazard.id);
                 if (!next) return hazard;
-                const isClearing = !next.severity && !next.likelihood;
+                const severity = next.severity ? (next.severity as SeverityChoice) : undefined;
+                const likelihood = next.likelihood ? (next.likelihood as LikelihoodChoice) : undefined;
+                const isClearing = !severity && !likelihood;
                 return {
                   ...hazard,
                   baseline: isClearing
-                    ? null
+                    ? undefined
                     : {
-                        severity: next.severity,
-                        likelihood: next.likelihood,
+                        severity,
+                        likelihood,
                         riskRating: hazard.baseline?.riskRating ?? null
                       }
                 };
@@ -258,14 +270,16 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
               hazards: prev.hazards.map((hazard) => {
                 const next = byHazardId.get(hazard.id);
                 if (!next) return hazard;
-                const isClearing = !next.severity && !next.likelihood;
+                const severity = next.severity ? (next.severity as SeverityChoice) : undefined;
+                const likelihood = next.likelihood ? (next.likelihood as LikelihoodChoice) : undefined;
+                const isClearing = !severity && !likelihood;
                 return {
                   ...hazard,
                   residual: isClearing
-                    ? null
+                    ? undefined
                     : {
-                        severity: next.severity,
-                        likelihood: next.likelihood,
+                        severity,
+                        likelihood,
                         riskRating: hazard.residual?.riskRating ?? null
                       }
                 };

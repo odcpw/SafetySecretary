@@ -11,7 +11,7 @@
  * - Actions: description, owner, due date, status
  */
 import { useState, useMemo, useEffect } from "react";
-import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
+import type { Hazard, RatingInput, RiskAssessmentCase } from "@/types/riskAssessment";
 import { useRaContext } from "@/contexts/RaContext";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import {
@@ -60,23 +60,33 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   const { status, show, showSuccess, showError } = useSaveStatus();
   const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
   const [settings, setSettings] = useState(() => loadMatrixSettings(defaultLabels));
-  const [baselineDraft, setBaselineDraft] = useState<Record<string, { severity: string; likelihood: string }>>(() =>
-    raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
-      acc[hazard.id] = {
-        severity: hazard.baseline?.severity ?? "",
-        likelihood: hazard.baseline?.likelihood ?? ""
-      };
-      return acc;
-    }, {})
+  const [baselineDraft, setBaselineDraft] = useState<
+    Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>
+  >(() =>
+    raCase.hazards.reduce<Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>>(
+      (acc, hazard) => {
+        acc[hazard.id] = {
+          severity: hazard.baseline?.severity ?? "",
+          likelihood: hazard.baseline?.likelihood ?? ""
+        };
+        return acc;
+      },
+      {}
+    )
   );
-  const [residualDraft, setResidualDraft] = useState<Record<string, { severity: string; likelihood: string }>>(() =>
-    raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
-      acc[hazard.id] = {
-        severity: hazard.residual?.severity ?? "",
-        likelihood: hazard.residual?.likelihood ?? ""
-      };
-      return acc;
-    }, {})
+  const [residualDraft, setResidualDraft] = useState<
+    Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>
+  >(() =>
+    raCase.hazards.reduce<Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>>(
+      (acc, hazard) => {
+        acc[hazard.id] = {
+          severity: hazard.residual?.severity ?? "",
+          likelihood: hazard.residual?.likelihood ?? ""
+        };
+        return acc;
+      },
+      {}
+    )
   );
 
   const grouped = useMemo(() => groupHazardsByStep(raCase), [raCase]);
@@ -94,22 +104,28 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setBaselineDraft(
-      raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
-        acc[hazard.id] = {
-          severity: hazard.baseline?.severity ?? "",
-          likelihood: hazard.baseline?.likelihood ?? ""
-        };
-        return acc;
-      }, {})
+      raCase.hazards.reduce<Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>>(
+        (acc, hazard) => {
+          acc[hazard.id] = {
+            severity: hazard.baseline?.severity ?? "",
+            likelihood: hazard.baseline?.likelihood ?? ""
+          };
+          return acc;
+        },
+        {}
+      )
     );
     setResidualDraft(
-      raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
-        acc[hazard.id] = {
-          severity: hazard.residual?.severity ?? "",
-          likelihood: hazard.residual?.likelihood ?? ""
-        };
-        return acc;
-      }, {})
+      raCase.hazards.reduce<Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>>(
+        (acc, hazard) => {
+          acc[hazard.id] = {
+            severity: hazard.residual?.severity ?? "",
+            likelihood: hazard.residual?.likelihood ?? ""
+          };
+          return acc;
+        },
+        {}
+      )
     );
   }, [raCase]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -132,7 +148,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
     showError(message, retry, undefined, t("common.retry"));
   };
 
-  const saveBaselineRating = async (payload: { hazardId: string; severity: string; likelihood: string }) => {
+  const saveBaselineRating = async (payload: RatingInput) => {
     const isClearing = !payload.severity && !payload.likelihood;
     show({ message: isClearing ? t("ra.workspace.clearingBaseline") : t("ra.workspace.savingBaseline"), tone: "info" });
     try {
@@ -147,7 +163,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
     }
   };
 
-  const saveResidualRating = async (payload: { hazardId: string; severity: string; likelihood: string }) => {
+  const saveResidualRating = async (payload: RatingInput) => {
     const isClearing = !payload.severity && !payload.likelihood;
     show({ message: isClearing ? t("ra.workspace.clearingResidual") : t("ra.workspace.savingResidual"), tone: "info" });
     try {
@@ -164,9 +180,9 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
 
   const handleBaselineChange = async (
     hazardId: string,
-    patch: Partial<{ severity: string; likelihood: string }>
+    patch: Partial<{ severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>
   ) => {
-    let nextRecord: { severity: string; likelihood: string } | undefined;
+    let nextRecord: { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] } | undefined;
     setBaselineDraft((prev) => {
       const current = prev[hazardId] ?? { severity: "", likelihood: "" };
       nextRecord = { ...current, ...patch };
@@ -178,17 +194,17 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
     if (shouldSave) {
       void saveBaselineRating({
         hazardId,
-        severity: nextRecord?.severity ?? "",
-        likelihood: nextRecord?.likelihood ?? ""
+        severity: (nextRecord?.severity ?? "") as RatingInput["severity"],
+        likelihood: (nextRecord?.likelihood ?? "") as RatingInput["likelihood"]
       });
     }
   };
 
   const handleResidualChange = async (
     hazardId: string,
-    patch: Partial<{ severity: string; likelihood: string }>
+    patch: Partial<{ severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>
   ) => {
-    let nextRecord: { severity: string; likelihood: string } | undefined;
+    let nextRecord: { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] } | undefined;
     setResidualDraft((prev) => {
       const current = prev[hazardId] ?? { severity: "", likelihood: "" };
       nextRecord = { ...current, ...patch };
@@ -200,8 +216,8 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
     if (shouldSave) {
       void saveResidualRating({
         hazardId,
-        severity: nextRecord?.severity ?? "",
-        likelihood: nextRecord?.likelihood ?? ""
+        severity: (nextRecord?.severity ?? "") as RatingInput["severity"],
+        likelihood: (nextRecord?.likelihood ?? "") as RatingInput["likelihood"]
       });
     }
   };
@@ -273,10 +289,16 @@ interface EditableStepRowsProps {
   actions: ReturnType<typeof useRaContext>["actions"];
   onSuccess: (message: string, duration?: number) => void;
   onError: (message: string, retry?: () => void) => void;
-  baselineDraft: Record<string, { severity: string; likelihood: string }>;
-  residualDraft: Record<string, { severity: string; likelihood: string }>;
-  onBaselineChange: (hazardId: string, patch: Partial<{ severity: string; likelihood: string }>) => Promise<void>;
-  onResidualChange: (hazardId: string, patch: Partial<{ severity: string; likelihood: string }>) => Promise<void>;
+  baselineDraft: Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>;
+  residualDraft: Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>;
+  onBaselineChange: (
+    hazardId: string,
+    patch: Partial<{ severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>
+  ) => Promise<void>;
+  onResidualChange: (
+    hazardId: string,
+    patch: Partial<{ severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>
+  ) => Promise<void>;
 }
 
 // Component for rendering editable step and its hazards
@@ -434,7 +456,9 @@ const EditableStepRows = ({
             <SheetCell>
               <SheetSelect
                 value={baseline.severity}
-                onChange={(e) => void onBaselineChange(hazard.id, { severity: e.target.value })}
+                onChange={(e) =>
+                  void onBaselineChange(hazard.id, { severity: e.target.value as RatingInput["severity"] })
+                }
                 disabled={saving}
               >
                 <option value="">{t("common.noData")}</option>
@@ -450,7 +474,9 @@ const EditableStepRows = ({
             <SheetCell>
               <SheetSelect
                 value={baseline.likelihood}
-                onChange={(e) => void onBaselineChange(hazard.id, { likelihood: e.target.value })}
+                onChange={(e) =>
+                  void onBaselineChange(hazard.id, { likelihood: e.target.value as RatingInput["likelihood"] })
+                }
                 disabled={saving}
               >
                 <option value="">{t("common.noData")}</option>
@@ -476,7 +502,9 @@ const EditableStepRows = ({
             <SheetCell>
               <SheetSelect
                 value={residual.severity}
-                onChange={(e) => void onResidualChange(hazard.id, { severity: e.target.value })}
+                onChange={(e) =>
+                  void onResidualChange(hazard.id, { severity: e.target.value as RatingInput["severity"] })
+                }
                 disabled={saving}
               >
                 <option value="">{t("common.noData")}</option>
@@ -492,7 +520,9 @@ const EditableStepRows = ({
             <SheetCell>
               <SheetSelect
                 value={residual.likelihood}
-                onChange={(e) => void onResidualChange(hazard.id, { likelihood: e.target.value })}
+                onChange={(e) =>
+                  void onResidualChange(hazard.id, { likelihood: e.target.value as RatingInput["likelihood"] })
+                }
                 disabled={saving}
               >
                 <option value="">{t("common.noData")}</option>
@@ -809,7 +839,7 @@ const ActionItem = ({ action, saving, onUpdate, onDelete, onSuccess, onError }: 
         <select
           className="sheet-input"
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onChange={(e) => setStatus(e.target.value as typeof status)}
           disabled={saving}
         >
           <option value="OPEN">{t("ra.actions.status.open")}</option>

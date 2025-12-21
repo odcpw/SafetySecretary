@@ -12,7 +12,7 @@ const buildCase = (): RiskAssessmentCase => ({
   activityName: "Demo",
   location: null,
   team: null,
-  phase: "CONTROLS",
+  phase: "CONTROL_DISCUSSION",
   steps: [
     { id: "step-1", activity: "Prep area", equipment: [], substances: [], description: null, orderIndex: 0 }
   ],

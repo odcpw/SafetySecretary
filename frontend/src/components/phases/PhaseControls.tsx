@@ -12,7 +12,7 @@ import {
   SheetSelect,
   SheetTable
 } from "@/components/ui/SheetTable";
-import type { ControlHierarchy, RiskAssessmentCase } from "@/types/riskAssessment";
+import type { ControlHierarchy, RatingInput, RiskAssessmentCase } from "@/types/riskAssessment";
 import {
   buildDefaultMatrixLabels,
   getRiskColorForAssessment,
@@ -30,7 +30,7 @@ interface PhaseControlsProps {
   onAddProposedControl: (hazardId: string, description: string, hierarchy?: ControlHierarchy) => Promise<void>;
   onDeleteProposedControl: (hazardId: string, controlId: string) => Promise<void>;
   onUpdateHazard: (hazardId: string, patch: { existingControls?: string[] }) => Promise<void>;
-  onSaveResidualRisk: (ratings: { hazardId: string; severity: string; likelihood: string }[]) => Promise<void>;
+  onSaveResidualRisk: (ratings: RatingInput[]) => Promise<void>;
   onExtractControls: (notes: string) => Promise<void>;
   onNext: () => Promise<void>;
   canAdvance?: boolean;
@@ -100,7 +100,7 @@ export const PhaseControls = ({
   const [llmStatus, setLlmStatus] = useState<string | null>(null);
   // State for inline editing of existing controls
   const [existingControlsEditing, setExistingControlsEditing] = useState<Record<string, string>>({});
-  const { status, show, showSuccess, showError, clear } = useSaveStatus();
+  const { status, show, showSuccess, showError } = useSaveStatus();
 
   const hierarchyOptions = useMemo(
     () => [
@@ -156,11 +156,11 @@ export const PhaseControls = ({
   ) => {
     const source = nextDraft ?? residualDraft;
     const ids = hazardIds ?? raCase.hazards.map((hazard) => hazard.id);
-    const payload = ids
+    const payload: RatingInput[] = ids
       .map((hazardId) => ({
         hazardId,
-        severity: source[hazardId]?.severity ?? "",
-        likelihood: source[hazardId]?.likelihood ?? ""
+        severity: (source[hazardId]?.severity ?? "") as RatingInput["severity"],
+        likelihood: (source[hazardId]?.likelihood ?? "") as RatingInput["likelihood"]
       }))
       .filter((entry) => (entry.severity && entry.likelihood) || (!entry.severity && !entry.likelihood));
     if (!payload.length) {

@@ -69,6 +69,14 @@ export interface IncidentTimelineEvent {
   sources: IncidentTimelineSource[];
 }
 
+export interface IncidentTimelineEventInput {
+  id?: string;
+  orderIndex?: number;
+  timeLabel?: string | null;
+  text: string;
+  confidence?: IncidentTimelineConfidence;
+}
+
 export interface IncidentCause {
   id: string;
   deviationId: string;
@@ -87,6 +95,15 @@ export interface IncidentDeviation {
   causes: IncidentCause[];
 }
 
+export interface IncidentDeviationInput {
+  id?: string;
+  timelineEventId?: string | null;
+  orderIndex?: number;
+  expected?: string | null;
+  actual?: string | null;
+  changeObserved?: string | null;
+}
+
 export interface IncidentAction {
   id: string;
   causeId: string;
@@ -95,6 +112,23 @@ export interface IncidentAction {
   ownerRole: string | null;
   dueDate: string | null;
   actionType: IncidentActionType | null;
+}
+
+export interface IncidentCauseInput {
+  id?: string;
+  deviationId: string;
+  orderIndex?: number;
+  statement: string;
+}
+
+export interface IncidentActionInput {
+  id?: string;
+  causeId: string;
+  orderIndex?: number;
+  description: string;
+  ownerRole?: string | null;
+  dueDate?: string | null;
+  actionType?: IncidentActionType | null;
 }
 
 export interface IncidentAttachment {

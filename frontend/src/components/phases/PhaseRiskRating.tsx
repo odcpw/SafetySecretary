@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
+import type { Hazard, RatingInput, RiskAssessmentCase } from "@/types/riskAssessment";
 import {
   buildDefaultMatrixLabels,
   getRiskColorForAssessment,
@@ -24,7 +24,7 @@ import { useI18n } from "@/i18n/I18nContext";
 interface PhaseRiskRatingProps {
   raCase: RiskAssessmentCase;
   saving: boolean;
-  onSaveRiskRatings: (ratings: { hazardId: string; severity: string; likelihood: string }[]) => Promise<void>;
+  onSaveRiskRatings: (ratings: RatingInput[]) => Promise<void>;
   onUpdateHazard: (hazardId: string, patch: { label?: string; description?: string; categoryCode?: string; existingControls?: string[] }) => Promise<void>;
   onNext: () => Promise<void>;
   canAdvance?: boolean;
@@ -72,7 +72,7 @@ export const PhaseRiskRating = ({
   const [riskSettings, setRiskSettings] = useState<RiskMatrixSettings | null>(() => loadMatrixSettings(defaultLabels));
   // Local state for inline editing of existing controls
   const [controlsEditing, setControlsEditing] = useState<Record<string, string>>({});
-  const { status, show, showSuccess, showError, clear } = useSaveStatus();
+  const { status, show, showSuccess, showError } = useSaveStatus();
 
   const severityOptions = useMemo(
     () =>
@@ -144,7 +144,13 @@ export const PhaseRiskRating = ({
     const isClearing = !value.severity && !value.likelihood;
     show({ message: isClearing ? t("ra.risk.clearingRating") : t("ra.risk.savingRating"), tone: "info" });
     try {
-      await onSaveRiskRatings([{ hazardId, severity: value.severity, likelihood: value.likelihood }]);
+      await onSaveRiskRatings([
+        {
+          hazardId,
+          severity: value.severity as RatingInput["severity"],
+          likelihood: value.likelihood as RatingInput["likelihood"]
+        }
+      ]);
       showSuccess(isClearing ? t("ra.risk.ratingCleared") : t("ra.risk.autosaved"));
     } catch (error) {
       console.error(error);

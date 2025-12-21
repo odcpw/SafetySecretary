@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { IncidentEditor } from "../IncidentEditor";
+import type { IncidentCase } from "@/types/incident";
 import { I18nProvider } from "@/i18n/I18nContext";
 
 const mockActions = {
@@ -23,7 +24,7 @@ const mockActions = {
   refreshCase: vi.fn()
 };
 
-const baseCase = {
+const baseCase: IncidentCase = {
   id: "incident-1",
   createdAt: "2025-03-01",
   updatedAt: "2025-03-01",
@@ -44,7 +45,7 @@ const baseCase = {
   attachments: []
 };
 
-const createCase = (overrides: Partial<typeof baseCase> = {}) => ({
+const createCase = (overrides: Partial<IncidentCase> = {}) => ({
   ...baseCase,
   ...overrides,
   persons: overrides.persons ? [...overrides.persons] : [],

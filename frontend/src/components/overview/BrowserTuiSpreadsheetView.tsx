@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRaContext } from "@/contexts/RaContext";
-import type { RiskAssessmentCase } from "@/types/riskAssessment";
+import type { RatingInput, RiskAssessmentCase } from "@/types/riskAssessment";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
 import { useI18n } from "@/i18n/I18nContext";
@@ -203,7 +203,11 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
           (next.severity && next.likelihood) || (!next.severity && !next.likelihood);
         if (shouldSave) {
           await actions.saveRiskRatings([
-            { hazardId: hazard.id, severity: next.severity ?? "", likelihood: next.likelihood ?? "" }
+            {
+              hazardId: hazard.id,
+              severity: (next.severity ?? "") as RatingInput["severity"],
+              likelihood: (next.likelihood ?? "") as RatingInput["likelihood"]
+            }
           ]);
         }
       } else if (column.key === "residualSeverity" || column.key === "residualLikelihood") {
@@ -220,7 +224,11 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
           (next.severity && next.likelihood) || (!next.severity && !next.likelihood);
         if (shouldSave) {
           await actions.saveResidualRisk([
-            { hazardId: hazard.id, severity: next.severity ?? "", likelihood: next.likelihood ?? "" }
+            {
+              hazardId: hazard.id,
+              severity: (next.severity ?? "") as RatingInput["severity"],
+              likelihood: (next.likelihood ?? "") as RatingInput["likelihood"]
+            }
           ]);
         }
       }
@@ -285,7 +293,6 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
       return null;
     }
 
-    const hazard = rows[rowIndex]!.hazard;
     const onKeyDown: React.KeyboardEventHandler<HTMLElement> = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();

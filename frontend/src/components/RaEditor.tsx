@@ -15,7 +15,6 @@ import { PhaseProcessSteps } from "@/components/phases/PhaseProcessSteps";
 import { PhaseReviewPlaceholder } from "@/components/phases/PhaseReviewPlaceholder";
 import { PhaseRiskRating } from "@/components/phases/PhaseRiskRating";
 import { PHASES } from "@/lib/phases";
-import { useFocusMode } from "@/contexts/FocusModeContext";
 import { useRaContext } from "@/contexts/RaContext";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
 import type { Phase } from "@/types/riskAssessment";
@@ -184,7 +183,6 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
 
 export const RaEditor = () => {
   const { raCase, saving, actions, refreshCase } = useRaContext();
-  const { focusMode } = useFocusMode();
   const navigate = useNavigate();
   const { t } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();

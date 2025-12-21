@@ -1,0 +1,148 @@
+// Prisma schema for registry DB (orgs/users/sessions/audit)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/registry"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("REGISTRY_DATABASE_URL")
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum UserStatus {
+  ACTIVE
+  LOCKED
+  DISABLED
+}
+
+enum AdminStatus {
+  ACTIVE
+  DISABLED
+}
+
+model Organization {
+  id                 String   @id @default(uuid())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  slug               String   @unique
+  name               String
+  status             OrgStatus @default(ACTIVE)
+  dbConnectionString String
+  storageRoot        String
+  encryptionKeyRef   String?
+  apiKeyEncrypted    String?
+  apiKeyUpdatedAt    DateTime?
+
+  users              OrgUser[]
+  sessions           OrgSession[]
+  auditEvents        LoginAudit[]
+
+  @@index([status])
+}
+
+model OrgUser {
+  id             String     @id @default(uuid())
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  orgId          String
+  username       String
+  email          String
+  passwordHash   String
+  role           OrgRole    @default(MEMBER)
+  status         UserStatus @default(ACTIVE)
+  locale         String     @default("en")
+  failedAttempts Int        @default(0)
+  lockedUntil    DateTime?
+  lastFailedAt   DateTime?
+  lastLoginAt    DateTime?
+
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sessions       OrgSession[]
+  auditEvents    LoginAudit[]
+
+  @@unique([orgId, username])
+  @@unique([orgId, email])
+  @@index([orgId])
+}
+
+model OrgSession {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  orgUserId  String
+  expiresAt  DateTime
+  lastSeenAt DateTime?
+  rememberMe Boolean  @default(false)
+  ipAddress  String?
+  userAgent  String?
+
+  user       OrgUser @relation(fields: [orgUserId], references: [id], onDelete: Cascade)
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgId      String
+
+  @@index([orgUserId])
+  @@index([expiresAt])
+  @@index([orgId])
+}
+
+model LoginAudit {
+  id            String   @id @default(uuid())
+  createdAt     DateTime @default(now())
+  orgId         String?
+  orgSlug       String?
+  orgUserId     String?
+  username      String?
+  success       Boolean
+  failureReason String?
+  ipAddress     String?
+  userAgent     String?
+
+  org           Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  user          OrgUser? @relation(fields: [orgUserId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([orgUserId])
+  @@index([createdAt])
+}
+
+model PlatformAdmin {
+  id          String      @id @default(uuid())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  username    String      @unique
+  email       String      @unique
+  passwordHash String
+  status      AdminStatus @default(ACTIVE)
+  lastLoginAt DateTime?
+
+  sessions    PlatformSession[]
+}
+
+model PlatformSession {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  adminId    String
+  expiresAt  DateTime
+  lastSeenAt DateTime?
+  ipAddress  String?
+  userAgent  String?
+
+  admin      PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([expiresAt])
+}

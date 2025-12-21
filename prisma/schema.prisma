@@ -39,6 +39,26 @@ enum ControlHierarchy {
   PPE             // P - Personal protective equipment (last resort)
 }
 
+enum IncidentType {
+  NEAR_MISS
+  FIRST_AID
+  LOST_TIME
+  PROPERTY_DAMAGE
+}
+
+enum IncidentTimelineConfidence {
+  CONFIRMED
+  LIKELY
+  UNCLEAR
+}
+
+enum IncidentActionType {
+  ENGINEERING
+  ORGANISATIONAL
+  PPE
+  TRAINING
+}
+
 model RiskAssessmentCase {
   id            String         @id @default(uuid())
   createdAt     DateTime       @default(now())
@@ -108,6 +128,8 @@ model CorrectiveAction {
   updatedAt   DateTime    @updatedAt
   caseId      String
   hazardId    String?
+  controlId   String?
+  orderIndex  Int         @default(0)
   description String
   owner       String?
   dueDate     DateTime?
@@ -115,9 +137,12 @@ model CorrectiveAction {
 
   raCase      RiskAssessmentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
   hazard      Hazard?            @relation(fields: [hazardId], references: [id], onDelete: SetNull)
+  control     HazardControl?     @relation(fields: [controlId], references: [id], onDelete: SetNull)
 
   @@index([caseId])
   @@index([hazardId])
+  @@index([controlId])
+  @@unique([controlId])
 }
 
 model HazardAssessment {
@@ -145,6 +170,7 @@ model HazardControl {
   hierarchy   ControlHierarchy?  // S-T-O-P classification
 
   hazard Hazard @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+  actions CorrectiveAction[]
 
   @@index([hazardId])
 }
@@ -169,4 +195,272 @@ model Attachment {
   @@index([caseId])
   @@index([stepId])
   @@index([hazardId])
+}
+
+model JhaCase {
+  id              String         @id @default(uuid())
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  createdBy       String?
+  jobTitle        String
+  site            String?
+  supervisor      String?
+  workersInvolved String?
+  jobDate         DateTime?
+  revision        String?
+  preparedBy      String?
+  reviewedBy      String?
+  approvedBy      String?
+  signoffDate     DateTime?
+  workflowStage   String   @default("steps")
+
+  steps           JhaStep[]
+  hazards         JhaHazard[]
+  attachments     JhaAttachment[]
+}
+
+model JhaStep {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  caseId     String
+  orderIndex Int
+  label      String
+
+  jhaCase    JhaCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  hazards    JhaHazard[]
+  attachments JhaAttachment[]
+
+  @@index([caseId])
+}
+
+model JhaHazard {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  caseId      String
+  stepId      String
+  orderIndex  Int      @default(0)
+  hazard      String
+  consequence String?
+  controls    String[]
+
+  jhaCase     JhaCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  step        JhaStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  attachments JhaAttachment[]
+
+  @@index([caseId])
+  @@index([stepId, orderIndex])
+}
+
+model JhaAttachment {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  caseId       String
+  stepId       String?
+  hazardId     String?
+  orderIndex   Int      @default(0)
+  originalName String
+  mimeType     String
+  byteSize     Int
+  storageKey   String
+
+  jhaCase      JhaCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  step         JhaStep? @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  hazard       JhaHazard? @relation(fields: [hazardId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([stepId])
+  @@index([hazardId])
+}
+
+model IncidentCase {
+  id                String        @id @default(uuid())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  createdBy         String?
+  title             String
+  incidentAt        DateTime?
+  incidentTimeNote  String?
+  location          String?
+  incidentType      IncidentType
+  coordinatorRole   String
+  coordinatorName   String?
+  assistantNarrative String?
+  assistantDraft     Json?
+  assistantDraftUpdatedAt DateTime?
+
+  persons           IncidentPerson[]
+  accounts          IncidentAccount[]
+  timelineEvents    IncidentTimelineEvent[]
+  deviations        IncidentDeviation[]
+  attachments       IncidentAttachment[]
+}
+
+model IncidentPerson {
+  id        String        @id @default(uuid())
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  caseId    String
+  role      String
+  name      String?
+
+  incidentCase IncidentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  accounts     IncidentAccount[]
+
+  @@index([caseId])
+}
+
+model IncidentAccount {
+  id           String        @id @default(uuid())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  caseId       String
+  personId     String
+  rawStatement String?
+
+  incidentCase IncidentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  person       IncidentPerson @relation(fields: [personId], references: [id], onDelete: Cascade)
+  facts        IncidentFact[]
+  personalEvents IncidentPersonalEvent[]
+  sources      IncidentTimelineSource[]
+
+  @@index([caseId])
+  @@index([personId])
+}
+
+model IncidentFact {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  accountId String
+  orderIndex Int
+  text      String
+
+  account   IncidentAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  sources   IncidentTimelineSource[]
+
+  @@index([accountId])
+}
+
+model IncidentPersonalEvent {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  accountId String
+  orderIndex Int
+  timeLabel String?
+  text      String
+
+  account   IncidentAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  sources   IncidentTimelineSource[]
+
+  @@index([accountId])
+}
+
+model IncidentTimelineEvent {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  caseId     String
+  orderIndex Int
+  timeLabel  String?
+  text       String
+  confidence IncidentTimelineConfidence @default(LIKELY)
+
+  incidentCase IncidentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  sources      IncidentTimelineSource[]
+  deviations   IncidentDeviation[]
+  attachments  IncidentAttachment[]
+
+  @@index([caseId])
+}
+
+model IncidentTimelineSource {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  timelineEventId String
+  accountId       String
+  factId          String?
+  personalEventId String?
+
+  timelineEvent IncidentTimelineEvent @relation(fields: [timelineEventId], references: [id], onDelete: Cascade)
+  account       IncidentAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  fact          IncidentFact?          @relation(fields: [factId], references: [id], onDelete: SetNull)
+  personalEvent IncidentPersonalEvent? @relation(fields: [personalEventId], references: [id], onDelete: SetNull)
+
+  @@index([timelineEventId])
+  @@index([accountId])
+  @@index([factId])
+  @@index([personalEventId])
+}
+
+model IncidentDeviation {
+  id              String   @id @default(uuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  caseId          String
+  timelineEventId String?
+  orderIndex      Int
+  expected        String?
+  actual          String?
+  changeObserved  String?
+
+  incidentCase IncidentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  timelineEvent IncidentTimelineEvent? @relation(fields: [timelineEventId], references: [id], onDelete: SetNull)
+  causes       IncidentCause[]
+
+  @@index([caseId])
+  @@index([timelineEventId])
+}
+
+model IncidentCause {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  deviationId String
+  orderIndex Int
+  statement  String
+
+  deviation IncidentDeviation @relation(fields: [deviationId], references: [id], onDelete: Cascade)
+  actions   IncidentAction[]
+
+  @@index([deviationId])
+}
+
+model IncidentAction {
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  causeId    String
+  orderIndex Int
+  description String
+  ownerRole  String?
+  dueDate    DateTime?
+  actionType IncidentActionType?
+
+  cause IncidentCause @relation(fields: [causeId], references: [id], onDelete: Cascade)
+
+  @@index([causeId])
+}
+
+model IncidentAttachment {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  caseId       String
+  timelineEventId String?
+  orderIndex   Int      @default(0)
+  originalName String
+  mimeType     String
+  byteSize     Int
+  storageKey   String
+
+  incidentCase  IncidentCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  timelineEvent IncidentTimelineEvent? @relation(fields: [timelineEventId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([timelineEventId])
 }

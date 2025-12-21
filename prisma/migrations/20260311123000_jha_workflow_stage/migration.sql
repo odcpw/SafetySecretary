@@ -1,0 +1,2 @@
+ALTER TABLE "JhaCase"
+ADD COLUMN IF NOT EXISTS "workflowStage" TEXT NOT NULL DEFAULT 'steps';

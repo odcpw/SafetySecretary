@@ -1,5 +1,123 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Bring older schemas in line with the current Prisma models before enforcing step-scoped hazards.
+
+-- Ensure enum values expected by the current Prisma schema exist.
+ALTER TYPE "RiskAssessmentPhase" ADD VALUE IF NOT EXISTS 'HAZARD_IDENTIFICATION';
+ALTER TYPE "RiskAssessmentPhase" ADD VALUE IF NOT EXISTS 'CONTROL_DISCUSSION';
+
+-- Proposed control hierarchy enum (used by HazardControl.hierarchy).
+DO $$ BEGIN
+  CREATE TYPE "ControlHierarchy" AS ENUM ('SUBSTITUTION', 'TECHNICAL', 'ORGANIZATIONAL', 'PPE');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- ProcessStep triad fields: title -> activity, plus equipment/substances arrays.
+DO $$
+BEGIN
+  IF to_regclass('"ProcessStep"') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'ProcessStep' AND column_name = 'title'
+    ) AND NOT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'ProcessStep' AND column_name = 'activity'
+    ) THEN
+      EXECUTE 'ALTER TABLE "ProcessStep" RENAME COLUMN "title" TO "activity"';
+    END IF;
+
+    IF NOT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'ProcessStep' AND column_name = 'activity'
+    ) THEN
+      EXECUTE 'ALTER TABLE "ProcessStep" ADD COLUMN "activity" TEXT';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'ProcessStep' AND column_name = 'title'
+    ) AND EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'ProcessStep' AND column_name = 'activity'
+    ) THEN
+      EXECUTE 'UPDATE "ProcessStep" SET "activity" = COALESCE("activity", "title")';
+    END IF;
+
+    EXECUTE 'UPDATE "ProcessStep" SET "activity" = COALESCE("activity", ''Unassigned step (auto)'') WHERE "activity" IS NULL';
+    EXECUTE 'ALTER TABLE "ProcessStep" ALTER COLUMN "activity" SET NOT NULL';
+
+    EXECUTE 'ALTER TABLE "ProcessStep" ADD COLUMN IF NOT EXISTS "equipment" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]';
+    EXECUTE 'ALTER TABLE "ProcessStep" ADD COLUMN IF NOT EXISTS "substances" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]';
+  END IF;
+END $$;
+
+-- Hazard fields expected by the current Prisma schema.
+ALTER TABLE "Hazard" ADD COLUMN IF NOT EXISTS "categoryCode" TEXT;
+
+DO $$
+DECLARE existing_controls_udt TEXT;
+BEGIN
+  IF to_regclass('"Hazard"') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'Hazard' AND column_name = 'existingControls'
+    ) THEN
+      BEGIN
+        SELECT udt_name
+        INTO existing_controls_udt
+        FROM information_schema.columns
+        WHERE table_name = 'Hazard' AND column_name = 'existingControls';
+
+        IF existing_controls_udt = '_text' THEN
+          EXECUTE 'ALTER TABLE "Hazard" ALTER COLUMN "existingControls" SET DEFAULT ARRAY[]::TEXT[]';
+          EXECUTE 'UPDATE "Hazard" SET "existingControls" = ARRAY[]::TEXT[] WHERE "existingControls" IS NULL';
+          EXECUTE 'ALTER TABLE "Hazard" ALTER COLUMN "existingControls" SET NOT NULL';
+        ELSE
+          EXECUTE '
+            ALTER TABLE "Hazard"
+              ALTER COLUMN "existingControls" TYPE TEXT[] USING (
+                CASE
+                  WHEN "existingControls" IS NULL THEN ARRAY[]::TEXT[]
+                  WHEN "existingControls"::text = '''' THEN ARRAY[]::TEXT[]
+                  ELSE ARRAY["existingControls"::text]
+                END
+              )';
+          EXECUTE 'ALTER TABLE "Hazard" ALTER COLUMN "existingControls" SET DEFAULT ARRAY[]::TEXT[]';
+          EXECUTE 'UPDATE "Hazard" SET "existingControls" = ARRAY[]::TEXT[] WHERE "existingControls" IS NULL';
+          EXECUTE 'ALTER TABLE "Hazard" ALTER COLUMN "existingControls" SET NOT NULL';
+        END IF;
+      EXCEPTION
+        WHEN others THEN
+          EXECUTE 'ALTER TABLE "Hazard" DROP COLUMN "existingControls"';
+          EXECUTE 'ALTER TABLE "Hazard" ADD COLUMN "existingControls" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]';
+      END;
+    ELSE
+      EXECUTE 'ALTER TABLE "Hazard" ADD COLUMN "existingControls" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]';
+    END IF;
+  END IF;
+END $$;
+
+-- Align HazardControl to current Prisma schema (multiple rows per hazard, optional hierarchy).
+DO $$
+BEGIN
+  IF to_regclass('"HazardControl"') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE "HazardControl" ADD COLUMN IF NOT EXISTS "hierarchy" "ControlHierarchy"';
+    EXECUTE 'DROP INDEX IF EXISTS "HazardControl_hazardId_type_key"';
+    EXECUTE 'DROP INDEX IF EXISTS "HazardControl_hazard_type_key"';
+    EXECUTE 'ALTER TABLE "HazardControl" DROP COLUMN IF EXISTS "type"';
+    EXECUTE 'CREATE INDEX IF NOT EXISTS "HazardControl_hazardId_idx" ON "HazardControl"("hazardId")';
+  END IF;
+END $$;
+
+DROP TYPE IF EXISTS "HazardControlType";
+
 -- Step-scoped hazards (each hazard row belongs to exactly one ProcessStep)
 ALTER TABLE "Hazard" ADD COLUMN IF NOT EXISTS "stepId" TEXT;
 ALTER TABLE "Hazard" ADD COLUMN IF NOT EXISTS "orderIndex" INTEGER NOT NULL DEFAULT 0;
@@ -20,57 +138,6 @@ BEGIN
     FROM first_step fs
     WHERE h."id" = fs."hazardId"
       AND h."stepId" IS NULL;
-
-    -- Ensure any hazards without HazardStep rows land on the case's first step.
-    WITH first_case_step AS (
-      SELECT DISTINCT ON ("caseId") "caseId", "id" AS "stepId"
-      FROM "ProcessStep"
-      ORDER BY "caseId", "orderIndex" ASC
-    )
-    UPDATE "Hazard" h
-    SET "stepId" = fcs."stepId",
-        "orderIndex" = 0
-    FROM first_case_step fcs
-    WHERE h."stepId" IS NULL
-      AND h."caseId" = fcs."caseId";
-
-    -- If a case has hazards but no steps, create a placeholder step so migration can complete.
-    WITH cases_missing_steps AS (
-      SELECT DISTINCT h."caseId"
-      FROM "Hazard" h
-      WHERE h."stepId" IS NULL
-    ),
-    inserted_steps AS (
-      INSERT INTO "ProcessStep" (
-        "id",
-        "createdAt",
-        "updatedAt",
-        "caseId",
-        "orderIndex",
-        "activity",
-        "equipment",
-        "substances",
-        "description"
-      )
-      SELECT
-        uuid_generate_v4()::text,
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP,
-        c."caseId",
-        0,
-        'Unassigned step (auto)',
-        ARRAY[]::text[],
-        ARRAY[]::text[],
-        NULL
-      FROM cases_missing_steps c
-      RETURNING "caseId", "id"
-    )
-    UPDATE "Hazard" h
-    SET "stepId" = s."id",
-        "orderIndex" = 0
-    FROM inserted_steps s
-    WHERE h."stepId" IS NULL
-      AND h."caseId" = s."caseId";
 
     -- Build a mapping of additional step links that should become duplicated hazards.
     CREATE TEMP TABLE "HazardSplitMap" (
@@ -233,6 +300,56 @@ BEGIN
     DROP TABLE "HazardStep";
   END IF;
 END $$;
+
+-- Ensure any hazards without a step land on the case's first step (or create a placeholder step if needed).
+WITH first_case_step AS (
+  SELECT DISTINCT ON ("caseId") "caseId", "id" AS "stepId"
+  FROM "ProcessStep"
+  ORDER BY "caseId", "orderIndex" ASC
+)
+UPDATE "Hazard" h
+SET "stepId" = fcs."stepId",
+    "orderIndex" = 0
+FROM first_case_step fcs
+WHERE h."stepId" IS NULL
+  AND h."caseId" = fcs."caseId";
+
+WITH cases_missing_steps AS (
+  SELECT DISTINCT h."caseId"
+  FROM "Hazard" h
+  WHERE h."stepId" IS NULL
+),
+inserted_steps AS (
+  INSERT INTO "ProcessStep" (
+    "id",
+    "createdAt",
+    "updatedAt",
+    "caseId",
+    "orderIndex",
+    "activity",
+    "equipment",
+    "substances",
+    "description"
+  )
+  SELECT
+    uuid_generate_v4()::text,
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP,
+    c."caseId",
+    0,
+    'Unassigned step (auto)',
+    ARRAY[]::text[],
+    ARRAY[]::text[],
+    NULL
+  FROM cases_missing_steps c
+  RETURNING "caseId", "id"
+)
+UPDATE "Hazard" h
+SET "stepId" = s."id",
+    "orderIndex" = 0
+FROM inserted_steps s
+WHERE h."stepId" IS NULL
+  AND h."caseId" = s."caseId";
 
 -- Enforce hazard belongs to one step.
 ALTER TABLE "Hazard" ALTER COLUMN "stepId" SET NOT NULL;

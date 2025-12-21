@@ -16,13 +16,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:frontend": "npm run test --prefix frontend",
-    "prepare": "prisma generate",
+    "prepare": "prisma generate && prisma generate --schema prisma/registry/schema.prisma",
     "postinstall": "npm install --prefix frontend",
     "db:migrate": "prisma migrate deploy",
     "db:dev": "prisma migrate dev",
-    "db:up": "docker compose up -d db",
-    "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f db"
+    "db:up": "node scripts/compose.js up -d db",
+    "db:down": "node scripts/compose.js down",
+    "db:logs": "node scripts/compose.js logs -f db",
+    "admin:cli": "node -r ts-node/register src/cli/adminCli.ts"
   },
   "keywords": [],
   "author": "",

@@ -304,10 +304,10 @@ describe("raCasesRouter", () => {
     expect(res.body.hazards).toHaveLength(0);
   });
 
-  it("applies assessment command as residual when phase is RESIDUAL_RISK", async () => {
+  it("applies assessment command as residual when phase is CONTROL_DISCUSSION", async () => {
     const raCase = {
       id: "case-1",
-      phase: "RESIDUAL_RISK",
+      phase: "CONTROL_DISCUSSION",
       steps: [{ id: "step-1", activity: "Step 1", equipment: [], substances: [], description: null, orderIndex: 0 }],
       hazards: [{ id: "haz-1", stepId: "step-1", existingControls: [] }],
       actions: []

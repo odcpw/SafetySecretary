@@ -3,12 +3,21 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { AppLocals } from "../types/app";
 import { env } from "../config/env";
+import { AppLocals } from "../types/app";
+import { decryptAttachment, encryptAttachment } from "../services/attachmentCrypto";
+import { resolveStoragePath } from "../services/storagePaths";
 
 const attachmentsRouter = Router({ mergeParams: true });
 
-const getServices = (req: Request) => req.app.locals as AppLocals;
+const getTenantServices = (req: Request) => {
+  if (!req.tenantServices) {
+    throw new Error("Tenant services not available");
+  }
+  return req.tenantServices;
+};
+
+const getRegistryService = (req: Request) => (req.app.locals as AppLocals).registryService;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,13 +36,32 @@ const buildStorageKey = (caseId: string, attachmentId: string, originalName: str
   return path.posix.join(caseId, `${attachmentId}-${safeName}`);
 };
 
-const resolveStoragePath = (storageKey: string) => {
-  const root = path.resolve(env.attachmentsDir);
-  const filePath = path.resolve(root, storageKey);
-  if (!filePath.startsWith(root + path.sep)) {
-    throw new Error("Invalid storageKey");
+const requireStorageRoot = (req: Request, res: Response) => {
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
   }
-  return { root, filePath };
+  return req.auth.storageRoot || env.attachmentsDir;
+};
+
+const requireEncryptionKey = async (req: Request, res: Response): Promise<Buffer | null> => {
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  const registry = getRegistryService(req);
+  const keyRef = req.auth.encryptionKeyRef ?? (await registry.ensureOrgEncryptionKey(req.auth.orgId));
+  if (!keyRef) {
+    res.status(500).json({ error: "Encryption key unavailable" });
+    return null;
+  }
+  const key = Buffer.from(keyRef, "base64");
+  if (key.length !== 32) {
+    res.status(500).json({ error: "Encryption key invalid" });
+    return null;
+  }
+  req.auth.encryptionKeyRef = keyRef;
+  return key;
 };
 
 const requireCaseId = (req: Request, res: Response) => {
@@ -50,7 +78,7 @@ attachmentsRouter.get("/", async (req: Request, res: Response) => {
     const caseId = requireCaseId(req, res);
     if (!caseId) return;
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const attachments = await raService.listAttachments(caseId);
     res.json(
       attachments.map((attachment) => ({
@@ -77,12 +105,16 @@ attachmentsRouter.post("/steps/:stepId", upload.single("file"), async (req: Requ
       return res.status(400).json({ error: "file field is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const storageRoot = requireStorageRoot(req, res);
+    if (!storageRoot) return;
+    const encryptionKey = await requireEncryptionKey(req, res);
+    if (!encryptionKey) return;
     const attachmentId = randomUUID();
     const storageKey = buildStorageKey(caseId, attachmentId, file.originalname);
-    const { filePath } = resolveStoragePath(storageKey);
+    const { filePath } = resolveStoragePath(storageRoot, storageKey);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, file.buffer);
+    await fs.writeFile(filePath, encryptAttachment(file.buffer, encryptionKey));
 
     try {
       const created = await raService.addStepAttachment(caseId, stepId, {
@@ -120,7 +152,7 @@ attachmentsRouter.put("/steps/:stepId/order", async (req: Request, res: Response
       return res.status(400).json({ error: "attachmentIds must be an array of strings" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const ok = await raService.reorderStepAttachments(caseId, stepId, attachmentIdsRaw);
     if (!ok) {
       return res.status(404).json({ error: "Not found" });
@@ -145,12 +177,16 @@ attachmentsRouter.post("/hazards/:hazardId", upload.single("file"), async (req: 
       return res.status(400).json({ error: "file field is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const storageRoot = requireStorageRoot(req, res);
+    if (!storageRoot) return;
+    const encryptionKey = await requireEncryptionKey(req, res);
+    if (!encryptionKey) return;
     const attachmentId = randomUUID();
     const storageKey = buildStorageKey(caseId, attachmentId, file.originalname);
-    const { filePath } = resolveStoragePath(storageKey);
+    const { filePath } = resolveStoragePath(storageRoot, storageKey);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.writeFile(filePath, file.buffer);
+    await fs.writeFile(filePath, encryptAttachment(file.buffer, encryptionKey));
 
     try {
       const created = await raService.addHazardAttachment(caseId, hazardId, {
@@ -203,7 +239,7 @@ attachmentsRouter.put("/:attachmentId", async (req: Request, res: Response) => {
       }
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const updated = await raService.updateAttachment(caseId, attachmentId, patch);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
@@ -224,7 +260,7 @@ attachmentsRouter.get("/:attachmentId", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "attachmentId parameter is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const attachment = await raService.getAttachment(caseId, attachmentId);
     if (!attachment) {
       return res.status(404).json({ error: "Not found" });
@@ -245,17 +281,22 @@ attachmentsRouter.get("/:attachmentId/download", async (req: Request, res: Respo
       return res.status(400).json({ error: "attachmentId parameter is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const storageRoot = requireStorageRoot(req, res);
+    if (!storageRoot) return;
+    const encryptionKey = await requireEncryptionKey(req, res);
+    if (!encryptionKey) return;
     const attachment = await raService.getAttachment(caseId, attachmentId);
     if (!attachment) {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const { filePath } = resolveStoragePath(attachment.storageKey);
+    const { filePath } = resolveStoragePath(storageRoot, attachment.storageKey);
     const data = await fs.readFile(filePath);
+    const decrypted = decryptAttachment(data, encryptionKey);
     res.setHeader("Content-Type", attachment.mimeType || "application/octet-stream");
     res.setHeader("Content-Disposition", `inline; filename="${safeFileComponent(attachment.originalName)}"`);
-    res.send(data);
+    res.send(decrypted);
   } catch (error) {
     console.error("[attachmentsRouter] download attachment", error);
     res.status(500).json({ error: "Internal server error" });
@@ -271,12 +312,14 @@ attachmentsRouter.delete("/:attachmentId", async (req: Request, res: Response) =
       return res.status(400).json({ error: "attachmentId parameter is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const storageRoot = requireStorageRoot(req, res);
+    if (!storageRoot) return;
     const deleted = await raService.deleteAttachment(caseId, attachmentId);
     if (!deleted) {
       return res.status(404).json({ error: "Not found" });
     }
-    const { filePath } = resolveStoragePath(deleted.storageKey);
+    const { filePath } = resolveStoragePath(storageRoot, deleted.storageKey);
     await fs.unlink(filePath).catch(() => undefined);
     res.status(204).send();
   } catch (error) {

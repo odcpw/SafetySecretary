@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto";
-import { RiskAssessmentService } from "./raService";
+import { TenantServiceFactory } from "./tenantServiceFactory";
 import {
   ActionSuggestion,
   ControlSuggestion,
@@ -9,10 +9,20 @@ import {
 } from "./llmService";
 
 export type LlmJobStatus = "queued" | "running" | "completed" | "failed";
-export type LlmJobType = "steps" | "hazards" | "controls" | "actions";
+export type LlmJobType =
+  | "steps"
+  | "hazards"
+  | "controls"
+  | "actions"
+  | "jha-rows"
+  | "incident-narrative"
+  | "incident-witness"
+  | "incident-merge"
+  | "incident-consistency";
 
 interface BaseJobInput {
   caseId: string;
+  tenantDbUrl: string;
 }
 
 interface StepsJobInput extends BaseJobInput {
@@ -30,6 +40,23 @@ interface ControlsJobInput extends BaseJobInput {
 interface ActionsJobInput extends BaseJobInput {
   notes: string;
 }
+
+interface JhaRowsJobInput extends BaseJobInput {
+  jobDescription: string;
+}
+
+interface IncidentWitnessJobInput extends BaseJobInput {
+  accountId: string;
+  statement: string;
+}
+
+interface IncidentNarrativeJobInput extends BaseJobInput {
+  narrative: string;
+}
+
+interface IncidentMergeJobInput extends BaseJobInput {}
+
+interface IncidentConsistencyJobInput extends BaseJobInput {}
 
 interface LlmJob<TInput, TResult = unknown> {
   id: string;
@@ -57,7 +84,10 @@ export class LlmJobManager {
   private readonly queue: LlmJob<any>[] = [];
   private isProcessing = false;
 
-  constructor(private readonly raService: RiskAssessmentService, private readonly llmService: LlmService) {}
+  constructor(
+    private readonly tenantServiceFactory: TenantServiceFactory,
+    private readonly llmService: LlmService
+  ) {}
 
   enqueueStepsExtraction(payload: StepsJobInput): PublicLlmJob {
     const job = this.createJob<StepsJobInput>({ type: "steps", input: payload });
@@ -83,9 +113,42 @@ export class LlmJobManager {
     return this.toPublicJob(job);
   }
 
-  getJob(jobId: string): PublicLlmJob | null {
+  enqueueJhaRowExtraction(payload: JhaRowsJobInput): PublicLlmJob {
+    const job = this.createJob<JhaRowsJobInput>({ type: "jha-rows", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentNarrativeExtraction(payload: IncidentNarrativeJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentNarrativeJobInput>({ type: "incident-narrative", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentWitnessExtraction(payload: IncidentWitnessJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentWitnessJobInput>({ type: "incident-witness", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentTimelineMerge(payload: IncidentMergeJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentMergeJobInput>({ type: "incident-merge", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentConsistencyCheck(payload: IncidentConsistencyJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentConsistencyJobInput>({ type: "incident-consistency", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  getJob(jobId: string, tenantDbUrl: string): PublicLlmJob | null {
     const job = this.jobs.get(jobId);
-    return job ? this.toPublicJob(job) : null;
+    if (!job || job.input?.tenantDbUrl !== tenantDbUrl) {
+      return null;
+    }
+    return this.toPublicJob(job);
   }
 
   private createJob<TInput>({ type, input }: { type: LlmJobType; input: TInput }): LlmJob<TInput> {
@@ -135,6 +198,21 @@ export class LlmJobManager {
         case "actions":
           await this.handleActionsJob(job as LlmJob<ActionsJobInput>);
           break;
+        case "jha-rows":
+          await this.handleJhaRowsJob(job as LlmJob<JhaRowsJobInput>);
+          break;
+        case "incident-narrative":
+          await this.handleIncidentNarrativeJob(job as LlmJob<IncidentNarrativeJobInput>);
+          break;
+        case "incident-witness":
+          await this.handleIncidentWitnessJob(job as LlmJob<IncidentWitnessJobInput>);
+          break;
+        case "incident-merge":
+          await this.handleIncidentMergeJob(job as LlmJob<IncidentMergeJobInput>);
+          break;
+        case "incident-consistency":
+          await this.handleIncidentConsistencyJob(job as LlmJob<IncidentConsistencyJobInput>);
+          break;
         default:
           throw new Error(`Unsupported job type: ${String(job.type)}`);
       }
@@ -152,8 +230,9 @@ export class LlmJobManager {
   }
 
   private async handleStepsJob(job: LlmJob<StepsJobInput>) {
+    const { raService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
     const extraction = await this.llmService.extractStepsFromDescription(job.input.description);
-    const updated = await this.raService.setStepsFromExtraction(job.input.caseId, extraction.steps);
+    const updated = await raService.setStepsFromExtraction(job.input.caseId, extraction.steps);
     job.result = {
       stepsGenerated: extraction.steps.length,
       totalSteps: updated.steps.length
@@ -161,7 +240,8 @@ export class LlmJobManager {
   }
 
   private async handleHazardsJob(job: LlmJob<HazardsJobInput>) {
-    const raCase = await this.raService.getCaseById(job.input.caseId);
+    const { raService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const raCase = await raService.getCaseById(job.input.caseId);
     if (!raCase) {
       throw new Error("Case not found");
     }
@@ -169,14 +249,15 @@ export class LlmJobManager {
       narrative: job.input.narrative,
       steps: raCase.steps
     });
-    await this.raService.mergeExtractedHazards(job.input.caseId, extraction.hazards);
+    await raService.mergeExtractedHazards(job.input.caseId, extraction.hazards);
     job.result = {
       hazardsGenerated: extraction.hazards.length
     };
   }
 
   private async handleControlsJob(job: LlmJob<ControlsJobInput>) {
-    const raCase = await this.raService.getCaseById(job.input.caseId);
+    const { raService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const raCase = await raService.getCaseById(job.input.caseId);
     if (!raCase) {
       throw new Error("Case not found");
     }
@@ -203,14 +284,15 @@ export class LlmJobManager {
       })
     };
     const result = await this.llmService.suggestControlsFromNotes(payload);
-    await this.raService.mergeSuggestedControls(job.input.caseId, result.suggestions);
+    await raService.mergeSuggestedControls(job.input.caseId, result.suggestions);
     job.result = {
       controlsEnhanced: result.suggestions.length
     };
   }
 
   private async handleActionsJob(job: LlmJob<ActionsJobInput>) {
-    const raCase = await this.raService.getCaseById(job.input.caseId);
+    const { raService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const raCase = await raService.getCaseById(job.input.caseId);
     if (!raCase) {
       throw new Error("Case not found");
     }
@@ -223,10 +305,140 @@ export class LlmJobManager {
       }))
     };
     const result = await this.llmService.suggestActionsFromNotes(payload);
-    const created = await this.raService.createSuggestedActions(job.input.caseId, result.actions);
+    const created = await raService.createSuggestedActions(job.input.caseId, result.actions);
     job.result = {
       actionsCreated: created
     };
+  }
+
+  private async handleJhaRowsJob(job: LlmJob<JhaRowsJobInput>) {
+    const { jhaService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const jhaCase = await jhaService.getCaseById(job.input.caseId);
+    if (!jhaCase) {
+      throw new Error("JHA case not found");
+    }
+    const extraction = await this.llmService.extractJhaRows(job.input.jobDescription);
+    await jhaService.replaceRowsFromExtraction(job.input.caseId, extraction.rows);
+    job.result = {
+      rowsGenerated: extraction.rows.length
+    };
+  }
+
+  private async handleIncidentNarrativeJob(job: LlmJob<IncidentNarrativeJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const extraction = await this.llmService.extractIncidentNarrative(job.input.narrative);
+    const draft = {
+      facts: extraction.facts,
+      timeline: extraction.timeline,
+      clarifications: extraction.clarifications
+    };
+    const updated = await incidentService.updateAssistantDraft(job.input.caseId, {
+      narrative: job.input.narrative,
+      draft
+    });
+    if (!updated) {
+      throw new Error("Incident case not found");
+    }
+
+    job.result = {
+      factsExtracted: extraction.facts.length,
+      eventsExtracted: extraction.timeline.length,
+      clarifications: extraction.clarifications
+    };
+  }
+
+  private async handleIncidentWitnessJob(job: LlmJob<IncidentWitnessJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const extraction = await this.llmService.extractIncidentWitness(job.input.statement);
+    const facts = extraction.facts.map((fact, index) => ({
+      accountId: job.input.accountId,
+      orderIndex: index,
+      text: fact.text
+    }));
+    const events = extraction.personalTimeline.map((event, index) => ({
+      accountId: job.input.accountId,
+      orderIndex: index,
+      timeLabel: event.timeLabel ?? null,
+      text: event.text
+    }));
+
+    await incidentService.replaceAccountFacts(job.input.caseId, job.input.accountId, facts);
+    await incidentService.replaceAccountPersonalEvents(job.input.caseId, job.input.accountId, events);
+
+    job.result = {
+      factsExtracted: facts.length,
+      eventsExtracted: events.length,
+      openQuestions: extraction.openQuestions
+    };
+  }
+
+  private async handleIncidentMergeJob(job: LlmJob<IncidentMergeJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const incidentCase = await incidentService.getCaseById(job.input.caseId);
+    if (!incidentCase) {
+      throw new Error("Incident case not found");
+    }
+
+    const accounts = incidentCase.accounts.map((account) => ({
+      accountId: account.id,
+      role: account.person?.role ?? null,
+      name: account.person?.name ?? null,
+      facts: account.facts.map((fact) => ({ text: fact.text })),
+      personalTimeline: account.personalEvents.map((event) => ({
+        timeLabel: event.timeLabel ?? null,
+        text: event.text
+      }))
+    }));
+
+    const merge = await this.llmService.mergeIncidentTimeline(accounts);
+    const rows = merge.timeline.map((row) => {
+      const sources = row.sources
+        .map((source) => {
+          const account = incidentCase.accounts.find((item) => item.id === source.accountId);
+          if (!account) return null;
+          const factId =
+            Number.isInteger(source.factIndex) && source.factIndex !== undefined
+              ? account.facts[source.factIndex]?.id ?? null
+              : null;
+          const personalEventId =
+            Number.isInteger(source.personalEventIndex) && source.personalEventIndex !== undefined
+              ? account.personalEvents[source.personalEventIndex]?.id ?? null
+              : null;
+          if (!factId && !personalEventId) return null;
+          return { accountId: account.id, factId, personalEventId };
+        })
+        .filter(
+          (item): item is { accountId: string; factId?: string | null; personalEventId?: string | null } => Boolean(item)
+        );
+
+      return {
+        timeLabel: row.timeLabel ?? null,
+        text: row.text,
+        confidence: row.confidence,
+        sources
+      };
+    });
+
+    await incidentService.replaceTimelineFromMerge(job.input.caseId, rows);
+
+    job.result = {
+      eventsGenerated: merge.timeline.length,
+      openQuestions: merge.openQuestions
+    };
+  }
+
+  private async handleIncidentConsistencyJob(job: LlmJob<IncidentConsistencyJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const incidentCase = await incidentService.getCaseById(job.input.caseId);
+    if (!incidentCase) {
+      throw new Error("Incident case not found");
+    }
+    const timeline = incidentCase.timelineEvents.map((event) => ({
+      timeLabel: event.timeLabel ?? null,
+      text: event.text
+    }));
+    const result = await this.llmService.checkIncidentConsistency(timeline);
+    job.result = { issues: result.issues };
   }
 
   private toPublicJob(job: LlmJob<any>): PublicLlmJob {

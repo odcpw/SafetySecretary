@@ -5,7 +5,44 @@ import { TEMPLATE_LIKELIHOOD_LEVELS, TEMPLATE_SEVERITY_LEVELS } from "../types/t
 
 export const raCasesRouter = express.Router();
 
-const getServices = (req: Request): AppLocals => req.app.locals as AppLocals;
+const getTenantServices = (req: Request) => {
+  if (!req.tenantServices) {
+    throw new Error("Tenant services not available");
+  }
+  return req.tenantServices;
+};
+
+const getLlmJobManager = (req: Request) => (req.app.locals as AppLocals).llmJobManager;
+const getReportService = (req: Request) => (req.app.locals as AppLocals).reportService;
+const getLlmService = (req: Request) => (req.app.locals as AppLocals).llmService;
+
+const requireTenantDbUrl = (req: Request, res: Response) => {
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  return req.auth.dbConnectionString;
+};
+
+const resolveEncryptionKey = async (req: Request, res: Response) => {
+  if (!req.auth) {
+    res.status(401).json({ error: "Authentication required" });
+    return null;
+  }
+  const registry = (req.app.locals as AppLocals).registryService;
+  const keyRef = req.auth.encryptionKeyRef ?? (await registry.ensureOrgEncryptionKey(req.auth.orgId));
+  if (!keyRef) {
+    res.status(500).json({ error: "Encryption key unavailable" });
+    return null;
+  }
+  const key = Buffer.from(keyRef, "base64");
+  if (key.length !== 32) {
+    res.status(500).json({ error: "Encryption key invalid" });
+    return null;
+  }
+  req.auth.encryptionKeyRef = keyRef;
+  return key;
+};
 
 const requireParam = (req: Request, res: Response, key: string): string | null => {
   const value = (req.params as Record<string, string | undefined>)[key];
@@ -101,42 +138,59 @@ type RiskRatingNormalized = {
   likelihood: LikelihoodLevelNormalized;
 };
 
-const normalizeRiskRatings = (ratings: unknown): { normalized: RiskRatingNormalized[]; errors: string[] } => {
+const normalizeRiskRatings = (
+  ratings: unknown
+): { normalized: RiskRatingNormalized[]; clearIds: string[]; errors: string[] } => {
   const errors: string[] = [];
   if (!Array.isArray(ratings)) {
-    return { normalized: [], errors: ["ratings must be an array"] };
+    return { normalized: [], clearIds: [], errors: ["ratings must be an array"] };
   }
 
-  const normalized = ratings
-    .map((rating: any, index: number) => {
-      const hazardId = typeof rating?.hazardId === "string" ? rating.hazardId : null;
-      if (!hazardId) {
-        errors.push(`ratings[${index}].hazardId is required`);
-        return null;
-      }
-      const severity = normalizeSeverity(rating.severity);
-      const likelihood = normalizeLikelihood(rating.likelihood);
-      if (!severity) {
-        errors.push(`ratings[${index}].severity must be one of ${SEVERITY_LEVELS.join(", ")}`);
-      }
-      if (!likelihood) {
-        errors.push(`ratings[${index}].likelihood must be one of ${LIKELIHOOD_LEVELS.join(", ")}`);
-      }
-      if (!severity || !likelihood) {
-        return null;
-      }
-      return { hazardId, severity, likelihood };
-    })
-    .filter((item: any): item is RiskRatingNormalized => item !== null);
+  const normalized: RiskRatingNormalized[] = [];
+  const clearIds: string[] = [];
 
-  return { normalized, errors };
+  ratings.forEach((rating: any, index: number) => {
+    const hazardId = typeof rating?.hazardId === "string" ? rating.hazardId : null;
+    if (!hazardId) {
+      errors.push(`ratings[${index}].hazardId is required`);
+      return;
+    }
+    const severityRaw = rating?.severity;
+    const likelihoodRaw = rating?.likelihood;
+    const severityEmpty = severityRaw === null || severityRaw === undefined || String(severityRaw).trim() === "";
+    const likelihoodEmpty = likelihoodRaw === null || likelihoodRaw === undefined || String(likelihoodRaw).trim() === "";
+
+    if (severityEmpty && likelihoodEmpty) {
+      clearIds.push(hazardId);
+      return;
+    }
+    if (severityEmpty || likelihoodEmpty) {
+      errors.push(`ratings[${index}] must include both severity and likelihood`);
+      return;
+    }
+
+    const severity = normalizeSeverity(severityRaw);
+    const likelihood = normalizeLikelihood(likelihoodRaw);
+    if (!severity) {
+      errors.push(`ratings[${index}].severity must be one of ${SEVERITY_LEVELS.join(", ")}`);
+    }
+    if (!likelihood) {
+      errors.push(`ratings[${index}].likelihood must be one of ${LIKELIHOOD_LEVELS.join(", ")}`);
+    }
+    if (!severity || !likelihood) {
+      return;
+    }
+    normalized.push({ hazardId, severity, likelihood });
+  });
+
+  return { normalized, clearIds, errors };
 };
 
 raCasesRouter.get("/", async (req: Request, res: Response) => {
   try {
     const { createdBy, limit } = req.query as { createdBy?: string; limit?: string };
     const parsedLimit = limit ? Number.parseInt(limit, 10) : undefined;
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const normalizedCreatedBy =
       typeof createdBy === "string" && createdBy.trim().length > 0 ? createdBy.trim() : null;
     const listParams: { createdBy?: string | null; limit?: number } = {};
@@ -161,7 +215,7 @@ raCasesRouter.post("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "activityName is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const raCase = await raService.createCase({ activityName, location, team });
     res.status(201).json(raCase);
   } catch (error) {
@@ -176,7 +230,7 @@ raCasesRouter.get("/:id", async (req: Request, res: Response) => {
     if (!caseId) {
       return;
     }
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
@@ -194,7 +248,7 @@ raCasesRouter.patch("/:id", async (req: Request, res: Response) => {
     if (!caseId) {
       return;
     }
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const updated = await raService.updateCaseMeta(caseId, req.body);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
@@ -212,7 +266,7 @@ raCasesRouter.delete("/:id", async (req: Request, res: Response) => {
     if (!caseId) {
       return;
     }
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const deleted = await raService.deleteCase(caseId);
     if (!deleted) {
       return res.status(404).json({ error: "Not found" });
@@ -230,7 +284,7 @@ raCasesRouter.post("/:id/advance-phase", async (req: Request, res: Response) => 
     if (!caseId) {
       return;
     }
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const updated = await raService.advancePhase(caseId);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
@@ -253,13 +307,18 @@ raCasesRouter.post("/:id/steps/extract", async (req: Request, res: Response) => 
       return;
     }
 
-    const { raService, llmJobManager } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const job = llmJobManager.enqueueStepsExtraction({ caseId, description });
+    const job = llmJobManager.enqueueStepsExtraction({ caseId, description, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
     console.error("[raCasesRouter] extractSteps", error);
@@ -278,7 +337,7 @@ raCasesRouter.put("/:id/steps", async (req: Request, res: Response) => {
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const updated = await raService.updateSteps(caseId, steps);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
@@ -302,13 +361,18 @@ raCasesRouter.post("/:id/hazards/extract", async (req: Request, res: Response) =
       return;
     }
 
-    const { raService, llmJobManager } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
     }
 
-    const job = llmJobManager.enqueueHazardExtraction({ caseId, narrative });
+    const job = llmJobManager.enqueueHazardExtraction({ caseId, narrative, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
     console.error("[raCasesRouter] extractHazards", error);
@@ -326,12 +390,17 @@ raCasesRouter.post("/:id/controls/extract", async (req: Request, res: Response) 
     if (!caseId) {
       return;
     }
-    const { raService, llmJobManager } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
     }
-    const job = llmJobManager.enqueueControlExtraction({ caseId, notes });
+    const job = llmJobManager.enqueueControlExtraction({ caseId, notes, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
     console.error("[raCasesRouter] extractControls", error);
@@ -349,12 +418,17 @@ raCasesRouter.post("/:id/actions/extract", async (req: Request, res: Response) =
     if (!caseId) {
       return;
     }
-    const { raService, llmJobManager } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
     }
-    const job = llmJobManager.enqueueActionExtraction({ caseId, notes });
+    const job = llmJobManager.enqueueActionExtraction({ caseId, notes, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
     console.error("[raCasesRouter] extractActions", error);
@@ -373,7 +447,7 @@ raCasesRouter.post("/:id/hazards", async (req: Request, res: Response) => {
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const hazard = await raService.addManualHazard(caseId, { stepId, label, description });
     if (!hazard) {
       return res.status(404).json({ error: "Not found" });
@@ -396,7 +470,7 @@ raCasesRouter.put("/:id/hazards/:hazardId", async (req: Request, res: Response) 
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const patchRaw = typeof req.body === "object" && req.body ? req.body : {};
     const errors: string[] = [];
     const safePatch: any = {};
@@ -487,7 +561,7 @@ raCasesRouter.delete("/:id/hazards/:hazardId", async (req: Request, res: Respons
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const removed = await raService.deleteHazard(caseId, hazardId);
     if (!removed) {
       return res.status(404).json({ error: "Not found" });
@@ -507,17 +581,41 @@ raCasesRouter.put("/:id/hazards/risk", async (req: Request, res: Response) => {
       return;
     }
 
-    const { normalized, errors } = normalizeRiskRatings(ratings);
+    const { normalized, clearIds, errors } = normalizeRiskRatings(ratings);
     if (errors.length) {
       return res.status(400).json({ error: "Invalid ratings", details: errors });
     }
 
-    const { raService } = getServices(req);
-    const updated = await raService.setHazardRiskRatings(caseId, normalized);
-    if (!updated) {
-      return res.status(404).json({ error: "Not found" });
+    const { raService } = getTenantServices(req);
+    const raCase = await raService.getCaseById(caseId);
+    if (!raCase) {
+      return res.status(404).json({ error: "Case not found" });
     }
-    res.json({ hazards: updated.hazards });
+    const updated = normalized.length
+      ? await raService.setHazardRiskRatings(caseId, normalized)
+      : raCase;
+    if (!updated) {
+      const requestedHazardIds = [...new Set(normalized.map((item) => item.hazardId))];
+      const knownHazards = new Set(raCase.hazards.map((hazard) => hazard.id));
+      const missingHazardIds = requestedHazardIds.filter((id) => !knownHazards.has(id));
+      return res.status(400).json({
+        error: "Hazards do not belong to case",
+        details: { missingHazardIds }
+      });
+    }
+
+    if (clearIds.length) {
+      const cleared = await raService.clearHazardRiskRatings(caseId, clearIds, "BASELINE");
+      if (!cleared) {
+        return res.status(400).json({ error: "Unable to clear ratings" });
+      }
+    }
+
+    const refreshed = await raService.getCaseById(caseId);
+    if (!refreshed) {
+      return res.status(404).json({ error: "Case not found" });
+    }
+    res.json({ hazards: refreshed.hazards });
   } catch (error) {
     console.error("[raCasesRouter] setHazardRiskRatings", error);
     res.status(500).json({ error: "Internal server error" });
@@ -540,7 +638,7 @@ raCasesRouter.post("/:id/hazards/:hazardId/proposed-controls", async (req: Reque
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const errors: string[] = [];
     const normalizedHierarchy =
       hierarchy !== undefined ? normalizeHierarchy(hierarchy) : undefined;
@@ -578,7 +676,7 @@ raCasesRouter.delete("/:id/hazards/:hazardId/proposed-controls/:controlId", asyn
       return res.status(400).json({ error: "controlId parameter is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const deleted = await raService.deleteProposedControl(caseId, controlId);
     if (!deleted) {
       return res.status(404).json({ error: "Not found" });
@@ -598,17 +696,41 @@ raCasesRouter.put("/:id/hazards/residual-risk", async (req: Request, res: Respon
       return;
     }
 
-    const { normalized, errors } = normalizeRiskRatings(ratings);
+    const { normalized, clearIds, errors } = normalizeRiskRatings(ratings);
     if (errors.length) {
       return res.status(400).json({ error: "Invalid ratings", details: errors });
     }
 
-    const { raService } = getServices(req);
-    const updated = await raService.setResidualRiskRatings(caseId, normalized);
-    if (!updated) {
-      return res.status(404).json({ error: "Not found" });
+    const { raService } = getTenantServices(req);
+    const raCase = await raService.getCaseById(caseId);
+    if (!raCase) {
+      return res.status(404).json({ error: "Case not found" });
     }
-    res.json({ hazards: updated.hazards });
+    const updated = normalized.length
+      ? await raService.setResidualRiskRatings(caseId, normalized)
+      : raCase;
+    if (!updated) {
+      const requestedHazardIds = [...new Set(normalized.map((item) => item.hazardId))];
+      const knownHazards = new Set(raCase.hazards.map((hazard) => hazard.id));
+      const missingHazardIds = requestedHazardIds.filter((id) => !knownHazards.has(id));
+      return res.status(400).json({
+        error: "Hazards do not belong to case",
+        details: { missingHazardIds }
+      });
+    }
+
+    if (clearIds.length) {
+      const cleared = await raService.clearHazardRiskRatings(caseId, clearIds, "RESIDUAL");
+      if (!cleared) {
+        return res.status(400).json({ error: "Unable to clear ratings" });
+      }
+    }
+
+    const refreshed = await raService.getCaseById(caseId);
+    if (!refreshed) {
+      return res.status(404).json({ error: "Case not found" });
+    }
+    res.json({ hazards: refreshed.hazards });
   } catch (error) {
     console.error("[raCasesRouter] setResidualRiskRatings", error);
     res.status(500).json({ error: "Internal server error" });
@@ -630,7 +752,7 @@ raCasesRouter.put("/:id/steps/:stepId/hazards/order", async (req: Request, res: 
       return res.status(400).json({ error: "hazardIds must be an array" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
@@ -657,6 +779,36 @@ raCasesRouter.put("/:id/steps/:stepId/hazards/order", async (req: Request, res: 
   }
 });
 
+raCasesRouter.put("/:id/hazards/:hazardId/actions/order", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+    const hazardId = requireParam(req, res, "hazardId");
+    if (!hazardId) {
+      return;
+    }
+    const { actionIds } = req.body;
+    if (!Array.isArray(actionIds)) {
+      return res.status(400).json({ error: "actionIds must be an array" });
+    }
+    const normalized = actionIds
+      .filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+      .map((id: string) => id.trim());
+
+    const { raService } = getTenantServices(req);
+    const reordered = await raService.reorderActionsForHazard(caseId, hazardId, normalized);
+    if (!reordered) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error("[raCasesRouter] reorderActionsForHazard", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 raCasesRouter.post("/:id/actions", async (req: Request, res: Response) => {
   try {
     const { hazardId, description, owner, dueDate } = req.body;
@@ -668,7 +820,7 @@ raCasesRouter.post("/:id/actions", async (req: Request, res: Response) => {
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const action = await raService.addAction(caseId, { hazardId, description, owner, dueDate });
     if (!action) {
       return res.status(404).json({ error: "Not found" });
@@ -691,7 +843,7 @@ raCasesRouter.put("/:id/actions/:actionId", async (req: Request, res: Response) 
       return;
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const patchRaw = typeof req.body === "object" && req.body ? req.body : {};
     const errors: string[] = [];
     const safePatch: any = {};
@@ -745,20 +897,54 @@ raCasesRouter.put("/:id/actions/:actionId", async (req: Request, res: Response) 
   }
 });
 
+raCasesRouter.delete("/:id/actions/:actionId", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+    const actionId = requireParam(req, res, "actionId");
+    if (!actionId) {
+      return;
+    }
+
+    const { raService } = getTenantServices(req);
+    const deleted = await raService.deleteAction(caseId, actionId);
+    if (!deleted) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.status(204).send();
+  } catch (error) {
+    console.error("[raCasesRouter] deleteAction", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 raCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) => {
   try {
     const caseId = requireParam(req, res, "id");
     if (!caseId) {
       return;
     }
-    const { raService, reportService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const reportService = getReportService(req);
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
     }
 
     const attachments = await raService.listAttachments(caseId);
-    const pdf = await reportService.generatePdfForCase(raCase, { attachments });
+    const storageRoot = req.auth?.storageRoot;
+    const encryptionKey = await resolveEncryptionKey(req, res);
+    if (!encryptionKey) {
+      return;
+    }
+    const pdf = await reportService.generatePdfForCase(raCase, {
+      attachments,
+      storageRoot,
+      encryptionKey,
+      locale: req.auth?.locale
+    });
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="ra-${caseId}.pdf"`);
     res.send(pdf);
@@ -774,14 +960,25 @@ raCasesRouter.get("/:id/export/xlsx", async (req: Request, res: Response) => {
     if (!caseId) {
       return;
     }
-    const { raService, reportService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const reportService = getReportService(req);
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
     }
 
     const attachments = await raService.listAttachments(caseId);
-    const workbook = await reportService.generateXlsxForCase(raCase, { attachments });
+    const storageRoot = req.auth?.storageRoot;
+    const encryptionKey = await resolveEncryptionKey(req, res);
+    if (!encryptionKey) {
+      return;
+    }
+    const workbook = await reportService.generateXlsxForCase(raCase, {
+      attachments,
+      storageRoot,
+      encryptionKey,
+      locale: req.auth?.locale
+    });
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -806,7 +1003,8 @@ raCasesRouter.post("/:id/contextual-update/parse", async (req: Request, res: Res
       return res.status(400).json({ error: "userInput is required" });
     }
 
-    const { raService, llmService } = getServices(req);
+    const { raService } = getTenantServices(req);
+    const llmService = getLlmService(req);
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
@@ -867,7 +1065,7 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
       return res.status(400).json({ error: "command with intent and target is required" });
     }
 
-    const { raService } = getServices(req);
+    const { raService } = getTenantServices(req);
     const raCase = await raService.getCaseById(caseId);
     if (!raCase) {
       return res.status(404).json({ error: "Not found" });
@@ -1320,7 +1518,10 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
         typeof (data as any).assessmentType === "string"
           ? (data as any).assessmentType.toLowerCase()
           : null;
-      const isResidual = requestedType === "residual" || raCase.phase === "RESIDUAL_RISK";
+      const isResidual =
+        requestedType === "residual" ||
+        raCase.phase === "CONTROL_DISCUSSION" ||
+        raCase.phase === "ACTIONS";
 
 	      const hazard = raCase.hazards.find((h) => h.id === hazardId);
 	      if (!hazard) {

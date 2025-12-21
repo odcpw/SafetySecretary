@@ -125,4 +125,23 @@ describe("RiskAssessmentService ratings save/load mapping", () => {
       }
     });
   });
+
+  it("clears baseline ratings by deleting assessments", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const mockDb: any = {
+      hazardAssessment: { deleteMany }
+    };
+    const service = new RiskAssessmentService(mockDb);
+    vi.spyOn(service as any, "hazardIdsBelongToCase").mockResolvedValue(true);
+
+    const result = await service.clearHazardRiskRatings("case-1", ["haz-1"], "BASELINE");
+
+    expect(result).toBe(true);
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: {
+        hazardId: { in: ["haz-1"] },
+        type: HazardAssessmentType.BASELINE
+      }
+    });
+  });
 });

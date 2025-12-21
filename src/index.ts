@@ -1,9 +1,14 @@
 import { createApp } from "./app";
 import { env } from "./config/env";
 import { RiskAssessmentService } from "./services/raService";
+import { JhaService } from "./services/jhaService";
+import { IncidentService } from "./services/incidentService";
 import { LlmService } from "./services/llmService";
 import { ReportService } from "./services/reportService";
 import { LlmJobManager } from "./services/llmJobManager";
+import { RegistryService } from "./services/registryService";
+import { TenantDbManager } from "./services/tenantDbManager";
+import { TenantServiceFactory } from "./services/tenantServiceFactory";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -11,9 +16,14 @@ const main = async () => {
   const app = createApp();
 
   const raService = new RiskAssessmentService();
+  const jhaService = new JhaService();
+  const incidentService = new IncidentService();
   const llmService = new LlmService();
   const reportService = new ReportService();
-  const llmJobManager = new LlmJobManager(raService, llmService);
+  const registryService = new RegistryService();
+  const tenantDbManager = new TenantDbManager();
+  const tenantServiceFactory = new TenantServiceFactory(tenantDbManager);
+  const llmJobManager = new LlmJobManager(tenantServiceFactory, llmService);
 
   const waitForDatabase = async () => {
     const timeoutMs = 30_000;
@@ -24,7 +34,7 @@ const main = async () => {
     while (true) {
       attempt += 1;
       try {
-        await raService.connect();
+        await Promise.all([raService.connect(), registryService.connect()]);
         return;
       } catch (error) {
         const remainingMs = deadline - Date.now();
@@ -46,9 +56,14 @@ const main = async () => {
   await waitForDatabase();
 
   app.locals.raService = raService;
+  app.locals.jhaService = jhaService;
+  app.locals.incidentService = incidentService;
   app.locals.llmService = llmService;
   app.locals.reportService = reportService;
   app.locals.llmJobManager = llmJobManager;
+  app.locals.registryService = registryService;
+  app.locals.tenantDbManager = tenantDbManager;
+  app.locals.tenantServiceFactory = tenantServiceFactory;
 
   const server = app.listen(env.port, () => {
     console.log(`SafetySecretary API listening on http://localhost:${env.port}`);
@@ -57,6 +72,9 @@ const main = async () => {
   const shutdown = () => {
     server.close(async () => {
       await raService.disconnect();
+      await jhaService.disconnect();
+      await incidentService.disconnect();
+      await Promise.all([registryService.disconnect(), tenantDbManager.disconnectAll()]);
       process.exit(0);
     });
   };

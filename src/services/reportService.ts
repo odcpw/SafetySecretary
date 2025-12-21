@@ -1,92 +1,237 @@
 import PDFDocument from "pdfkit";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { env } from "../config/env";
 import { AttachmentDto, RiskAssessmentCaseDto } from "./raService";
+import { IncidentCaseDto } from "./incidentService";
+import { JhaCaseDto } from "./jhaService";
 import ExcelJS from "exceljs";
-import { TEMPLATE_RISK_BAND_LABEL, getTemplateRiskBand } from "./templateRiskMatrix";
-import { TEMPLATE_RISK_GUIDANCE } from "./templateRiskGuidance";
+import { getTemplateRiskBand, type TemplateRiskBand } from "./templateRiskMatrix";
+import { decryptAttachment } from "./attachmentCrypto";
+import { createReportTranslator, type ReportTranslator } from "./reportTranslations";
 
 const SEVERITY_LEVELS = ["E", "D", "C", "B", "A"] as const;
 const LIKELIHOOD_LEVELS = ["1", "2", "3", "4", "5"] as const;
-const RISK_BUCKETS = [
-  { label: "Negligible Risk", color: "0f9d58" },
-  { label: "Minor Risk", color: "8bc34a" },
-  { label: "Moderate Risk", color: "f4c20d" },
-  { label: "High Risk", color: "f57c00" },
-  { label: "Extreme Risk", color: "d93025" }
-];
+const RISK_BAND_COLORS: Record<TemplateRiskBand, string> = {
+  NEGLIGIBLE: "0f9d58",
+  MINOR: "8bc34a",
+  MODERATE: "f4c20d",
+  HIGH: "f57c00",
+  EXTREME: "d93025"
+};
 
 export class ReportService {
   async generatePdfForCase(
     raCase: RiskAssessmentCaseDto,
-    opts?: { attachments?: AttachmentDto[] }
+    opts?: { attachments?: AttachmentDto[]; storageRoot?: string; encryptionKey?: Buffer | null; locale?: string }
   ): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ autoFirstPage: false, margin: 50 });
       const chunks: Buffer[] = [];
       const attachments = opts?.attachments ?? [];
+      const storageRoot = opts?.storageRoot ?? env.attachmentsDir;
+      const encryptionKey = opts?.encryptionKey ?? null;
+      const i18n = createReportTranslator(opts?.locale);
 
       doc.on("data", (chunk: Buffer) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", (error: Error) => reject(error));
 
-      this.renderCover(doc, raCase);
-      this.renderSteps(doc, raCase);
-      this.renderHazardTable(doc, raCase);
-      this.renderActionPlan(doc, raCase);
-      this.renderRiskMatrix(doc, raCase);
-      if (attachments.length) {
-        void this.renderPhotos(doc, raCase, attachments);
-      }
-
-      doc.end();
+      const render = async () => {
+        this.renderCover(doc, raCase, i18n);
+        this.renderSteps(doc, raCase, i18n);
+        this.renderHazardTable(doc, raCase, i18n);
+        this.renderActionPlan(doc, raCase, i18n);
+        this.renderRiskMatrix(doc, raCase, i18n);
+        if (attachments.length) {
+          await this.renderPhotos(doc, raCase, attachments, storageRoot, encryptionKey, i18n);
+        }
+        doc.end();
+      };
+      void render();
     });
   }
 
   async generateXlsxForCase(
     raCase: RiskAssessmentCaseDto,
-    opts?: { attachments?: AttachmentDto[] }
+    opts?: { attachments?: AttachmentDto[]; storageRoot?: string; encryptionKey?: Buffer | null; locale?: string }
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "SafetySecretary";
     workbook.created = new Date();
     const attachments = opts?.attachments ?? [];
+    const storageRoot = opts?.storageRoot ?? env.attachmentsDir;
+    const encryptionKey = opts?.encryptionKey ?? null;
+    const i18n = createReportTranslator(opts?.locale);
 
-    this.buildRiskAssessmentSheet(workbook, raCase);
-    this.buildMatrixSheet(workbook, raCase);
-    this.buildRiskGuidanceSheet(workbook);
-    this.buildActionsSheet(workbook, raCase);
+    this.buildRiskAssessmentSheet(workbook, raCase, i18n);
+    this.buildMatrixSheet(workbook, raCase, i18n);
+    this.buildRiskGuidanceSheet(workbook, i18n);
+    this.buildActionsSheet(workbook, raCase, i18n);
     if (attachments.length) {
-      this.buildPhotosSheet(workbook, raCase, attachments);
+      await this.buildPhotosSheet(workbook, raCase, attachments, storageRoot, encryptionKey, i18n);
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
   }
 
-  private buildRiskAssessmentSheet(workbook: ExcelJS.Workbook, raCase: RiskAssessmentCaseDto) {
-    const sheet = workbook.addWorksheet("Risk Assessment");
-    const headers = [
-      "N°",
-      "Description of activity (incl. equipment/tools/materials/substances)",
-      "Code",
-      "Type of hazard",
-      "Description of the hazard",
-      "Description of the potential consequences",
-      "Person at risk",
-      "Health & Safety Requirements (mandatory)",
-      "Other recommended preventive and control measures",
-      "Effectiveness / contributing factors",
-      "Likelihood (baseline)",
-      "Severity (baseline)",
-      "Level of risk (baseline)",
-      "Recommendations of actions to mitigate (headlines)",
-      "Likelihood (residual)",
-      "Severity (residual)",
-      "Level of risk (residual)",
-      "Measures to monitor/review residual risk",
-      "Responsibility to monitor/review"
-    ];
+  async generateIncidentPdf(incidentCase: IncidentCaseDto, opts?: { locale?: string }): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks: Buffer[] = [];
+      const i18n = createReportTranslator(opts?.locale);
+
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", (error: Error) => reject(error));
+
+      const placeholder = i18n.t("common.placeholder");
+      const safeText = (value: string | null | undefined) => (value ? value : placeholder);
+      const truncate = (value: string, max = 120) => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
+
+      doc.fontSize(18).text(i18n.t("incident.title"), { align: "left" });
+      doc.moveDown(0.6);
+      doc.fontSize(11);
+
+      const incidentTypeLabel = i18n.t(`domain.incidentTypes.${incidentCase.incidentType}`, {
+        fallback: incidentCase.incidentType
+      });
+      const incidentDate = incidentCase.incidentAt
+        ? i18n.formatDateTime(incidentCase.incidentAt)
+        : safeText(incidentCase.incidentTimeNote);
+      const metaLines = [
+        `${i18n.t("incident.meta.title")}: ${safeText(incidentCase.title)}`,
+        `${i18n.t("incident.meta.type")}: ${incidentTypeLabel}`,
+        `${i18n.t("incident.meta.dateTime")}: ${incidentDate}`,
+        `${i18n.t("incident.meta.location")}: ${safeText(incidentCase.location)}`,
+        `${i18n.t("incident.meta.coordinator")}: ${incidentCase.coordinatorRole}${
+          incidentCase.coordinatorName ? ` (${incidentCase.coordinatorName})` : ""
+        }`
+      ];
+      metaLines.forEach((line) => doc.text(line));
+
+      doc.moveDown(0.8);
+      doc.fontSize(13).text(i18n.t("incident.mergedTimeline"), { underline: true });
+      doc.moveDown(0.3);
+
+      const maxTimeline = 10;
+      const timelineRows = incidentCase.timelineEvents.slice(0, maxTimeline);
+      timelineRows.forEach((event, index) => {
+        const timeLabel = event.timeLabel ? truncate(event.timeLabel, 24) : `#${index + 1}`;
+        const confidence = event.confidence
+          ? i18n.t(`domain.incidentConfidence.${event.confidence}`, { fallback: event.confidence })
+          : placeholder;
+        const line = `${timeLabel} | ${truncate(event.text, 110)} | ${confidence}`;
+        doc.fontSize(10).text(line);
+      });
+      if (incidentCase.timelineEvents.length > maxTimeline) {
+        doc.fontSize(9).fillColor("#666").text(i18n.t("incident.timelineTruncated"));
+        doc.fillColor("#000");
+      }
+
+      doc.moveDown(0.8);
+      doc.fontSize(13).text(i18n.t("incident.deviationsTitle"), { underline: true });
+      doc.moveDown(0.3);
+
+      const maxDeviations = 6;
+      const deviations = incidentCase.deviations.slice(0, maxDeviations);
+      if (!deviations.length) {
+        doc.fontSize(10).text(i18n.t("incident.noDeviations"));
+      } else {
+        deviations.forEach((deviation, index) => {
+          doc.fontSize(10).text(
+            `${index + 1}. ${i18n.t("incident.changeLabel")}: ${truncate(
+              deviation.changeObserved ?? deviation.actual ?? i18n.t("incident.unspecified"),
+              120
+            )}`
+          );
+          const causes = deviation.causes ?? [];
+          causes.slice(0, 2).forEach((cause) => {
+            doc
+              .fontSize(9)
+              .fillColor("#333")
+              .text(`   • ${i18n.t("incident.causeLabel")}: ${truncate(cause.statement, 120)}`);
+          });
+          doc.fillColor("#000");
+        });
+      }
+      if (incidentCase.deviations.length > maxDeviations) {
+        doc.fontSize(9).fillColor("#666").text(i18n.t("incident.deviationsTruncated"));
+        doc.fillColor("#000");
+      }
+
+      doc.moveDown(0.8);
+      doc.fontSize(13).text(i18n.t("incident.actionsTitle"), { underline: true });
+      doc.moveDown(0.3);
+
+      const actions: Array<{
+        description: string;
+        ownerRole?: string | null;
+        dueDate?: Date | null;
+        actionType?: string | null;
+      }> = [];
+      incidentCase.deviations.forEach((deviation) => {
+        deviation.causes.forEach((cause) => {
+          cause.actions.forEach((action) => actions.push(action));
+        });
+      });
+
+      const maxActions = 8;
+      const actionRows = actions.slice(0, maxActions);
+      if (!actionRows.length) {
+        doc.fontSize(10).text(i18n.t("incident.noActions"));
+      } else {
+        actionRows.forEach((action, index) => {
+          const owner = action.ownerRole ? ` (${action.ownerRole})` : "";
+          const due = action.dueDate
+            ? ` ${i18n.t("common.dueInline", { values: { date: i18n.formatDate(action.dueDate) } })}`
+            : "";
+          const typeLabel = action.actionType
+            ? i18n.t(`domain.incidentActionTypes.${action.actionType}`, { fallback: action.actionType })
+            : "";
+          const type = typeLabel ? ` [${typeLabel}]` : "";
+          doc.fontSize(10).text(`${index + 1}. ${truncate(action.description, 120)}${type}${owner}${due}`);
+        });
+      }
+      if (actions.length > maxActions) {
+        doc.fontSize(9).fillColor("#666").text(i18n.t("incident.actionsTruncated"));
+        doc.fillColor("#000");
+      }
+
+      doc.end();
+    });
+  }
+
+  private buildRiskAssessmentSheet(
+    workbook: ExcelJS.Workbook,
+    raCase: RiskAssessmentCaseDto,
+    i18n: ReportTranslator
+  ) {
+    const sheet = workbook.addWorksheet(i18n.t("worksheets.riskAssessment"));
+    const headers =
+      i18n.get<string[]>("xlsx.riskAssessmentHeaders") ??
+      [
+        "N°",
+        "Description of activity (incl. equipment/tools/materials/substances)",
+        "Code",
+        "Type of hazard",
+        "Description of the hazard",
+        "Description of the potential consequences",
+        "Person at risk",
+        "Health & Safety Requirements (mandatory)",
+        "Other recommended preventive and control measures",
+        "Effectiveness / contributing factors",
+        "Likelihood (baseline)",
+        "Severity (baseline)",
+        "Level of risk (baseline)",
+        "Recommendations of actions to mitigate (headlines)",
+        "Likelihood (residual)",
+        "Severity (residual)",
+        "Level of risk (residual)",
+        "Measures to monitor/review residual risk",
+        "Responsibility to monitor/review"
+      ];
     sheet.columns = headers.map((header) => ({ header, width: 18 }));
     sheet.getRow(1).font = { bold: true };
     sheet.getRow(1).fill = {
@@ -102,11 +247,19 @@ export class ReportService {
       return acc;
     }, {});
 
+    const equipmentLabel = i18n.t("ra.equipmentLabel");
+    const substancesLabel = i18n.t("ra.substancesLabel");
+    const resolveRiskLabel = (severity?: string | null, likelihood?: string | null) => {
+      if (!severity || !likelihood) return "";
+      const band = getTemplateRiskBand(severity as any, likelihood as any);
+      return i18n.t(`domain.riskBands.${band}`, { fallback: "" });
+    };
+
     raCase.steps.forEach((step, stepIndex) => {
       const activityDescription = [
         step.activity,
-        (step.equipment ?? []).length ? `Equipment: ${(step.equipment ?? []).join(", ")}` : "",
-        (step.substances ?? []).length ? `Substances: ${(step.substances ?? []).join(", ")}` : "",
+        (step.equipment ?? []).length ? `${equipmentLabel}: ${(step.equipment ?? []).join(", ")}` : "",
+        (step.substances ?? []).length ? `${substancesLabel}: ${(step.substances ?? []).join(", ")}` : "",
         step.description ?? ""
       ]
         .map((line) => line.trim())
@@ -144,16 +297,23 @@ export class ReportService {
         const baseline = hazard.baseline;
         const residual = hazard.residual;
         const proposedControls =
-          hazard.proposedControls?.map((c) => (c.hierarchy ? `${c.description} (${c.hierarchy})` : c.description)) ??
+          hazard.proposedControls?.map((c) => {
+            if (!c.hierarchy) return c.description;
+            const hierarchyLabel = i18n.t(`domain.controlHierarchy.${c.hierarchy}`, { fallback: c.hierarchy });
+            return `${c.description} (${hierarchyLabel})`;
+          }) ??
           [];
         const hazardActions = actionsByHazard[hazard.id] ?? [];
         const actionHeadlines = hazardActions.map((action) => action.description).filter(Boolean).join("\n");
         const actionOwner = hazardActions.map((action) => action.owner).find((owner) => owner) ?? "";
+        const hazardType = hazard.categoryCode
+          ? i18n.t(`domain.hazardCategories.${hazard.categoryCode}`, { fallback: hazard.categoryCode })
+          : "";
         sheet.addRow([
           stepIndex + 1,
           hazardIndex === 0 ? activityDescription : "",
           hazard.categoryCode ?? "",
-          hazard.categoryCode ?? "",
+          hazardType,
           hazard.label,
           hazard.description ?? "",
           "",
@@ -162,17 +322,11 @@ export class ReportService {
           "",
           baseline?.likelihood ?? "",
           baseline?.severity ?? "",
-          baseline?.riskRating ??
-            (baseline?.severity && baseline?.likelihood
-              ? TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(baseline.severity as any, baseline.likelihood as any)]
-              : ""),
+          resolveRiskLabel(baseline?.severity, baseline?.likelihood) || baseline?.riskRating || "",
           actionHeadlines,
           residual?.likelihood ?? "",
           residual?.severity ?? "",
-          residual?.riskRating ??
-            (residual?.severity && residual?.likelihood
-              ? TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(residual.severity as any, residual.likelihood as any)]
-              : ""),
+          resolveRiskLabel(residual?.severity, residual?.likelihood) || residual?.riskRating || "",
           "",
           actionOwner
         ]);
@@ -188,8 +342,9 @@ export class ReportService {
     });
   }
 
-  private buildMatrixSheet(workbook: ExcelJS.Workbook, raCase: RiskAssessmentCaseDto) {
-    const sheet = workbook.addWorksheet("Risk Profiles");
+  private buildMatrixSheet(workbook: ExcelJS.Workbook, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
+    const sheet = workbook.addWorksheet(i18n.t("worksheets.riskProfiles"));
+    const matrixTitles = i18n.get<{ baseline: string; residual: string }>("xlsx.matrixTitles");
 
     const renderMatrix = (opts: {
       title: string;
@@ -254,7 +409,7 @@ export class ReportService {
     };
 
     renderMatrix({
-      title: "Current Matrix (baseline)",
+      title: matrixTitles?.baseline ?? "Current Matrix (baseline)",
       offsetRow: 1,
       offsetCol: 1,
       read: (hazard) => ({
@@ -264,7 +419,7 @@ export class ReportService {
     });
 
     renderMatrix({
-      title: "Target Matrix (residual)",
+      title: matrixTitles?.residual ?? "Target Matrix (residual)",
       offsetRow: 12,
       offsetCol: 1,
       read: (hazard) => ({
@@ -278,18 +433,19 @@ export class ReportService {
     });
   }
 
-  private buildRiskGuidanceSheet(workbook: ExcelJS.Workbook) {
-    const sheet = workbook.addWorksheet("Risk Bands");
-    sheet.columns = [
-      { header: "Risk band", width: 18 },
-      { header: "Decision", width: 34 },
-      { header: "Approver", width: 26 },
-      { header: "Timescale", width: 22 }
-    ];
+  private buildRiskGuidanceSheet(workbook: ExcelJS.Workbook, i18n: ReportTranslator) {
+    const sheet = workbook.addWorksheet(i18n.t("worksheets.riskBands"));
+    const headers =
+      i18n.get<string[]>("xlsx.riskGuidanceHeaders") ?? ["Risk band", "Decision", "Approver", "Timescale"];
+    sheet.columns = headers.map((header) => ({ header, width: 22 }));
 
-    const rows = Object.values(TEMPLATE_RISK_GUIDANCE);
-    rows.forEach((row) => {
-      sheet.addRow([row.label, row.decision, row.approver, row.timescale]);
+    const bands: TemplateRiskBand[] = ["EXTREME", "HIGH", "MODERATE", "MINOR", "NEGLIGIBLE"];
+    bands.forEach((band) => {
+      const label = i18n.t(`domain.riskBands.${band}`, { fallback: band });
+      const decision = i18n.t(`riskGuidance.${band}.decision`);
+      const approver = i18n.t(`riskGuidance.${band}.approver`);
+      const timescale = i18n.t(`riskGuidance.${band}.timescale`);
+      sheet.addRow([label, decision, approver, timescale]);
     });
 
     sheet.getRow(1).font = { bold: true };
@@ -301,23 +457,27 @@ export class ReportService {
     });
   }
 
-  private buildActionsSheet(workbook: ExcelJS.Workbook, raCase: RiskAssessmentCaseDto) {
-    const sheet = workbook.addWorksheet("Action Plan & Mgt Validation");
-    sheet.columns = [
-      { header: "Nr.", width: 6 },
-      { header: "CURRENT level of risk", width: 18 },
-      { header: "RECOMMENDATIONS (mitigations / control measures)", width: 45 },
-      { header: "TARGET level of risk", width: 18 },
-      { header: "RESOURCES NEEDED", width: 22 },
-      { header: "MANAGEMENT DECISION", width: 20 },
-      { header: "EXPLANATION / OTHER COMMENTS", width: 26 },
-      { header: "First name / Surname", width: 20 },
-      { header: "Date", width: 14 },
-      { header: "Signature", width: 16 },
-      { header: "DEADLINE", width: 14 },
-      { header: "RESPONSIBLE", width: 20 },
-      { header: "STATUS", width: 12 }
-    ];
+  private buildActionsSheet(workbook: ExcelJS.Workbook, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
+    const sheet = workbook.addWorksheet(i18n.t("worksheets.actionPlan"));
+    const headers =
+      i18n.get<string[]>("xlsx.actionPlanHeaders") ??
+      [
+        "Nr.",
+        "CURRENT level of risk",
+        "RECOMMENDATIONS (mitigations / control measures)",
+        "TARGET level of risk",
+        "RESOURCES NEEDED",
+        "MANAGEMENT DECISION",
+        "EXPLANATION / OTHER COMMENTS",
+        "First name / Surname",
+        "Date",
+        "Signature",
+        "DEADLINE",
+        "RESPONSIBLE",
+        "STATUS"
+      ];
+    const widths = [6, 18, 45, 18, 22, 20, 26, 20, 14, 16, 14, 20, 12];
+    sheet.columns = headers.map((header, index) => ({ header, width: widths[index] ?? 18 }));
     sheet.getRow(1).font = { bold: true };
     sheet.getRow(1).fill = {
       type: "pattern",
@@ -325,10 +485,27 @@ export class ReportService {
       fgColor: { argb: "FFE5E7EB" }
     };
 
+    const resolveRiskLabel = (severity?: string | null, likelihood?: string | null, fallback?: string | null) => {
+      if (!severity || !likelihood) return fallback ?? "";
+      const band = getTemplateRiskBand(severity as any, likelihood as any);
+      return i18n.t(`domain.riskBands.${band}`, { fallback: band });
+    };
+
     raCase.actions.forEach((action, index) => {
       const hazard = action.hazardId ? raCase.hazards.find((h) => h.id === action.hazardId) : null;
-      const currentRisk = hazard?.baseline?.riskRating ?? "";
-      const targetRisk = hazard?.residual?.riskRating ?? "";
+      const currentRisk = resolveRiskLabel(
+        hazard?.baseline?.severity,
+        hazard?.baseline?.likelihood,
+        hazard?.baseline?.riskRating ?? ""
+      );
+      const targetRisk = resolveRiskLabel(
+        hazard?.residual?.severity,
+        hazard?.residual?.likelihood,
+        hazard?.residual?.riskRating ?? ""
+      );
+      const statusLabel = action.status
+        ? i18n.t(`domain.actionStatus.${action.status}`, { fallback: action.status })
+        : "";
       sheet.addRow([
         index + 1,
         currentRisk,
@@ -340,9 +517,9 @@ export class ReportService {
         action.owner ?? "",
         "",
         "",
-        action.dueDate ? new Date(action.dueDate).toLocaleDateString() : "",
+        action.dueDate ? i18n.formatDate(action.dueDate) : "",
         action.owner ?? "",
-        action.status
+        statusLabel
       ]);
     });
 
@@ -352,14 +529,18 @@ export class ReportService {
     });
   }
 
-  private buildPhotosSheet(workbook: ExcelJS.Workbook, raCase: RiskAssessmentCaseDto, attachments: AttachmentDto[]) {
-    const sheet = workbook.addWorksheet("Photos");
-    sheet.columns = [
-      { header: "#", width: 6 },
-      { header: "Context", width: 36 },
-      { header: "Filename", width: 40 },
-      { header: "Preview", width: 55 }
-    ];
+  private async buildPhotosSheet(
+    workbook: ExcelJS.Workbook,
+    raCase: RiskAssessmentCaseDto,
+    attachments: AttachmentDto[],
+    storageRoot: string,
+    encryptionKey: Buffer | null,
+    i18n: ReportTranslator
+  ) {
+    const sheet = workbook.addWorksheet(i18n.t("worksheets.photos"));
+    const headers = i18n.get<string[]>("xlsx.photosHeaders") ?? ["#", "Context", "Filename", "Preview"];
+    const widths = [6, 36, 40, 55];
+    sheet.columns = headers.map((header, index) => ({ header, width: widths[index] ?? 18 }));
     sheet.getRow(1).font = { bold: true };
     sheet.getRow(1).fill = {
       type: "pattern",
@@ -372,16 +553,18 @@ export class ReportService {
         const stepIndex = raCase.steps.findIndex((step) => step.id === attachment.stepId);
         const step = raCase.steps[stepIndex];
         if (step) {
-          return `Step ${stepIndex + 1}: ${step.activity}`;
+          return i18n.t("ra.photoContext.step", {
+            values: { index: stepIndex + 1, activity: step.activity }
+          });
         }
       }
       if (attachment.hazardId) {
         const hazard = raCase.hazards.find((item) => item.id === attachment.hazardId);
         if (hazard) {
-          return `Hazard: ${hazard.label}`;
+          return i18n.t("ra.photoContext.hazard", { values: { label: hazard.label } });
         }
       }
-      return "Unassigned";
+      return i18n.t("ra.photoContext.unassigned");
     };
 
     const isImage = (mimeType: string) => mimeType.startsWith("image/");
@@ -392,7 +575,7 @@ export class ReportService {
     };
 
     const resolveStoragePath = (storageKey: string) => {
-      const root = path.resolve(env.attachmentsDir);
+      const root = path.resolve(storageRoot);
       const filePath = path.resolve(root, storageKey);
       if (!filePath.startsWith(root + path.sep)) {
         throw new Error("Invalid storageKey");
@@ -400,21 +583,24 @@ export class ReportService {
       return filePath;
     };
 
-    attachments.forEach((attachment, index) => {
+    for (let index = 0; index < attachments.length; index += 1) {
+      const attachment = attachments[index]!;
       const rowNumber = index + 2;
       sheet.addRow([index + 1, resolveContext(attachment), attachment.originalName, ""]);
 
       if (!isImage(attachment.mimeType)) {
-        return;
+        continue;
       }
       const ext = imageExtension(attachment.mimeType);
       if (!ext) {
-        return;
+        continue;
       }
 
       try {
         const filePath = resolveStoragePath(attachment.storageKey);
-        const imageId = workbook.addImage({ filename: filePath, extension: ext });
+        const raw = await fs.readFile(filePath);
+        const buffer = encryptionKey ? decryptAttachment(raw, encryptionKey) : raw;
+        const imageId = workbook.addImage({ buffer, extension: ext });
         sheet.getRow(rowNumber).height = 120;
         sheet.addImage(imageId, {
           tl: { col: 3, row: rowNumber - 1 },
@@ -423,7 +609,7 @@ export class ReportService {
       } catch {
         // Ignore missing/unsupported image files in export.
       }
-    });
+    }
 
     sheet.eachRow({ includeEmpty: false }, (row) => {
       row.alignment = { vertical: "top", wrapText: true };
@@ -438,37 +624,37 @@ export class ReportService {
       return "FFCbd5f5";
     }
     const band = getTemplateRiskBand(severity as any, likelihood as any);
-    const bandLabel = TEMPLATE_RISK_BAND_LABEL[band];
-    const bucket = RISK_BUCKETS.find((item) => item.label === bandLabel);
-    const color = bucket?.color ?? "cbd5f5";
+    const color = RISK_BAND_COLORS[band] ?? "cbd5f5";
     return color.startsWith("FF") ? color : `FF${color}`;
   }
 
-  private renderCover(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto) {
+  private renderCover(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
     doc.addPage();
-    doc.fontSize(20).text("Risk Assessment Summary", { align: "center" });
+    doc.fontSize(20).text(i18n.t("ra.coverTitle"), { align: "center" });
     doc.moveDown();
     doc.fontSize(12);
-    doc.text(`Activity: ${raCase.activityName}`);
-    doc.text(`Location: ${raCase.location ?? "—"}`);
-    doc.text(`Team: ${raCase.team ?? "—"}`);
-    doc.text(`Phase: ${raCase.phase}`);
+    const placeholder = i18n.t("common.placeholder");
+    const phaseLabel = i18n.t(`domain.phases.${raCase.phase}`, { fallback: raCase.phase });
+    doc.text(`${i18n.t("ra.cover.activity")}: ${raCase.activityName}`);
+    doc.text(`${i18n.t("ra.cover.location")}: ${raCase.location ?? placeholder}`);
+    doc.text(`${i18n.t("ra.cover.team")}: ${raCase.team ?? placeholder}`);
+    doc.text(`${i18n.t("ra.cover.phase")}: ${phaseLabel}`);
     const createdAt = raCase.createdAt instanceof Date ? raCase.createdAt : new Date(raCase.createdAt);
-    doc.text(`Created: ${createdAt.toISOString()}`);
+    doc.text(`${i18n.t("ra.cover.created")}: ${i18n.formatDateTime(createdAt)}`);
   }
 
-  private renderSteps(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto) {
+  private renderSteps(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
     doc.addPage();
-    doc.fontSize(16).text("Process Steps", { underline: true });
+    doc.fontSize(16).text(i18n.t("ra.stepsTitle"), { underline: true });
     doc.moveDown(0.5);
     raCase.steps.forEach((step, index) => {
       doc.fontSize(12).text(`${index + 1}. ${step.activity}`);
       // Show equipment and substances if present
       if (step.equipment && step.equipment.length > 0) {
-        doc.fontSize(10).text(`Equipment: ${step.equipment.join(", ")}`, { indent: 20 });
+        doc.fontSize(10).text(`${i18n.t("ra.equipmentLabel")}: ${step.equipment.join(", ")}`, { indent: 20 });
       }
       if (step.substances && step.substances.length > 0) {
-        doc.fontSize(10).text(`Substances: ${step.substances.join(", ")}`, { indent: 20 });
+        doc.fontSize(10).text(`${i18n.t("ra.substancesLabel")}: ${step.substances.join(", ")}`, { indent: 20 });
       }
       if (step.description) {
         doc.fontSize(10).text(step.description, { indent: 20 });
@@ -477,19 +663,22 @@ export class ReportService {
     });
   }
 
-  private renderHazardTable(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto) {
+  private renderHazardTable(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
+    const placeholder = i18n.t("common.placeholder");
     const actionsByHazard = raCase.actions.reduce<Record<string, string[]>>((acc, action) => {
       if (action.hazardId) {
         acc[action.hazardId] = acc[action.hazardId] ?? [];
         const owner = action.owner ? ` (${action.owner})` : "";
-        const due = action.dueDate ? ` due ${new Date(action.dueDate).toLocaleDateString()}` : "";
+        const due = action.dueDate
+          ? ` ${i18n.t("common.dueInline", { values: { date: i18n.formatDate(action.dueDate) } })}`
+          : "";
         acc[action.hazardId]!.push(`${action.description}${owner}${due}`);
       }
       return acc;
     }, {});
 
     doc.addPage();
-    doc.fontSize(16).text("Step-by-Step Hazard Table", { underline: true });
+    doc.fontSize(16).text(i18n.t("ra.hazardTableTitle"), { underline: true });
     doc.moveDown(0.5);
 
     raCase.steps.forEach((step, index) => {
@@ -497,7 +686,7 @@ export class ReportService {
       doc.fontSize(13).text(`${index + 1}. ${step.activity}`, { underline: true });
       doc.moveDown(0.2);
       if (!stepHazards.length) {
-        doc.fontSize(10).text("No hazards recorded for this step.", { indent: 10 });
+        doc.fontSize(10).text(i18n.t("ra.noHazardsForStep"), { indent: 10 });
         doc.moveDown(0.4);
         return;
       }
@@ -511,36 +700,43 @@ export class ReportService {
         doc
           .fontSize(10)
           .text(
-            `Risk (baseline): ${this.formatRisk(hazard.baseline?.severity, hazard.baseline?.likelihood)}`,
+            `${i18n.t("ra.riskBaselineLabel")}: ${this.formatRisk(
+              hazard.baseline?.severity,
+              hazard.baseline?.likelihood,
+              i18n
+            )}`,
             { indent: 16 }
           );
         // Existing controls are now stored directly on hazard as string array
         doc.text(
-          `Existing controls: ${
+          `${i18n.t("ra.existingControlsLabel")}: ${
             hazard.existingControls && hazard.existingControls.length > 0
               ? hazard.existingControls.join("; ")
-              : "—"
+              : placeholder
           }`,
           { indent: 16 }
         );
         // Proposed controls from control discussion phase
         if (hazard.proposedControls && hazard.proposedControls.length > 0) {
           doc.text(
-            `Proposed controls: ${hazard.proposedControls.map((c) => c.description).join("; ")}`,
+            `${i18n.t("ra.proposedControlsLabel")}: ${hazard.proposedControls
+              .map((c) => c.description)
+              .join("; ")}`,
             { indent: 16 }
           );
         }
         doc.text(
-          `Risk (residual): ${this.formatRisk(
+          `${i18n.t("ra.riskResidualLabel")}: ${this.formatRisk(
             hazard.residual?.severity,
-            hazard.residual?.likelihood
+            hazard.residual?.likelihood,
+            i18n
           )}`,
           { indent: 16 }
         );
 
         const hazardActions = actionsByHazard[hazard.id];
         if (hazardActions && hazardActions.length) {
-          doc.text("Actions:", { indent: 16 });
+          doc.text(`${i18n.t("ra.actionsLabel")}:`, { indent: 16 });
           hazardActions.forEach((action) => doc.text(`• ${action}`, { indent: 24 }));
         }
 
@@ -550,13 +746,13 @@ export class ReportService {
     });
   }
 
-  private renderActionPlan(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto) {
+  private renderActionPlan(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
     doc.addPage();
-    doc.fontSize(16).text("Action Plan", { underline: true });
+    doc.fontSize(16).text(i18n.t("ra.actionPlanTitle"), { underline: true });
     doc.moveDown(0.5);
 
     if (!raCase.actions.length) {
-      doc.fontSize(12).text("No actions recorded.");
+      doc.fontSize(12).text(i18n.t("ra.noActions"));
       return;
     }
 
@@ -564,17 +760,24 @@ export class ReportService {
       const hazard = action.hazardId
         ? raCase.hazards.find((item) => item.id === action.hazardId)
         : undefined;
+      const placeholder = i18n.t("common.placeholder");
+      const hazardLabel = hazard ? hazard.label : i18n.t("common.unassigned");
+      const ownerLabel = action.owner ?? placeholder;
+      const dueLabel = action.dueDate ? i18n.formatDate(action.dueDate) : placeholder;
+      const statusLabel = action.status
+        ? i18n.t(`domain.actionStatus.${action.status}`, { fallback: action.status })
+        : placeholder;
       doc.fontSize(12).text(`${index + 1}. ${action.description}`);
       doc.fontSize(10).text(
-        `Hazard: ${hazard ? hazard.label : "Unassigned"} | Owner: ${action.owner ?? "—"} | Due: ${
-          action.dueDate ? new Date(action.dueDate).toLocaleDateString() : "—"
-        } | Status: ${action.status}`
+        `${i18n.t("ra.hazardLabel")}: ${hazardLabel} | ${i18n.t("ra.ownerLabel")}: ${ownerLabel} | ${i18n.t(
+          "ra.dueLabel"
+        )}: ${dueLabel} | ${i18n.t("ra.statusLabel")}: ${statusLabel}`
       );
       doc.moveDown(0.5);
     });
   }
 
-  private renderRiskMatrix(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto) {
+  private renderRiskMatrix(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto, i18n: ReportTranslator) {
     const matrix: Record<string, Record<string, number>> = {};
     SEVERITY_LEVELS.forEach((severity) => {
       const row: Record<string, number> = {};
@@ -597,7 +800,7 @@ export class ReportService {
     });
 
     doc.addPage();
-    doc.fontSize(16).text("Risk Matrix (current)", { underline: true });
+    doc.fontSize(16).text(i18n.t("ra.riskMatrixTitle"), { underline: true });
     doc.moveDown(0.5);
 
     const cellWidth = 80;
@@ -627,29 +830,38 @@ export class ReportService {
     });
 
     doc.moveDown(1);
-    doc.fontSize(9).text("Numbers show hazard counts per severity/likelihood combination.");
+    doc.fontSize(9).text(i18n.t("ra.riskMatrixFooter"));
   }
 
-  private renderPhotos(doc: PDFKit.PDFDocument, raCase: RiskAssessmentCaseDto, attachments: AttachmentDto[]) {
+  private async renderPhotos(
+    doc: PDFKit.PDFDocument,
+    raCase: RiskAssessmentCaseDto,
+    attachments: AttachmentDto[],
+    storageRoot: string,
+    encryptionKey: Buffer | null,
+    i18n: ReportTranslator
+  ) {
     const resolveContext = (attachment: AttachmentDto) => {
       if (attachment.stepId) {
         const stepIndex = raCase.steps.findIndex((step) => step.id === attachment.stepId);
         const step = raCase.steps[stepIndex];
         if (step) {
-          return `Step ${stepIndex + 1}: ${step.activity}`;
+          return i18n.t("ra.photoContext.step", {
+            values: { index: stepIndex + 1, activity: step.activity }
+          });
         }
       }
       if (attachment.hazardId) {
         const hazard = raCase.hazards.find((item) => item.id === attachment.hazardId);
         if (hazard) {
-          return `Hazard: ${hazard.label}`;
+          return i18n.t("ra.photoContext.hazard", { values: { label: hazard.label } });
         }
       }
-      return "Unassigned";
+      return i18n.t("ra.photoContext.unassigned");
     };
 
     const resolveStoragePath = (storageKey: string) => {
-      const root = path.resolve(env.attachmentsDir);
+      const root = path.resolve(storageRoot);
       const filePath = path.resolve(root, storageKey);
       if (!filePath.startsWith(root + path.sep)) {
         throw new Error("Invalid storageKey");
@@ -663,27 +875,328 @@ export class ReportService {
     }
 
     doc.addPage();
-    doc.fontSize(16).text("Photos", { underline: true });
+    doc.fontSize(16).text(i18n.t("ra.photosTitle"), { underline: true });
     doc.moveDown(0.5);
 
-    photos.forEach((attachment) => {
+    for (const attachment of photos) {
       doc.fontSize(11).text(resolveContext(attachment));
       doc.fontSize(9).text(attachment.originalName);
       const filePath = resolveStoragePath(attachment.storageKey);
       try {
-        doc.image(filePath, { fit: [450, 300], align: "center" });
+        const raw = await fs.readFile(filePath);
+        const buffer = encryptionKey ? decryptAttachment(raw, encryptionKey) : raw;
+        doc.image(buffer, { fit: [450, 300], align: "center" });
       } catch {
-        doc.fontSize(9).text("(Unable to embed image)", { oblique: true });
+        doc.fontSize(9).text(i18n.t("ra.unableToEmbed"), { oblique: true });
       }
       doc.moveDown(0.8);
+    }
+  }
+
+  private formatRisk(severity?: string | null, likelihood?: string | null, i18n?: ReportTranslator) {
+    if (!severity || !likelihood) {
+      return i18n?.t("common.notAvailable") ?? "n/a";
+    }
+    return `${severity} x ${likelihood}`;
+  }
+
+  // JHA PDF Export
+  async generateJhaPdf(jhaCase: JhaCaseDto, opts?: { locale?: string }): Promise<Buffer> {
+    return new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({ autoFirstPage: false, margin: 50, bufferPages: true });
+      const chunks: Buffer[] = [];
+      const i18n = createReportTranslator(opts?.locale);
+
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", (error: Error) => reject(error));
+
+      this.renderJhaDocument(doc, jhaCase, i18n);
+      this.renderJhaPageNumbers(doc, i18n);
+
+      doc.end();
     });
   }
 
-  private formatRisk(severity?: string | null, likelihood?: string | null) {
-    if (!severity || !likelihood) {
-      return "n/a";
+  // JHA XLSX Export
+  async generateJhaXlsx(jhaCase: JhaCaseDto, opts?: { locale?: string }): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "SafetySecretary";
+    workbook.created = new Date();
+    const i18n = createReportTranslator(opts?.locale);
+
+    this.buildJhaSheet(workbook, jhaCase, i18n);
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+
+  private renderJhaDocument(doc: PDFKit.PDFDocument, jhaCase: JhaCaseDto, i18n: ReportTranslator) {
+    const placeholder = i18n.t("common.placeholder");
+    const headers =
+      i18n.get<string[]>("xlsx.jhaHeaders") ?? ["Step #", "Job Step", "Hazard", "Consequence", "Controls"];
+    const marginLeft = doc.page.margins.left;
+    const marginRight = doc.page.margins.right;
+    const pageWidth = doc.page.width - marginLeft - marginRight;
+    const rowPadding = 4;
+
+    const formatDateValue = (value: string | Date | null | undefined) => {
+      if (!value) return placeholder;
+      const parsed = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return placeholder;
+      }
+      return i18n.formatDate(parsed);
+    };
+
+    const renderHeader = () => {
+      const headerTop = doc.page.margins.top;
+      const docDate = i18n.t("jha.pdf.documentDate");
+      doc.fontSize(16).text(i18n.t("jha.title"), marginLeft, headerTop, { width: pageWidth });
+      doc.fontSize(9).text(`${docDate}: ${i18n.formatDate(new Date())}`, marginLeft, headerTop, {
+        width: pageWidth,
+        align: "right"
+      });
+      doc.moveDown(0.4);
+      doc.moveTo(marginLeft, doc.y).lineTo(marginLeft + pageWidth, doc.y).stroke();
+      doc.moveDown(0.6);
+    };
+
+    const renderMetaBlock = () => {
+      const leftRows = [
+        [i18n.t("jha.jobTitle"), jhaCase.jobTitle],
+        [i18n.t("jha.site"), jhaCase.site ?? placeholder],
+        [i18n.t("jha.supervisor"), jhaCase.supervisor ?? placeholder],
+        [i18n.t("jha.workersInvolved"), jhaCase.workersInvolved ?? placeholder],
+        [i18n.t("jha.jobDate"), formatDateValue(jhaCase.jobDate ?? null)]
+      ];
+      const rightRows = [
+        [i18n.t("jha.revision"), jhaCase.revision ?? placeholder],
+        [i18n.t("jha.preparedBy"), jhaCase.preparedBy ?? placeholder],
+        [i18n.t("jha.reviewedBy"), jhaCase.reviewedBy ?? placeholder],
+        [i18n.t("jha.approvedBy"), jhaCase.approvedBy ?? placeholder],
+        [i18n.t("jha.signoffDate"), formatDateValue(jhaCase.signoffDate ?? null)]
+      ];
+      const columnGap = 24;
+      const columnWidth = (pageWidth - columnGap) / 2;
+      const startY = doc.y;
+      let leftY = startY;
+      let rightY = startY;
+
+      const renderRows = (rows: Array<[string, string]>, x: number, yStart: number) => {
+        let cursor = yStart;
+        rows.forEach(([label, value]) => {
+          doc.fontSize(9).text(`${label}: ${value}`, x, cursor, { width: columnWidth });
+          cursor = doc.y + 2;
+        });
+        return cursor;
+      };
+
+      leftY = renderRows(leftRows, marginLeft, startY);
+      rightY = renderRows(rightRows, marginLeft + columnWidth + columnGap, startY);
+      doc.y = Math.max(leftY, rightY) + 6;
+    };
+
+    const columnRatios = [0.08, 0.22, 0.22, 0.22, 0.26];
+    const columnWidths = columnRatios.map((ratio) => Math.floor(pageWidth * ratio));
+    columnWidths[columnWidths.length - 1] =
+      pageWidth - columnWidths.slice(0, columnWidths.length - 1).reduce((sum, width) => sum + width, 0);
+
+    const drawRow = (cells: string[], isHeader = false) => {
+      doc.fontSize(9).font(isHeader ? "Helvetica-Bold" : "Helvetica");
+      const availableWidth = columnWidths.map((width) => width - rowPadding * 2);
+      const heights = cells.map((text, index) => doc.heightOfString(text, { width: availableWidth[index] }));
+      const rowHeight = Math.max(18, ...heights) + rowPadding * 2;
+      const pageBottom = doc.page.height - doc.page.margins.bottom;
+      if (doc.y + rowHeight > pageBottom) {
+        doc.addPage();
+        renderHeader();
+        renderTableHeader();
+      }
+
+      let x = marginLeft;
+      const y = doc.y;
+      cells.forEach((text, index) => {
+        const width = columnWidths[index] ?? 0;
+        if (isHeader) {
+          doc.save();
+          doc.fillColor("#E5E7EB").rect(x, y, width, rowHeight).fill();
+          doc.restore();
+        }
+        doc.rect(x, y, width, rowHeight).stroke();
+        doc.fontSize(9).font(isHeader ? "Helvetica-Bold" : "Helvetica");
+        doc.text(text, x + rowPadding, y + rowPadding, { width: width - rowPadding * 2 });
+        x += width;
+      });
+      doc.y = y + rowHeight;
+    };
+
+    const renderTableHeader = () => {
+      drawRow(headers, true);
+    };
+
+    const rows: string[][] = [];
+    const sortedSteps = [...jhaCase.steps].sort((a, b) => a.orderIndex - b.orderIndex);
+    const sortedHazards = [...jhaCase.hazards].sort((a, b) => a.orderIndex - b.orderIndex);
+    sortedSteps.forEach((step, stepIndex) => {
+      const hazards = sortedHazards.filter((hazard) => hazard.stepId === step.id);
+      if (!hazards.length) {
+        rows.push([
+          `${stepIndex + 1}`,
+          step.label,
+          i18n.t("jha.noHazardsForStep"),
+          placeholder,
+          placeholder
+        ]);
+        return;
+      }
+      hazards.forEach((hazard) => {
+        rows.push([
+          `${stepIndex + 1}`,
+          step.label,
+          hazard.hazard,
+          hazard.consequence ?? placeholder,
+          hazard.controls && hazard.controls.length ? hazard.controls.join("\n") : placeholder
+        ]);
+      });
+    });
+
+    doc.addPage();
+    renderHeader();
+    renderMetaBlock();
+    renderTableHeader();
+
+    rows.forEach((row) => {
+      drawRow(row);
+    });
+
+    const footerHeight = 72;
+    const pageBottom = doc.page.height - doc.page.margins.bottom;
+    if (doc.y + footerHeight > pageBottom) {
+      doc.addPage();
+      renderHeader();
+    } else {
+      doc.moveDown(0.8);
     }
-    return `${severity} x ${likelihood}`;
+
+    const footerLabels = [
+      i18n.t("jha.pdf.preparedSignature"),
+      i18n.t("jha.pdf.reviewedSignature"),
+      i18n.t("jha.pdf.approvedSignature")
+    ];
+    const footerDateLabel = i18n.t("jha.pdf.documentDate");
+    const lineWidth = (pageWidth - 20) / footerLabels.length;
+    const footerY = doc.y;
+
+    footerLabels.forEach((label, index) => {
+      const x = marginLeft + index * lineWidth;
+      doc.fontSize(9).text(label, x, footerY, { width: lineWidth - 10 });
+      doc.moveTo(x, footerY + 20).lineTo(x + lineWidth - 10, footerY + 20).stroke();
+    });
+
+    doc.fontSize(9).text(footerDateLabel, marginLeft, footerY + 32, { width: 120 });
+    doc.moveTo(marginLeft + 70, footerY + 44).lineTo(marginLeft + 200, footerY + 44).stroke();
+  }
+
+  private renderJhaPageNumbers(doc: PDFKit.PDFDocument, i18n: ReportTranslator) {
+    const range = doc.bufferedPageRange();
+    for (let i = 0; i < range.count; i += 1) {
+      doc.switchToPage(i);
+      const pageLabel = i18n.t("jha.pdf.pageLabel", { values: { page: i + 1, total: range.count } });
+      doc.fontSize(8).text(pageLabel, doc.page.margins.left, doc.page.height - doc.page.margins.bottom + 10, {
+        width: doc.page.width - doc.page.margins.left - doc.page.margins.right,
+        align: "right"
+      });
+    }
+  }
+
+  private buildJhaSheet(workbook: ExcelJS.Workbook, jhaCase: JhaCaseDto, i18n: ReportTranslator) {
+    const sheet = workbook.addWorksheet(i18n.t("worksheets.jha"));
+    const placeholder = i18n.t("common.placeholder");
+
+    // Header info
+    sheet.getCell("A1").value = i18n.t("jha.title");
+    sheet.getCell("A1").font = { bold: true, size: 16 };
+    sheet.getCell("A2").value = `${i18n.t("jha.jobTitle")}: ${jhaCase.jobTitle}`;
+    sheet.getCell("A3").value = `${i18n.t("jha.site")}: ${jhaCase.site ?? placeholder}`;
+    sheet.getCell("A4").value = `${i18n.t("jha.supervisor")}: ${jhaCase.supervisor ?? placeholder}`;
+    sheet.getCell("A5").value = `${i18n.t("jha.workersInvolved")}: ${jhaCase.workersInvolved ?? placeholder}`;
+    if (jhaCase.jobDate) {
+      const jobDate = jhaCase.jobDate instanceof Date ? jhaCase.jobDate : new Date(jhaCase.jobDate);
+      sheet.getCell("A6").value = `${i18n.t("jha.jobDate")}: ${i18n.formatDate(jobDate)}`;
+    }
+
+    // Table headers
+    const tableStartRow = 8;
+    const headers =
+      i18n.get<string[]>("xlsx.jhaHeaders") ?? ["Step #", "Job Step", "Hazard", "Consequence", "Controls"];
+    sheet.columns = headers.map((header, idx) => ({
+      header,
+      key: `col${idx}`,
+      width: idx === 4 ? 40 : idx === 1 || idx === 2 ? 30 : 15
+    }));
+
+    const headerRow = sheet.getRow(tableStartRow);
+    headers.forEach((header, idx) => {
+      headerRow.getCell(idx + 1).value = header;
+    });
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE5E7EB" }
+    };
+
+    let currentRow = tableStartRow + 1;
+    jhaCase.steps.forEach((step, stepIndex) => {
+      const stepHazards = jhaCase.hazards.filter((hazard) => hazard.stepId === step.id);
+
+      if (!stepHazards.length) {
+        const row = sheet.getRow(currentRow);
+        row.getCell(1).value = stepIndex + 1;
+        row.getCell(2).value = step.label;
+        row.getCell(3).value = placeholder;
+        row.getCell(4).value = placeholder;
+        row.getCell(5).value = placeholder;
+        currentRow++;
+        return;
+      }
+
+      stepHazards.forEach((hazard, hazardIndex) => {
+        const row = sheet.getRow(currentRow);
+        row.getCell(1).value = stepIndex + 1;
+        row.getCell(2).value = hazardIndex === 0 ? step.label : "";
+        row.getCell(3).value = hazard.hazard;
+        row.getCell(4).value = hazard.consequence ?? placeholder;
+        row.getCell(5).value = (hazard.controls ?? []).join("\n");
+        row.alignment = { vertical: "top", wrapText: true };
+        currentRow++;
+      });
+    });
+
+    sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      if (rowNumber >= tableStartRow) {
+        row.alignment = { vertical: "top", wrapText: true };
+        row.border = {
+          top: { style: "thin", color: { argb: "FFE5E7EB" } },
+          bottom: { style: "thin", color: { argb: "FFE5E7EB" } }
+        };
+      }
+    });
+
+    // Sign-off section
+    const signoffRow = currentRow + 2;
+    sheet.getCell(signoffRow, 1).value = `${i18n.t("jha.preparedBy")}:`;
+    sheet.getCell(signoffRow, 2).value = jhaCase.preparedBy ?? "";
+    sheet.getCell(signoffRow + 1, 1).value = `${i18n.t("jha.reviewedBy")}:`;
+    sheet.getCell(signoffRow + 1, 2).value = jhaCase.reviewedBy ?? "";
+    sheet.getCell(signoffRow + 2, 1).value = `${i18n.t("jha.approvedBy")}:`;
+    sheet.getCell(signoffRow + 2, 2).value = jhaCase.approvedBy ?? "";
+    if (jhaCase.signoffDate) {
+      const signoffDate = jhaCase.signoffDate instanceof Date ? jhaCase.signoffDate : new Date(jhaCase.signoffDate);
+      sheet.getCell(signoffRow + 3, 1).value = `${i18n.t("jha.signoffDate")}:`;
+      sheet.getCell(signoffRow + 3, 2).value = i18n.formatDate(signoffDate);
+    }
   }
 }
 

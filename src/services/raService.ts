@@ -1,5 +1,5 @@
 import {
-  ControlHierarchy,
+  ControlHierarchy as PrismaControlHierarchy,
   HazardAssessmentType,
   Prisma,
   RiskAssessmentPhase as PrismaPhase
@@ -8,6 +8,7 @@ import prisma from "./prismaClient";
 import { TEMPLATE_RISK_BAND_LABEL, getTemplateRiskBand } from "./templateRiskMatrix";
 import {
   ActionInput,
+  ControlHierarchy,
   CreateRiskAssessmentInput,
   HazardAssessmentSnapshot,
   HazardInput,
@@ -28,7 +29,6 @@ const phaseOrder: RiskAssessmentPhase[] = [
   RiskAssessmentPhase.RISK_RATING,
   RiskAssessmentPhase.CONTROL_DISCUSSION,
   RiskAssessmentPhase.ACTIONS,
-  RiskAssessmentPhase.RESIDUAL_RISK,
   RiskAssessmentPhase.COMPLETE
 ];
 
@@ -47,7 +47,7 @@ const caseInclude = {
   },
   actions: {
     orderBy: {
-      createdAt: "asc" as const
+      orderIndex: "asc" as const
     }
   }
 } satisfies Prisma.RiskAssessmentCaseInclude;
@@ -104,6 +104,158 @@ export interface RiskAssessmentCaseSummary {
 
 export class RiskAssessmentService {
   constructor(private readonly db = prisma) {}
+
+  private normalizePhase(phase: string): RiskAssessmentPhase {
+    if (phase === RiskAssessmentPhase.RESIDUAL_RISK) {
+      return RiskAssessmentPhase.ACTIONS;
+    }
+    return phaseOrder.includes(phase as RiskAssessmentPhase)
+      ? (phase as RiskAssessmentPhase)
+      : RiskAssessmentPhase.PROCESS_STEPS;
+  }
+
+  private async nextActionOrderIndex(
+    tx: Prisma.TransactionClient,
+    caseId: string,
+    hazardId: string | null | undefined
+  ): Promise<number> {
+    const count = await tx.correctiveAction.count({
+      where: {
+        caseId,
+        hazardId: hazardId ?? null
+      }
+    });
+    return count;
+  }
+
+  private async ensureActionsForControls(caseId: string): Promise<void> {
+    const dbAny = this.db as any;
+    if (!dbAny?.hazardControl || !dbAny?.correctiveAction) {
+      return;
+    }
+
+    const controls = await this.db.hazardControl.findMany({
+      where: { hazard: { caseId } },
+      select: { id: true, hazardId: true, description: true }
+    });
+    if (controls.length === 0) {
+      return;
+    }
+
+    const controlIds = controls.map((control) => control.id);
+    const existing = await this.db.correctiveAction.findMany({
+      where: { caseId, controlId: { in: controlIds } },
+      select: { controlId: true }
+    });
+    const existingSet = new Set(existing.map((item) => item.controlId).filter((id): id is string => Boolean(id)));
+    const missing = controls.filter((control) => !existingSet.has(control.id));
+    if (missing.length === 0) {
+      await this.normalizeControlsForCase(caseId);
+      return;
+    }
+
+    await this.db.$transaction(async (tx) => {
+      const nextIndexByHazardId = new Map<string, number>();
+      const getNext = async (hazardId: string): Promise<number> => {
+        const existing = nextIndexByHazardId.get(hazardId);
+        if (existing !== undefined) {
+          nextIndexByHazardId.set(hazardId, existing + 1);
+          return existing;
+        }
+        const start = await this.nextActionOrderIndex(tx, caseId, hazardId);
+        nextIndexByHazardId.set(hazardId, start + 1);
+        return start;
+      };
+
+      for (const control of missing) {
+        await tx.correctiveAction.create({
+          data: {
+            caseId,
+            hazardId: control.hazardId,
+            controlId: control.id,
+            orderIndex: await getNext(control.hazardId),
+            description: control.description,
+            owner: null,
+            dueDate: null
+          }
+        });
+      }
+    });
+
+    await this.normalizeControlsForCase(caseId);
+  }
+
+  private parseHierarchyPrefix(raw: string): { description: string; hierarchy?: ControlHierarchy } {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return { description: "" };
+    }
+
+    const prefixMatch = trimmed.match(/^([STOP])\s*[-–—:.]?\s*(.*)$/);
+    if (!prefixMatch) {
+      return { description: trimmed };
+    }
+
+    const prefix = prefixMatch[1] as "S" | "T" | "O" | "P";
+    const remainder = (prefixMatch[2] ?? "").trim();
+    if (!remainder.match(/^[A-Z][a-z]/)) {
+      return { description: trimmed };
+    }
+
+    const hierarchyByPrefix: Record<"S" | "T" | "O" | "P", ControlHierarchy> = {
+      S: ControlHierarchy.SUBSTITUTION,
+      T: ControlHierarchy.TECHNICAL,
+      O: ControlHierarchy.ORGANIZATIONAL,
+      P: ControlHierarchy.PPE
+    };
+
+    return { description: remainder, hierarchy: hierarchyByPrefix[prefix] };
+  }
+
+  private normalizeControlInput(input: ProposedControlInput): ProposedControlInput {
+    const parsed = this.parseHierarchyPrefix(input.description);
+    const description = parsed.description || input.description.trim();
+    const hierarchy = input.hierarchy ?? parsed.hierarchy ?? null;
+    return { ...input, description, hierarchy };
+  }
+
+  private async normalizeControlsForCase(caseId: string): Promise<void> {
+    const controls = await this.db.hazardControl.findMany({
+      where: { hazard: { caseId } },
+      select: { id: true, description: true, hierarchy: true }
+    });
+
+    const updates = controls
+      .map((control) => {
+        const parsed = this.parseHierarchyPrefix(control.description);
+        const nextHierarchy = (control.hierarchy ?? parsed.hierarchy ?? null) as unknown as PrismaControlHierarchy | null;
+        const nextDescription = parsed.description || control.description.trim();
+        if (nextDescription !== control.description || nextHierarchy !== control.hierarchy) {
+          return { id: control.id, description: nextDescription, hierarchy: nextHierarchy };
+        }
+        return null;
+      })
+      .filter(
+        (item): item is { id: string; description: string; hierarchy: PrismaControlHierarchy | null } => item !== null
+      );
+
+    if (updates.length === 0) {
+      return;
+    }
+
+    await this.db.$transaction(async (tx) => {
+      for (const update of updates) {
+        await tx.hazardControl.update({
+          where: { id: update.id },
+          data: { description: update.description, hierarchy: update.hierarchy }
+        });
+        await tx.correctiveAction.updateMany({
+          where: { caseId, controlId: update.id },
+          data: { description: update.description }
+        });
+      }
+    });
+  }
 
   async connect(): Promise<void> {
     if (typeof (this.db as any).$connect === "function") {
@@ -198,6 +350,11 @@ export class RiskAssessmentService {
   }
 
   async getCaseById(id: string): Promise<RiskAssessmentCaseDto | null> {
+    try {
+      await this.ensureActionsForControls(id);
+    } catch (error) {
+      console.warn("[raService] ensureActionsForControls failed", error);
+    }
     const raCase = await this.db.riskAssessmentCase.findUnique({
       where: { id },
       include: caseInclude
@@ -244,7 +401,7 @@ export class RiskAssessmentService {
       return null;
     }
 
-    const currentPhase = (existing.phase as string) as RiskAssessmentPhase;
+    const currentPhase = this.normalizePhase(existing.phase as string);
     const index = phaseOrder.indexOf(currentPhase);
     const nextPhase = index === -1 || index === phaseOrder.length - 1 ? currentPhase : phaseOrder[index + 1];
 
@@ -532,27 +689,63 @@ export class RiskAssessmentService {
     return this.getCaseById(caseId);
   }
 
+  async clearHazardRiskRatings(
+    caseId: string,
+    hazardIds: string[],
+    type: "BASELINE" | "RESIDUAL"
+  ): Promise<boolean> {
+    if (!hazardIds.length) {
+      return true;
+    }
+    if (!(await this.hazardIdsBelongToCase(caseId, hazardIds))) {
+      return false;
+    }
+    await this.db.hazardAssessment.deleteMany({
+      where: {
+        hazardId: { in: hazardIds },
+        type: type === "BASELINE" ? HazardAssessmentType.BASELINE : HazardAssessmentType.RESIDUAL
+      }
+    });
+    return true;
+  }
+
   // Add proposed controls (from control discussion phase)
   async addProposedControl(
     caseId: string,
     input: ProposedControlInput
-  ): Promise<RiskAssessmentCaseDto | null> {
+  ): Promise<{ id: string; description: string; hierarchy: string | null } | null> {
+    const normalizedInput = this.normalizeControlInput(input);
     const hazard = await this.db.hazard.findFirst({
-      where: { id: input.hazardId, caseId }
+      where: { id: normalizedInput.hazardId, caseId }
     });
     if (!hazard) {
       return null;
     }
 
-    await this.db.hazardControl.create({
+    const control = await this.db.hazardControl.create({
       data: {
-        hazardId: input.hazardId,
-        description: input.description,
-        hierarchy: input.hierarchy as ControlHierarchy | null
+        hazardId: normalizedInput.hazardId,
+        description: normalizedInput.description,
+        hierarchy: normalizedInput.hierarchy as unknown as PrismaControlHierarchy | null
       }
     });
 
-    return this.getCaseById(caseId);
+    await this.db.$transaction(async (tx) => {
+      const orderIndex = await this.nextActionOrderIndex(tx, caseId, normalizedInput.hazardId);
+      await tx.correctiveAction.create({
+        data: {
+          caseId,
+          hazardId: normalizedInput.hazardId,
+          controlId: control.id,
+          orderIndex,
+          description: normalizedInput.description,
+          owner: null,
+          dueDate: null
+        }
+      });
+    });
+
+    return { id: control.id, description: control.description, hierarchy: control.hierarchy };
   }
 
   // Add multiple proposed controls
@@ -564,7 +757,8 @@ export class RiskAssessmentService {
       return this.getCaseById(caseId);
     }
 
-    const hazardIds = [...new Set(inputs.map((i) => i.hazardId))];
+    const normalizedInputs = inputs.map((input) => this.normalizeControlInput(input));
+    const hazardIds = [...new Set(normalizedInputs.map((i) => i.hazardId))];
     const hazards = await this.db.hazard.findMany({
       where: { caseId, id: { in: hazardIds } }
     });
@@ -576,14 +770,41 @@ export class RiskAssessmentService {
     }
 
     const validHazardIds = new Set(hazards.map((h) => h.id));
-    const validInputs = inputs.filter((i) => validHazardIds.has(i.hazardId));
+    const validInputs = normalizedInputs.filter((i) => validHazardIds.has(i.hazardId));
 
-    await this.db.hazardControl.createMany({
-      data: validInputs.map((input) => ({
-        hazardId: input.hazardId,
-        description: input.description,
-        hierarchy: input.hierarchy as ControlHierarchy | null
-      }))
+    await this.db.$transaction(async (tx) => {
+      const nextIndexByHazardId = new Map<string, number>();
+      const getNext = async (hazardId: string): Promise<number> => {
+        const existing = nextIndexByHazardId.get(hazardId);
+        if (existing !== undefined) {
+          nextIndexByHazardId.set(hazardId, existing + 1);
+          return existing;
+        }
+        const start = await this.nextActionOrderIndex(tx, caseId, hazardId);
+        nextIndexByHazardId.set(hazardId, start + 1);
+        return start;
+      };
+
+      for (const input of validInputs) {
+        const control = await tx.hazardControl.create({
+          data: {
+            hazardId: input.hazardId,
+            description: input.description,
+            hierarchy: input.hierarchy as unknown as PrismaControlHierarchy | null
+          }
+        });
+        await tx.correctiveAction.create({
+          data: {
+            caseId,
+            hazardId: input.hazardId,
+            controlId: control.id,
+            orderIndex: await getNext(input.hazardId),
+            description: input.description,
+            owner: null,
+            dueDate: null
+          }
+        });
+      }
     });
 
     return this.getCaseById(caseId);
@@ -599,7 +820,10 @@ export class RiskAssessmentService {
       return false;
     }
 
-    await this.db.hazardControl.delete({ where: { id: controlId } });
+    await this.db.$transaction(async (tx) => {
+      await tx.correctiveAction.deleteMany({ where: { caseId, controlId } });
+      await tx.hazardControl.delete({ where: { id: controlId } });
+    });
     return true;
   }
 
@@ -771,17 +995,48 @@ export class RiskAssessmentService {
       return null;
     }
 
-    const action = await this.db.correctiveAction.create({
-      data: {
-        caseId,
-        hazardId: input.hazardId,
-        description: input.description,
-        owner: input.owner ?? null,
-        dueDate: input.dueDate ? new Date(input.dueDate) : null
-      }
+    const action = await this.db.$transaction(async (tx) => {
+      const orderIndex = await this.nextActionOrderIndex(tx, caseId, input.hazardId);
+      return tx.correctiveAction.create({
+        data: {
+          caseId,
+          hazardId: input.hazardId,
+          orderIndex,
+          description: input.description,
+          owner: input.owner ?? null,
+          dueDate: input.dueDate ? new Date(input.dueDate) : null
+        }
+      });
     });
 
     return action;
+  }
+
+  async reorderActionsForHazard(caseId: string, hazardId: string, actionIds: string[]): Promise<boolean> {
+    const hazard = await this.db.hazard.findFirst({
+      where: { id: hazardId, caseId }
+    });
+    if (!hazard) {
+      return false;
+    }
+
+    const existing = await this.db.correctiveAction.findMany({
+      where: { caseId, hazardId },
+      select: { id: true },
+      orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }]
+    });
+    const existingSet = new Set(existing.map((item) => item.id));
+    const filtered = actionIds.filter((id) => existingSet.has(id));
+    const remainder = existing.map((item) => item.id).filter((id) => !filtered.includes(id));
+    const finalOrder = [...filtered, ...remainder];
+
+    await this.db.$transaction(async (tx) => {
+      await Promise.all(
+        finalOrder.map((id, index) => tx.correctiveAction.update({ where: { id }, data: { orderIndex: index } }))
+      );
+    });
+
+    return true;
   }
 
   async updateAction(
@@ -796,23 +1051,55 @@ export class RiskAssessmentService {
       return null;
     }
 
-    const payload: Prisma.CorrectiveActionUpdateInput = {};
-    if (typeof patch.description === "string") {
-      payload.description = patch.description;
-    }
-    if (typeof patch.owner === "string" || patch.owner === null) {
-      payload.owner = patch.owner ?? null;
-    }
-    if (typeof patch.dueDate === "string" || patch.dueDate === null) {
-      payload.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
-    }
-    if (patch.status) {
-      payload.status = patch.status as any;
-    }
+    const patchStatus = patch.status ? String(patch.status) : undefined;
+    const completing = patchStatus === "COMPLETE" && action.status !== "COMPLETE";
 
-    const updated = await this.db.correctiveAction.update({
-      where: { id: actionId },
-      data: payload
+    const updated = await this.db.$transaction(async (tx) => {
+      const payload: Prisma.CorrectiveActionUpdateInput = {};
+      if (typeof patch.description === "string") {
+        payload.description = patch.description;
+      }
+      if (typeof patch.owner === "string" || patch.owner === null) {
+        payload.owner = patch.owner ?? null;
+      }
+      if (typeof patch.dueDate === "string" || patch.dueDate === null) {
+        payload.dueDate = patch.dueDate ? new Date(patch.dueDate) : null;
+      }
+      if (patchStatus) {
+        payload.status = patchStatus as any;
+      }
+
+      const next = await tx.correctiveAction.update({
+        where: { id: actionId },
+        data: payload
+      });
+
+      if (next.controlId && typeof patch.description === "string") {
+        await tx.hazardControl.update({
+          where: { id: next.controlId },
+          data: { description: patch.description }
+        });
+      }
+
+      if (completing && next.controlId && next.hazardId) {
+        const hazard = await tx.hazard.findFirst({
+          where: { id: next.hazardId, caseId },
+          select: { existingControls: true }
+        });
+        if (hazard) {
+          const nextDescription = next.description.trim();
+          const existing = hazard.existingControls ?? [];
+          const nextExistingControls =
+            nextDescription && !existing.includes(nextDescription) ? [...existing, nextDescription] : existing;
+          await tx.hazard.update({
+            where: { id: next.hazardId },
+            data: { existingControls: nextExistingControls }
+          });
+        }
+        await tx.hazardControl.delete({ where: { id: next.controlId } });
+      }
+
+      return next;
     });
 
     return updated;
@@ -825,7 +1112,12 @@ export class RiskAssessmentService {
     if (!action) {
       return false;
     }
-    await this.db.correctiveAction.delete({ where: { id: actionId } });
+    await this.db.$transaction(async (tx) => {
+      await tx.correctiveAction.delete({ where: { id: actionId } });
+      if (action.controlId) {
+        await tx.hazardControl.deleteMany({ where: { id: action.controlId } });
+      }
+    });
     return true;
   }
 
@@ -1134,6 +1426,7 @@ export class RiskAssessmentService {
 
     return {
       ...record,
+      phase: this.normalizePhase(record.phase as string) as any,
       hazards: hazards.map((hazard) => this.mapHazard(hazard))
     };
   }

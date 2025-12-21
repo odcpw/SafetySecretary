@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { env } from "../config/env";
 import { ControlHierarchy, LikelihoodLevel, ProcessStepInput, SeverityLevel } from "../types/riskAssessment";
+import { IncidentTimelineConfidence } from "../types/incident";
 
 // Result of extracting process steps with HIRA triad
 export interface ExtractedStepsResult {
@@ -74,6 +75,61 @@ export interface ActionSuggestion {
 
 export interface SuggestActionsResult {
   actions: ActionSuggestion[];
+  rawResponse?: string;
+}
+
+export interface IncidentNarrativeClarification {
+  question: string;
+  rationale?: string | null;
+  targetField?: string | null;
+}
+
+export interface IncidentNarrativeExtractionResult {
+  facts: { text: string }[];
+  timeline: { timeLabel?: string | null; text: string; confidence?: IncidentTimelineConfidence }[];
+  clarifications: IncidentNarrativeClarification[];
+  rawResponse?: string;
+}
+
+// Incident witness extraction
+export interface IncidentWitnessExtractionResult {
+  facts: { text: string }[];
+  personalTimeline: { timeLabel?: string | null; text: string }[];
+  openQuestions: string[];
+  rawResponse?: string;
+}
+
+export interface IncidentWitnessMergeAccount {
+  accountId: string;
+  role?: string | null;
+  name?: string | null;
+  facts: { text: string }[];
+  personalTimeline: { timeLabel?: string | null; text: string }[];
+}
+
+export interface IncidentTimelineMergeResult {
+  timeline: Array<{
+    timeLabel?: string | null;
+    text: string;
+    confidence: IncidentTimelineConfidence;
+    sources: Array<{
+      accountId: string;
+      factIndex?: number;
+      personalEventIndex?: number;
+    }>;
+  }>;
+  openQuestions: string[];
+  rawResponse?: string;
+}
+
+export interface IncidentConsistencyIssue {
+  type: "gap" | "contradiction" | "ordering";
+  description: string;
+  relatedEventIndexes?: number[];
+}
+
+export interface IncidentConsistencyCheckResult {
+  issues: IncidentConsistencyIssue[];
   rawResponse?: string;
 }
 
@@ -666,8 +722,7 @@ Respond as JSON:
       HAZARD_IDENTIFICATION: "hazard",
       RISK_RATING: "assessment",
       CONTROL_DISCUSSION: "control",
-      ACTIONS: "action",
-      RESIDUAL_RISK: "assessment"
+      ACTIONS: "action"
     };
 
     return [{
@@ -688,6 +743,509 @@ Respond as JSON:
     }
     return `${commands.length} updates parsed from "${userInput}"`;
   }
+
+  // Extract incident narrative facts, draft timeline, and clarification questions
+  async extractIncidentNarrative(narrative: string): Promise<IncidentNarrativeExtractionResult> {
+    if (!this.client) {
+      return this.fallbackIncidentNarrative(narrative);
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation. You must not invent facts.
+Only use information explicitly provided in the narrative. If details are missing, ask short follow-up questions.
+
+Extract:
+1) Facts (atomic statements)
+2) Draft timeline (ordered events, with time labels if mentioned and a confidence tag)
+3) Clarification questions (max 8) with a short rationale and a target field name
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"facts":[{"text":string}],"timeline":[{"timeLabel":string,"text":string,"confidence":"CONFIRMED|LIKELY|UNCLEAR"}],"clarifications":[{"question":string,"rationale":string,"targetField":string}]}`
+          },
+          {
+            role: "user",
+            content: narrative
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return this.fallbackIncidentNarrative(narrative);
+      }
+
+      const parsed = JSON.parse(content);
+      const facts = Array.isArray(parsed.facts)
+        ? parsed.facts
+            .map((fact: any) => (typeof fact?.text === "string" ? { text: fact.text } : null))
+            .filter((fact: any): fact is { text: string } => Boolean(fact))
+        : [];
+      const timeline = Array.isArray(parsed.timeline)
+        ? parsed.timeline
+            .map((event: any) => {
+              const text = typeof event?.text === "string" ? event.text : null;
+              if (!text) return null;
+              const confidence =
+                typeof event?.confidence === "string" && Object.values(IncidentTimelineConfidence).includes(event.confidence)
+                  ? (event.confidence as IncidentTimelineConfidence)
+                  : IncidentTimelineConfidence.LIKELY;
+              return {
+                timeLabel: typeof event?.timeLabel === "string" ? event.timeLabel : null,
+                text,
+                confidence
+              };
+            })
+            .filter((event: any): event is IncidentNarrativeExtractionResult["timeline"][number] => Boolean(event))
+        : [];
+      const clarifications = Array.isArray(parsed.clarifications)
+        ? parsed.clarifications
+            .map((item: any) => {
+              if (typeof item === "string") {
+                return { question: item };
+              }
+              if (typeof item?.question !== "string") return null;
+              return {
+                question: item.question,
+                rationale: typeof item?.rationale === "string" ? item.rationale : null,
+                targetField: typeof item?.targetField === "string" ? item.targetField : null
+              };
+            })
+            .filter((item: any): item is IncidentNarrativeClarification => Boolean(item))
+            .slice(0, 8)
+        : [];
+
+      return {
+        facts: facts.length ? facts : this.fallbackIncidentFacts(narrative),
+        timeline: timeline.length ? timeline : this.fallbackIncidentNarrative(narrative).timeline,
+        clarifications,
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic incident narrative extraction", error);
+      return this.fallbackIncidentNarrative(narrative);
+    }
+  }
+
+  // Extract incident witness facts and personal timeline
+  async extractIncidentWitness(statement: string): Promise<IncidentWitnessExtractionResult> {
+    if (!this.client) {
+      return this.fallbackIncidentWitness(statement);
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation. You must not invent facts.
+Only use information explicitly provided by the witness. If details are missing, ask short follow-up questions.
+
+Extract:
+1) Facts (atomic statements)
+2) Personal timeline (ordered events, with time labels if mentioned)
+3) Open questions (max 8)
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"facts":[{"text":string}],"personalTimeline":[{"timeLabel":string,"text":string}],"openQuestions":[string]}`
+          },
+          {
+            role: "user",
+            content: statement
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return this.fallbackIncidentWitness(statement);
+      }
+
+      const parsed = JSON.parse(content);
+      const facts = Array.isArray(parsed.facts)
+        ? parsed.facts
+            .map((fact: any) => (typeof fact?.text === "string" ? { text: fact.text } : null))
+            .filter((fact: any): fact is { text: string } => Boolean(fact))
+        : [];
+      const personalTimeline = Array.isArray(parsed.personalTimeline)
+        ? parsed.personalTimeline
+            .map((event: any) => {
+              const text = typeof event?.text === "string" ? event.text : null;
+              if (!text) return null;
+              return {
+                timeLabel: typeof event?.timeLabel === "string" ? event.timeLabel : null,
+                text
+              };
+            })
+            .filter((event: any): event is { timeLabel?: string | null; text: string } => Boolean(event))
+        : [];
+      const openQuestions = Array.isArray(parsed.openQuestions)
+        ? parsed.openQuestions.filter((q: unknown) => typeof q === "string" && q.trim().length > 0)
+        : [];
+
+      return {
+        facts: facts.length ? facts : this.fallbackIncidentFacts(statement),
+        personalTimeline: personalTimeline.length ? personalTimeline : this.fallbackIncidentTimeline(statement),
+        openQuestions,
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic incident witness extraction", error);
+      return this.fallbackIncidentWitness(statement);
+    }
+  }
+
+  // Merge witness timelines into a shared incident timeline
+  async mergeIncidentTimeline(accounts: IncidentWitnessMergeAccount[]): Promise<IncidentTimelineMergeResult> {
+    if (!this.client) {
+      return this.fallbackIncidentMerge(accounts);
+    }
+
+    const payload = accounts.map((account) => ({
+      accountId: account.accountId,
+      role: account.role ?? null,
+      name: account.name ?? null,
+      facts: account.facts.map((fact, index) => ({ index, text: fact.text })),
+      personalTimeline: account.personalTimeline.map((event, index) => ({
+        index,
+        timeLabel: event.timeLabel ?? null,
+        text: event.text
+      }))
+    }));
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation. Build a SHARED timeline from multiple witnesses.
+
+Rules:
+- Do not invent missing steps.
+- If accounts conflict, keep both and mark confidence UNCLEAR.
+- Use time labels if provided; otherwise keep relative order.
+- Reference sources using accountId and factIndex/personalEventIndex from the input.
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"timeline":[{"timeLabel":string,"text":string,"confidence":"CONFIRMED|LIKELY|UNCLEAR","sources":[{"accountId":string,"factIndex":number,"personalEventIndex":number}]}],"openQuestions":[string]}`
+          },
+          {
+            role: "user",
+            content: `INPUT:\n${JSON.stringify(payload, null, 2)}`
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return this.fallbackIncidentMerge(accounts);
+      }
+
+      const parsed = JSON.parse(content);
+      const timeline = Array.isArray(parsed.timeline)
+        ? parsed.timeline
+            .map((row: any) => {
+              const text = typeof row?.text === "string" ? row.text : null;
+              if (!text) return null;
+              const confidence =
+                typeof row?.confidence === "string" && Object.values(IncidentTimelineConfidence).includes(row.confidence)
+                  ? (row.confidence as IncidentTimelineConfidence)
+                  : IncidentTimelineConfidence.LIKELY;
+              const sources = Array.isArray(row?.sources)
+                ? row.sources
+                    .map((source: any) => {
+                      if (typeof source?.accountId !== "string") return null;
+                      const factIndex = Number.isInteger(source.factIndex) ? source.factIndex : undefined;
+                      const personalEventIndex = Number.isInteger(source.personalEventIndex)
+                        ? source.personalEventIndex
+                        : undefined;
+                      return { accountId: source.accountId, factIndex, personalEventIndex };
+                    })
+                    .filter((source: any): source is { accountId: string; factIndex?: number; personalEventIndex?: number } =>
+                      Boolean(source)
+                    )
+                : [];
+              return {
+                timeLabel: typeof row?.timeLabel === "string" ? row.timeLabel : null,
+                text,
+                confidence,
+                sources
+              };
+            })
+            .filter((row: any): row is IncidentTimelineMergeResult["timeline"][number] => Boolean(row))
+        : [];
+
+      const openQuestions = Array.isArray(parsed.openQuestions)
+        ? parsed.openQuestions.filter((q: unknown) => typeof q === "string" && q.trim().length > 0)
+        : [];
+
+      return {
+        timeline: timeline.length ? timeline : this.fallbackIncidentMerge(accounts).timeline,
+        openQuestions,
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic incident merge", error);
+      return this.fallbackIncidentMerge(accounts);
+    }
+  }
+
+  // Consistency check for timeline (therefore/therefor)
+  async checkIncidentConsistency(timeline: Array<{ timeLabel?: string | null; text: string }>): Promise<IncidentConsistencyCheckResult> {
+    if (!this.client) {
+      return { issues: [] };
+    }
+
+    const payload = timeline.map((row, index) => ({ index, timeLabel: row.timeLabel ?? null, text: row.text }));
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation. Check the timeline for gaps, contradictions, or ordering issues.
+Do NOT invent facts. Only flag issues and ask questions.
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"issues":[{"type":"gap|contradiction|ordering","description":string,"relatedEventIndexes":[number]}]}`
+          },
+          {
+            role: "user",
+            content: `TIMELINE:\n${JSON.stringify(payload, null, 2)}`
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return { issues: [] };
+      }
+
+      const parsed = JSON.parse(content);
+      const issues = Array.isArray(parsed.issues)
+        ? parsed.issues
+            .map((issue: any) => {
+              const type = issue?.type;
+              const description = typeof issue?.description === "string" ? issue.description : null;
+              if (!description || (type !== "gap" && type !== "contradiction" && type !== "ordering")) {
+                return null;
+              }
+              const relatedEventIndexes = Array.isArray(issue.relatedEventIndexes)
+                ? issue.relatedEventIndexes.filter((value: unknown) => Number.isInteger(value))
+                : undefined;
+              return { type, description, relatedEventIndexes } as IncidentConsistencyIssue;
+            })
+            .filter((issue: any): issue is IncidentConsistencyIssue => Boolean(issue))
+        : [];
+
+      return { issues, rawResponse: content };
+    } catch (error) {
+      console.warn("[llmService] Falling back to empty incident consistency issues", error);
+      return { issues: [] };
+    }
+  }
+
+  // Extract JHA rows from job description
+  async extractJhaRows(jobDescription: string): Promise<ExtractJhaRowsResult> {
+    if (!this.client) {
+      return { rows: this.fallbackJhaRows(jobDescription) };
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are a safety engineer creating a Job Hazard Analysis (JHA).
+
+Given a job description, extract structured JHA rows. Each row represents one hazard for one job step.
+
+For each row, provide:
+- step: The job step/task where the hazard occurs
+- hazard: The specific hazard (what can cause harm)
+- consequence: What injury or damage could result
+- controls: Array of control measures to prevent the hazard
+
+Guidelines:
+- Break down the job into logical sequential steps
+- Identify 1-3 hazards per step
+- Be specific about consequences (e.g., "laceration to hands" not just "injury")
+- Include practical, actionable controls
+- Return 5-15 rows total
+
+Return ONLY valid JSON (no markdown, no code fences, no commentary).
+
+Respond as JSON:
+{"rows": [{"step": string, "hazard": string, "consequence": string, "controls": string[]}]}`
+          },
+          {
+            role: "user",
+            content: jobDescription
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return { rows: this.fallbackJhaRows(jobDescription) };
+      }
+
+      const parsed = JSON.parse(content);
+      const rows = Array.isArray(parsed.rows)
+        ? parsed.rows.map((row: any) => ({
+            step: typeof row.step === "string" ? row.step : "Unspecified step",
+            hazard: typeof row.hazard === "string" ? row.hazard : "Unspecified hazard",
+            consequence: typeof row.consequence === "string" ? row.consequence : null,
+            controls: Array.isArray(row.controls)
+              ? row.controls.filter((c: unknown) => typeof c === "string" && c.trim().length > 0)
+              : []
+          }))
+        : this.fallbackJhaRows(jobDescription);
+
+      return { rows, rawResponse: content };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic JHA rows", error);
+      return { rows: this.fallbackJhaRows(jobDescription) };
+    }
+  }
+
+  private fallbackJhaRows(jobDescription: string): JhaRowInput[] {
+    const lines = jobDescription
+      .split(/\n|\.|\r/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 5)
+      .slice(0, 5);
+
+    if (!lines.length) {
+      return [
+        {
+          step: "Describe job step",
+          hazard: "Identify hazard",
+          consequence: "Potential injury or damage",
+          controls: ["Add control measures"]
+        }
+      ];
+    }
+
+    return lines.map((line) => ({
+      step: line.substring(0, 60),
+      hazard: "Review for hazards",
+      consequence: "Assess potential consequences",
+      controls: ["Identify appropriate controls"]
+    }));
+  }
+
+  private fallbackIncidentNarrative(narrative: string): IncidentNarrativeExtractionResult {
+    const trimmed = narrative.trim();
+    const facts = this.fallbackIncidentFacts(narrative);
+    const timeline = this.fallbackIncidentTimeline(narrative).map((event) => ({
+      ...event,
+      confidence: IncidentTimelineConfidence.LIKELY
+    }));
+    const clarifications: IncidentNarrativeClarification[] = trimmed
+      ? [
+          {
+            question: "When did the incident occur?",
+            rationale: "Date/time helps anchor the timeline.",
+            targetField: "incidentAt"
+          },
+          {
+            question: "Where did the incident occur?",
+            rationale: "Location helps confirm context.",
+            targetField: "location"
+          },
+          {
+            question: "Who was involved or witnessed the incident?",
+            rationale: "People involved help validate the timeline.",
+            targetField: "persons"
+          }
+        ]
+      : [
+          {
+            question: "What happened? Provide a short incident description.",
+            rationale: "A narrative is required before structuring facts.",
+            targetField: "narrative"
+          }
+        ];
+    return { facts, timeline, clarifications };
+  }
+
+  private fallbackIncidentWitness(statement: string): IncidentWitnessExtractionResult {
+    return {
+      facts: this.fallbackIncidentFacts(statement),
+      personalTimeline: this.fallbackIncidentTimeline(statement),
+      openQuestions: []
+    };
+  }
+
+  private fallbackIncidentFacts(statement: string): { text: string }[] {
+    const lines = statement
+      .split(/\n|\.|\r/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 4);
+    if (!lines.length) {
+      return [{ text: "Witness account pending." }];
+    }
+    return lines.map((line) => ({ text: line }));
+  }
+
+  private fallbackIncidentTimeline(statement: string): { timeLabel?: string | null; text: string }[] {
+    return this.fallbackIncidentFacts(statement).map((fact) => ({ text: fact.text }));
+  }
+
+  private fallbackIncidentMerge(accounts: IncidentWitnessMergeAccount[]): IncidentTimelineMergeResult {
+    const timeline: IncidentTimelineMergeResult["timeline"] = [];
+    accounts.forEach((account) => {
+      account.personalTimeline.forEach((event, index) => {
+        timeline.push({
+          timeLabel: event.timeLabel ?? null,
+          text: event.text,
+          confidence: IncidentTimelineConfidence.LIKELY,
+          sources: [{ accountId: account.accountId, personalEventIndex: index }]
+        });
+      });
+    });
+    return { timeline, openQuestions: [] };
+  }
+}
+
+// JHA extraction types
+export interface JhaRowInput {
+  step: string;
+  hazard: string;
+  consequence?: string | null;
+  controls?: string[];
+}
+
+export interface ExtractJhaRowsResult {
+  rows: JhaRowInput[];
+  rawResponse?: string;
 }
 
 export type LlmServiceType = LlmService;

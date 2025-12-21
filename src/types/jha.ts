@@ -9,7 +9,7 @@ export interface JhaHazardInput {
   stepId: string;
   hazard: string;
   consequence?: string | null;
-  controls?: string[];
+  controls?: string[] | string | null;
   orderIndex?: number;
 }
 

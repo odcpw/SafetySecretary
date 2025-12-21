@@ -40,6 +40,17 @@ const parseDate = (value: string | undefined | null): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const normalizeControls = (controls: string[] | string | null | undefined): string[] => {
+  if (!controls) return [];
+  if (Array.isArray(controls)) {
+    return controls.map((control) => control.trim()).filter((control) => control.length > 0);
+  }
+  return controls
+    .split(/\n|,/)
+    .map((control) => control.trim())
+    .filter((control) => control.length > 0);
+};
+
 export class JhaService {
   constructor(private readonly db = prisma) {}
 
@@ -53,10 +64,12 @@ export class JhaService {
 
   async listCases(params: { createdBy?: string | null; limit?: number } = {}): Promise<JhaCaseSummary[]> {
     const { createdBy, limit } = params;
+    const take =
+      typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? Math.min(100, limit) : undefined;
     const cases = await this.db.jhaCase.findMany({
       ...(createdBy ? { where: { createdBy } } : {}),
       orderBy: { updatedAt: "desc" },
-      ...(typeof limit === "number" ? { take: limit } : {})
+      ...(take ? { take } : {})
     });
     return cases.map((item) => ({
       id: item.id,
@@ -240,7 +253,7 @@ export class JhaService {
           stepId: hazard.stepId,
           hazard: hazard.hazard,
           consequence: hazard.consequence ?? null,
-          controls: hazard.controls ?? [],
+          controls: normalizeControls(hazard.controls),
           orderIndex: hazard.orderIndex ?? index
         };
 
@@ -274,7 +287,7 @@ export class JhaService {
 
   async replaceRowsFromExtraction(
     caseId: string,
-    rows: Array<{ step: string; hazard: string; consequence?: string | null; controls?: string[] }>
+    rows: Array<{ step: string; hazard: string; consequence?: string | null; controls?: string[] | string | null }>
   ): Promise<JhaCaseDto | null> {
     const jhaCase = await this.db.jhaCase.findUnique({ where: { id: caseId } });
     if (!jhaCase) return null;
@@ -306,7 +319,7 @@ export class JhaService {
             orderIndex: index,
             hazard: row.hazard?.trim() || "",
             consequence: row.consequence ?? null,
-            controls: row.controls ?? []
+            controls: normalizeControls(row.controls)
           }
         });
       }
@@ -389,8 +402,9 @@ export class JhaService {
     const attachment = await this.db.jhaAttachment.findFirst({ where: { id: attachmentId, caseId } });
     if (!attachment) return null;
 
-    const nextStepId = patch.stepId !== undefined ? patch.stepId : attachment.stepId;
     const nextHazardId = patch.hazardId !== undefined ? patch.hazardId : attachment.hazardId;
+    const nextStepId =
+      nextHazardId ? null : patch.stepId !== undefined ? patch.stepId : attachment.stepId;
     if (!nextStepId && !nextHazardId) {
       return null;
     }

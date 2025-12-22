@@ -81,6 +81,22 @@ The app is built around a `RaProvider` context and `RaEditor` shell that:
 
 This strikes the balance discussed in the brief: React is familiar to LLM devs, keeps complex phase state manageable, and avoids inventing a custom frontend framework.
 
+### TUI Entry (Experimental)
+
+The TUI frontend is a separate Vite entry (`frontend/tui.html`) so WebTUI CSS does not collide with the main GUI theme.
+
+Dev access:
+
+```bash
+# Vite dev server rewrites /tui and /tui/* to tui.html
+http://localhost:5173/tui
+```
+
+Production access:
+
+- Configure the static host to rewrite `/tui` and `/tui/*` to `tui.html`.
+- Use the "Switch to TUI" button after login to jump between GUIs.
+
 ## LLM Usage & Fallbacks
 
 Add `OPENAI_API_KEY` to enable live extraction. When the key is missing or the API fails, the service degrades gracefully by splitting the text into steps/hazards heuristically so the UI can keep flowing. Extraction jobs are queued so the API responds immediately; poll `/api/llm-jobs/:id` (handled automatically by the frontend) to wait for completion.

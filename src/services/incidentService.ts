@@ -119,18 +119,21 @@ export class IncidentService {
   }
 
   async createCase(input: CreateIncidentCaseInput): Promise<IncidentCaseDto> {
+    const data: Prisma.IncidentCaseCreateInput = {
+      title: input.title,
+      incidentAt: parseDate(input.incidentAt),
+      incidentTimeNote: input.incidentTimeNote ?? null,
+      location: input.location ?? null,
+      incidentType: input.incidentType,
+      coordinatorRole: input.coordinatorRole,
+      coordinatorName: input.coordinatorName ?? null,
+      createdBy: input.createdBy ?? null
+    };
+    if (typeof input.workflowStage === "string") {
+      data.workflowStage = input.workflowStage;
+    }
     return this.db.incidentCase.create({
-      data: {
-        title: input.title,
-        workflowStage: input.workflowStage ?? undefined,
-        incidentAt: parseDate(input.incidentAt),
-        incidentTimeNote: input.incidentTimeNote ?? null,
-        location: input.location ?? null,
-        incidentType: input.incidentType,
-        coordinatorRole: input.coordinatorRole,
-        coordinatorName: input.coordinatorName ?? null,
-        createdBy: input.createdBy ?? null
-      },
+      data,
       include: caseInclude
     });
   }

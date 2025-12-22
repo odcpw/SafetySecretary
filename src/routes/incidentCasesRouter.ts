@@ -97,16 +97,19 @@ incidentCasesRouter.post("/", async (req: Request, res: Response) => {
     }
 
     const { incidentService } = getTenantServices(req);
-    const incidentCase = await incidentService.createCase({
+    const createPayload: CreateIncidentCaseInput = {
       title,
-      workflowStage: typeof workflowStage === "string" ? workflowStage : undefined,
       incidentAt,
       incidentTimeNote,
       location,
       incidentType: normalizedType,
       coordinatorRole,
       coordinatorName
-    });
+    };
+    if (typeof workflowStage === "string") {
+      createPayload.workflowStage = workflowStage;
+    }
+    const incidentCase = await incidentService.createCase(createPayload);
     res.status(201).json(incidentCase);
   } catch (error) {
     console.error("[incidentCasesRouter] createCase", error);
@@ -453,11 +456,12 @@ incidentCasesRouter.post("/:id/assistant/root-causes", async (req: Request, res:
     if (causeNodeIds !== undefined && !Array.isArray(causeNodeIds)) {
       return res.status(400).json({ error: "causeNodeIds must be an array" });
     }
-    const normalizedIds = Array.isArray(causeNodeIds)
-      ? causeNodeIds.filter((id: unknown): id is string => typeof id === "string")
-      : undefined;
-    if (Array.isArray(causeNodeIds) && normalizedIds.length !== causeNodeIds.length) {
-      return res.status(400).json({ error: "causeNodeIds must contain strings" });
+    let normalizedIds: string[] | null = null;
+    if (Array.isArray(causeNodeIds)) {
+      normalizedIds = causeNodeIds.filter((id: unknown): id is string => typeof id === "string");
+      if (normalizedIds.length !== causeNodeIds.length) {
+        return res.status(400).json({ error: "causeNodeIds must contain strings" });
+      }
     }
 
     const llmJobManager = getLlmJobManager(req);
@@ -487,11 +491,12 @@ incidentCasesRouter.post("/:id/assistant/actions", async (req: Request, res: Res
     if (causeNodeIds !== undefined && !Array.isArray(causeNodeIds)) {
       return res.status(400).json({ error: "causeNodeIds must be an array" });
     }
-    const normalizedIds = Array.isArray(causeNodeIds)
-      ? causeNodeIds.filter((id: unknown): id is string => typeof id === "string")
-      : undefined;
-    if (Array.isArray(causeNodeIds) && normalizedIds.length !== causeNodeIds.length) {
-      return res.status(400).json({ error: "causeNodeIds must contain strings" });
+    let normalizedIds: string[] | null = null;
+    if (Array.isArray(causeNodeIds)) {
+      normalizedIds = causeNodeIds.filter((id: unknown): id is string => typeof id === "string");
+      if (normalizedIds.length !== causeNodeIds.length) {
+        return res.status(400).json({ error: "causeNodeIds must contain strings" });
+      }
     }
 
     const llmJobManager = getLlmJobManager(req);

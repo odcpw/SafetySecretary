@@ -1,0 +1,807 @@
+@layer base, utils, components;
+
+@import "@webtui/css/base.css";
+@import "@webtui/css/utils/box.css";
+@import "@webtui/css/components/typography.css";
+@import "@webtui/css/components/button.css";
+@import "@webtui/css/components/table.css";
+@import "@webtui/css/components/input.css";
+@import "@webtui/css/components/textarea.css";
+@import "@webtui/css/components/badge.css";
+@import "@webtui/css/components/separator.css";
+
+@layer base {
+  :root {
+    --font-family: "JetBrains Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --font-size: 16px;
+    --line-height: 1.4;
+    --background0: #fbfaf6;
+    --background1: #f1efe7;
+    --background2: #d9d5c7;
+    --background3: #b7b1a0;
+    --foreground0: #1d1a16;
+    --foreground1: #3f3a33;
+    --foreground2: #6c665d;
+  }
+
+  [data-webtui-theme="dark"] {
+    --background0: #0c0d0e;
+    --background1: #171a1d;
+    --background2: #2b3137;
+    --background3: #4e5660;
+    --foreground0: #f4f4f2;
+    --foreground1: #c7c8c2;
+    --foreground2: #8b8f96;
+  }
+
+  body {
+    background-image: radial-gradient(circle at 15% 20%, rgba(120, 161, 255, 0.08), transparent 45%),
+      radial-gradient(circle at 85% 12%, rgba(74, 222, 128, 0.06), transparent 40%),
+      linear-gradient(140deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.04));
+  }
+}
+
+.tui-shell {
+  min-height: 100vh;
+  padding: 2lh 4ch 3lh;
+  display: flex;
+  flex-direction: column;
+  gap: 2lh;
+}
+
+.tui-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2ch;
+}
+
+.tui-header__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3lh;
+}
+
+.tui-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+}
+
+.tui-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2lh;
+}
+
+.tui-nav {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  flex-wrap: wrap;
+}
+
+.tui-nav button[aria-pressed="true"],
+.tui-nav__link--active {
+  text-decoration: underline;
+}
+
+.tui-nav__link {
+  text-decoration: none;
+  padding: 0.3lh 1.2ch;
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+}
+
+.tui-nav__link:hover {
+  border-color: var(--foreground0);
+}
+
+.tui-title {
+  margin: 0.2lh 0 0;
+  font-size: 1.4rem;
+}
+
+.tui-eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.22ch;
+  font-size: 0.75rem;
+}
+
+.tui-muted {
+  color: var(--foreground2);
+}
+
+.tui-card {
+  padding: 1.5lh 2ch;
+  display: flex;
+  flex-direction: column;
+  gap: 1lh;
+  border: 1px solid var(--foreground2);
+  background-color: var(--background0);
+}
+
+.tui-box {
+  display: flex;
+  flex-direction: column;
+  gap: 1lh;
+  padding: 1.2lh 2ch;
+  background-color: var(--background0);
+}
+
+.tui-box__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2ch;
+  padding-bottom: 0.8lh;
+  border-bottom: 1px solid var(--foreground2);
+}
+
+.tui-box__actions {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+}
+
+.tui-box__body {
+  display: grid;
+  gap: 1lh;
+}
+
+.tui-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2ch;
+}
+
+.tui-card h2,
+.tui-card h3 {
+  margin: 0.2lh 0 0;
+}
+
+.tui-form {
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-form label,
+.tui-card label {
+  display: grid;
+  gap: 0.4lh;
+}
+
+.tui-details {
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-details summary {
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.18ch;
+  font-size: 0.75rem;
+}
+
+.tui-details[open] summary {
+  color: var(--foreground0);
+}
+
+.tui-field {
+  display: grid;
+  gap: 0.4lh;
+}
+
+.tui-field__label {
+  text-transform: uppercase;
+  letter-spacing: 0.16ch;
+  font-size: 0.75rem;
+  color: var(--foreground2);
+}
+
+.tui-field__error {
+  color: #dc2626;
+  font-size: 0.85rem;
+}
+
+.tui-case-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 1lh;
+}
+
+.tui-case-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2ch;
+  padding: 0.6lh 1ch;
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+}
+
+.tui-case-actions {
+  display: flex;
+  gap: 1ch;
+}
+
+.tui-grid-layout {
+  display: grid;
+  gap: 1.5lh;
+}
+
+.tui-columns {
+  display: grid;
+  gap: 2ch;
+  grid-template-columns: repeat(auto-fit, minmax(32ch, 1fr));
+}
+
+.tui-loading {
+  padding: 2lh 2ch;
+}
+
+.tui-link {
+  text-decoration: none;
+  border-bottom: 1px solid var(--foreground2);
+}
+
+.tui-link:hover {
+  border-bottom-color: var(--foreground0);
+}
+
+.tui-danger {
+  --button-primary: var(--foreground0);
+  --button-secondary: var(--background2);
+}
+
+.tui-theme-toggle {
+  padding: 0 1ch;
+  height: 2.4lh;
+}
+
+.tui-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-list li::before {
+  content: "> ";
+  color: var(--foreground2);
+}
+
+.tui-banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2ch;
+  padding: 0.8lh 1.6ch;
+  background-color: var(--background1);
+}
+
+.tui-banner__actions {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+}
+
+.tui-banner--warning {
+  color: #b45309;
+}
+
+.tui-banner--error {
+  color: #b91c1c;
+}
+
+[data-webtui-theme="dark"] .tui-banner--warning {
+  color: #fbbf24;
+}
+
+[data-webtui-theme="dark"] .tui-banner--error {
+  color: #fca5a5;
+}
+
+.tui-auth-banner {
+  padding: 1lh 2ch 0;
+}
+
+.tui-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4lh;
+}
+
+.tui-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5ch;
+  padding: 0.6lh 1.2ch;
+  background-color: var(--background1);
+}
+
+.tui-stepper__steps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1ch;
+}
+
+.tui-step {
+  text-transform: uppercase;
+  letter-spacing: 0.18ch;
+  font-size: 0.7rem;
+}
+
+.tui-step--current {
+  text-decoration: underline;
+}
+
+.tui-step--done {
+  color: var(--foreground1);
+}
+
+.tui-step--pending {
+  color: var(--foreground2);
+}
+
+.tui-step-list {
+  display: grid;
+  gap: 1lh;
+}
+
+.tui-step-item {
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+  padding: 1lh 1.5ch;
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-step-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1ch;
+}
+
+.tui-step-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  flex-wrap: wrap;
+}
+
+.tui-step-item__fields {
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-hazard-list {
+  display: grid;
+  gap: 1lh;
+}
+
+.tui-hazard-step {
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+  padding: 1lh 1.5ch;
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-hazard-step__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2lh;
+}
+
+.tui-hazard-items {
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-hazard-item {
+  border: 1px solid var(--foreground2);
+  background-color: var(--background0);
+  padding: 0.8lh 1.2ch;
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-hazard-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1ch;
+}
+
+.tui-hazard-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  flex-wrap: wrap;
+}
+
+.tui-hazard-item__fields {
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-hazard-add {
+  display: grid;
+  gap: 0.6lh;
+  border-top: 1px dashed var(--foreground2);
+  padding-top: 0.8lh;
+}
+
+.tui-control-list {
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-control-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1ch;
+  padding: 0.2lh 0;
+  border-bottom: 1px dashed var(--foreground2);
+}
+
+.tui-control-item:last-child {
+  border-bottom: none;
+}
+
+.tui-control-add {
+  display: grid;
+  gap: 0.6lh;
+  border-top: 1px dashed var(--foreground2);
+  padding-top: 0.8lh;
+}
+
+.tui-control-residual {
+  display: grid;
+  gap: 0.6lh;
+  grid-template-columns: repeat(auto-fit, minmax(16ch, 1fr));
+}
+
+.tui-action-list {
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-action-item {
+  border: 1px solid var(--foreground2);
+  background-color: var(--background0);
+  padding: 0.8lh 1.2ch;
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-action-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1ch;
+}
+
+.tui-action-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6ch;
+  flex-wrap: wrap;
+}
+
+.tui-action-item__fields {
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-action-add {
+  display: grid;
+  gap: 0.6lh;
+  border-top: 1px dashed var(--foreground2);
+  padding-top: 0.8lh;
+}
+
+.tui-llm-actions {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  flex-wrap: wrap;
+}
+
+.text-muted {
+  color: var(--foreground2);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2lh 2ch;
+  z-index: 80;
+}
+
+.modal-card {
+  width: min(480px, 100%);
+  background: var(--background0);
+  border: 1px solid var(--foreground2);
+  padding: 1.4lh 2ch 1.2lh;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 2ch;
+  padding-bottom: 0.8lh;
+  border-bottom: 1px solid var(--foreground2);
+}
+
+.confirm-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1ch;
+  padding-top: 1lh;
+}
+
+.btn-primary,
+.btn-outline,
+.btn-danger,
+.btn-ghost {
+  font: inherit;
+  border: 1px solid var(--foreground2);
+  background: var(--background1);
+  color: var(--foreground0);
+  padding: 0.35lh 1.4ch;
+}
+
+.btn-primary {
+  background: var(--foreground0);
+  color: var(--background0);
+}
+
+.btn-outline {
+  background: transparent;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--foreground1);
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.btn-small {
+  padding: 0.25lh 0.9ch;
+  font-size: 0.85rem;
+}
+
+.tui-llm-preview {
+  display: grid;
+  gap: 0.8lh;
+}
+
+.tui-llm-commands {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.6lh;
+}
+
+.tui-llm-command {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1ch;
+  padding: 0.6lh 1ch;
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+}
+
+.tui-llm-command__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6ch;
+  align-items: center;
+}
+
+.tui-llm-command__tag {
+  text-transform: uppercase;
+  letter-spacing: 0.16ch;
+  font-size: 0.7rem;
+}
+
+.tui-llm-command__target {
+  color: var(--foreground1);
+}
+
+.tui-llm-command__explanation {
+  color: var(--foreground2);
+}
+
+.tui-llm-command__fields {
+  color: var(--foreground2);
+  font-size: 0.85rem;
+}
+
+.tui-llm-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1ch;
+  padding: 0.6lh 1ch;
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+}
+
+.tui-review-copy {
+  display: grid;
+  gap: 0.4lh;
+}
+
+.tui-review-title {
+  margin: 0;
+}
+
+.tui-review-stats {
+  display: grid;
+  gap: 1lh;
+  grid-template-columns: repeat(auto-fit, minmax(16ch, 1fr));
+}
+
+.tui-review-stat {
+  border: 1px solid var(--foreground2);
+  background-color: var(--background1);
+  padding: 0.6lh 1ch;
+  display: grid;
+  gap: 0.2lh;
+}
+
+.tui-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1ch;
+}
+
+.tui-statusline--error {
+  color: #b91c1c;
+}
+
+[data-webtui-theme="dark"] .tui-statusline--error {
+  color: #fca5a5;
+}
+
+.tui-statusline--saving,
+.tui-statusline--parsing,
+.tui-statusline--applying {
+  color: var(--foreground1);
+}
+
+/* Browser TUI grid reused in TUI shell */
+.tui-panel {
+  border: 1px solid var(--foreground2);
+  background-color: var(--background0);
+  color: var(--foreground0);
+  overflow: hidden;
+}
+
+.tui-panel__header {
+  padding: 1lh 2ch;
+  border-bottom: 1px solid var(--foreground2);
+}
+
+.tui-panel__header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.tui-panel__header p {
+  margin: 0.5lh 0 0;
+  color: var(--foreground2);
+}
+
+.tui-empty {
+  padding: 1lh 2ch 1.4lh;
+  color: var(--foreground2);
+}
+
+.tui-grid {
+  padding: 1lh;
+  font-family: inherit;
+  outline: none;
+  overflow: auto;
+  max-height: 70vh;
+}
+
+.tui-status {
+  display: flex;
+  justify-content: space-between;
+  gap: 1ch;
+  padding: 0.8lh 2ch 1lh;
+  border-top: 1px solid var(--foreground2);
+  font-size: 0.85rem;
+  color: var(--foreground2);
+}
+
+.tui-status--global {
+  position: sticky;
+  bottom: 0;
+  background-color: var(--background0);
+}
+
+.tui-row {
+  display: flex;
+}
+
+.tui-row--header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--background1);
+}
+
+.tui-cell {
+  box-sizing: border-box;
+  padding: 0.35lh 0.5ch;
+  border-right: 1px solid var(--foreground2);
+  border-bottom: 1px solid var(--foreground2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+}
+
+.tui-cell--header {
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--foreground1);
+}
+
+.tui-cell--active {
+  outline: 2px solid var(--foreground0);
+  outline-offset: -2px;
+  background-color: var(--background2);
+}
+
+.tui-text {
+  display: block;
+  pointer-events: none;
+}
+
+.tui-input,
+.tui-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0.35lh 0.5ch;
+  border: none;
+  outline: none;
+  background-color: var(--background1);
+  color: var(--foreground0);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.tui-select {
+  cursor: pointer;
+}

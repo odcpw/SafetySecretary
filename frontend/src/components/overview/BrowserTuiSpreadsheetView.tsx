@@ -4,6 +4,7 @@ import type { RatingInput, RiskAssessmentCase } from "@/types/riskAssessment";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
 import { useI18n } from "@/i18n/I18nContext";
+import { TuiStatusLine } from "@/tui/components/TuiStatusLine";
 
 type TuiColumnKey =
   | "step"
@@ -413,21 +414,18 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
           </div>
         ))}
       </div>
-      <footer className="tui-status">
-        <span>
-          {t("tui.status", {
-            values: {
-              row: activeRow + 1,
-              total: rows.length,
-              column: activeColumn?.label ?? t("common.noData"),
-              hazard: activeHazard ? ` · ${activeHazard.label}` : ""
-            }
-          })}
-        </span>
-        <span>
-          {saving ? t("tui.saving") : editing ? t("tui.editing") : t("tui.ready")}
-        </span>
-      </footer>
+      <TuiStatusLine
+        status={saving ? "saving" : editing ? "editing" : "ready"}
+        primary={t("tui.status", {
+          values: {
+            row: activeRow + 1,
+            total: rows.length,
+            column: activeColumn?.label ?? t("common.noData"),
+            hazard: activeHazard ? ` · ${activeHazard.label}` : ""
+          }
+        })}
+        secondary={<span>{saving ? t("tui.saving") : editing ? t("tui.editing") : t("tui.ready")}</span>}
+      />
     </section>
   );
 };

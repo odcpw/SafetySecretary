@@ -275,9 +275,13 @@ export const JhaEditor = () => {
   }, [normalizeHazardDrafts, stepOrderKey, stepDrafts.length]);
 
   const stepsComplete = stepDrafts.length > 0 && stepDrafts.every((step) => step.label.trim().length > 0);
-  const hazardsComplete = hazardDrafts.length > 0 && hazardDrafts.every((hazard) => hazard.hazard.trim().length > 0);
+  const hazardsWithContent = hazardDrafts.filter((hazard) => hasHazardContent(hazard));
+  const hazardsWithDefinition = hazardsWithContent.filter((hazard) => hazard.hazard.trim().length > 0);
+  const hazardsComplete =
+    hazardsWithContent.length > 0 && hazardsWithContent.every((hazard) => hazard.hazard.trim().length > 0);
   const controlsComplete =
-    hazardDrafts.length > 0 && hazardDrafts.every((hazard) => parseControls(hazard.controls).length > 0);
+    hazardsWithDefinition.length === 0 ||
+    hazardsWithDefinition.every((hazard) => parseControls(hazard.controls).length > 0);
   const stageComplete: Record<JhaStage, boolean> = {
     steps: stepsComplete,
     hazards: hazardsComplete,
@@ -297,12 +301,8 @@ export const JhaEditor = () => {
   };
 
   const canEnterStage = (stage: JhaStage) => {
-    if (stage === "hazards" && !stepsComplete) {
+    if (stage !== "steps" && !stepsComplete) {
       setStageError(t("jha.flow.errors.stepsIncomplete"));
-      return false;
-    }
-    if (stage === "controls" && !hazardsComplete) {
-      setStageError(t("jha.flow.errors.hazardsIncomplete"));
       return false;
     }
     if (stage === "review" && !controlsComplete) {
@@ -556,7 +556,8 @@ export const JhaEditor = () => {
   };
 
   const persistHazards = async (stepIdByKey: Map<string, string>) => {
-    const hazardsPayload = hazardDrafts.map((hazard, index) => ({
+    const hazardsToPersist = hazardDrafts.filter((hazard) => hasHazardContent(hazard));
+    const hazardsPayload = hazardsToPersist.map((hazard, index) => ({
       id: hazard.id,
       stepId: stepIdByKey.get(hazard.stepKey) ?? hazard.stepKey,
       orderIndex: index,
@@ -1334,7 +1335,7 @@ export const JhaEditor = () => {
                     <button type="button" className="btn-outline" onClick={handlePrevStage}>
                       {t("jha.flow.actions.back")}
                     </button>
-                    <button type="button" className="btn-primary" onClick={handleNextStage} disabled={!hazardsComplete}>
+                    <button type="button" className="btn-primary" onClick={handleNextStage} disabled={!stepsComplete}>
                       {t("jha.flow.actions.next")}
                     </button>
                   </div>

@@ -3,6 +3,8 @@ import type { ProcessStep } from "@/types/riskAssessment";
 import type { CaseAttachment } from "@/types/attachments";
 import { useCaseAttachments } from "@/hooks/useCaseAttachments";
 import { useI18n } from "@/i18n/I18nContext";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { AttachmentPreviewDialog } from "@/components/common/AttachmentPreviewDialog";
 
 type DragPayload = { attachmentId: string; fromStepId: string | null };
 
@@ -25,6 +27,10 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
   const { attachments, loading, error, uploadToStep, moveToStep, reorderStepAttachments, deleteAttachment } =
     useCaseAttachments(caseId);
   const [status, setStatus] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<CaseAttachment | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<CaseAttachment | null>(null);
+  const [activeDropStepId, setActiveDropStepId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const { t } = useI18n();
 
   const stepAttachments = useMemo(() => {
@@ -71,6 +77,8 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
       console.error(err);
       setStatus(err instanceof Error ? err.message : t("photos.moveFailed"));
       setTimeout(() => setStatus(null), 4000);
+    } finally {
+      setActiveDropStepId(null);
     }
   };
 
@@ -94,19 +102,27 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
       console.error(err);
       setStatus(err instanceof Error ? err.message : t("photos.reorderFailed"));
       setTimeout(() => setStatus(null), 4000);
+    } finally {
+      setActiveDropStepId(null);
     }
   };
 
-  const handleDelete = async (attachmentId: string) => {
-    if (!confirm(t("photos.confirmDelete"))) return;
+  const handleDelete = (attachment: CaseAttachment) => {
+    setPendingDelete(attachment);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!pendingDelete) return;
     setStatus(t("photos.deleting"));
     try {
-      await deleteAttachment(attachmentId);
+      await deleteAttachment(pendingDelete.id);
       setStatus(null);
     } catch (err) {
       console.error(err);
       setStatus(err instanceof Error ? err.message : t("photos.deleteFailed"));
       setTimeout(() => setStatus(null), 4000);
+    } finally {
+      setPendingDelete(null);
     }
   };
 
@@ -129,10 +145,18 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
           return (
             <div
               key={step.id}
-              className="rounded border border-slate-200 p-3"
+              className={`attachment-zone${activeDropStepId === step.id ? " attachment-zone--active" : ""}`}
+              onDragEnter={() => setActiveDropStepId(step.id)}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  return;
+                }
+                setActiveDropStepId((prev) => (prev === step.id ? null : prev));
+              }}
               onDragOver={(event) => {
                 event.preventDefault();
                 event.dataTransfer.dropEffect = "move";
+                setActiveDropStepId(step.id);
               }}
               onDrop={(event) => {
                 event.preventDefault();
@@ -146,7 +170,7 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
                   {t("photos.stepLabel", { values: { index: index + 1 } })}:{" "}
                   <span className="font-normal text-slate-700">{step.activity}</span>
                 </div>
-                <label className="text-sm px-3 py-1 rounded bg-slate-900 text-white cursor-pointer">
+                <label className="btn-outline btn-small">
                   {t("common.upload")}
                   <input
                     type="file"
@@ -160,21 +184,23 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
               {photos.length === 0 ? (
                 <div className="text-sm text-slate-500">{t("photos.empty")}</div>
               ) : (
-                <div className="flex flex-wrap gap-3">
+                <div className="attachment-grid">
                   {photos.map((photo) => {
                     const isImage = photo.mimeType?.startsWith("image/");
                     return (
                       <div
                         key={photo.id}
-                        className="w-32"
+                        className={`attachment-card${draggingId === photo.id ? " attachment-card--dragging" : ""}`}
                         draggable
                         onDragStart={(event) => {
+                          setDraggingId(photo.id);
                           event.dataTransfer.setData(
                             DRAG_MIME,
                             JSON.stringify({ attachmentId: photo.id, fromStepId: step.id } satisfies DragPayload)
                           );
                           event.dataTransfer.effectAllowed = "move";
                         }}
+                        onDragEnd={() => setDraggingId(null)}
                         onDragOver={(event) => {
                           event.preventDefault();
                           event.dataTransfer.dropEffect = "move";
@@ -187,23 +213,24 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
                           void handleDropBefore(step.id, photo.id, payload);
                         }}
                       >
-                        <div className="relative rounded border border-slate-200 overflow-hidden bg-slate-50">
+                        <div className="attachment-card__preview">
                           {isImage ? (
-                            <img src={photo.url} alt={photo.originalName} className="h-20 w-full object-cover" />
+                            <button type="button" onClick={() => setPreviewAttachment(photo)}>
+                              <img src={photo.url} alt={photo.originalName} />
+                            </button>
                           ) : (
-                            <div className="h-20 w-full flex items-center justify-center text-slate-500 text-sm">
-                              {t("photos.fileLabel")}
-                            </div>
+                            <div className="attachment-card__file">{t("photos.fileLabel")}</div>
                           )}
                           <button
                             type="button"
-                            className="absolute top-1 right-1 bg-white/90 hover:bg-white text-slate-700 rounded px-1.5 py-0.5 text-xs"
-                            onClick={() => void handleDelete(photo.id)}
+                            className="attachment-card__delete btn-icon"
+                            onClick={() => handleDelete(photo)}
+                            aria-label={t("common.delete")}
                           >
                             ✕
                           </button>
                         </div>
-                        <div className="mt-1 text-xs text-slate-600 line-clamp-2" title={photo.originalName}>
+                        <div className="attachment-card__name" title={photo.originalName}>
                           {photo.originalName}
                         </div>
                       </div>
@@ -215,6 +242,27 @@ export const StepPhotosPanel = ({ caseId, steps }: { caseId: string; steps: Proc
           );
         })}
       </div>
+
+      <AttachmentPreviewDialog
+        open={Boolean(previewAttachment)}
+        title={previewAttachment?.originalName ?? ""}
+        src={previewAttachment?.url ?? ""}
+        onClose={() => setPreviewAttachment(null)}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={t("common.delete")}
+        description={
+          pendingDelete
+            ? t("photos.confirmDelete", { values: { name: pendingDelete.originalName } })
+            : undefined
+        }
+        confirmLabel={t("common.delete")}
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        onConfirm={() => void handleConfirmDelete()}
+        onClose={() => setPendingDelete(null)}
+      />
     </section>
   );
 };

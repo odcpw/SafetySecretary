@@ -22,7 +22,7 @@ interface GlobalLLMInputProps {
 }
 
 export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProps) => {
-  const { saving, actions } = useRaContext();
+  const { saving, actions, lastContextualUpdate } = useRaContext();
   const { t, locale } = useI18n();
   const [input, setInput] = useState("");
   const [clarification, setClarification] = useState("");
@@ -30,6 +30,8 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
   const [parsedResult, setParsedResult] = useState<ParsedContextualUpdate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  const [undoStatus, setUndoStatus] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
 
   const voiceLang = locale === "fr" ? "fr-FR" : locale === "de" ? "de-DE" : "en-US";
   const speech = useSpeechToText({
@@ -50,6 +52,8 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
     setParsing(true);
     setParsedResult(null);
     setClarification("");
+    setUndoStatus(null);
+    setUndoError(null);
 
     try {
       const result = await actions.parseContextualUpdate(input.trim(), currentPhase);
@@ -68,6 +72,8 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
 
     setError(null);
     setParsing(true);
+    setUndoStatus(null);
+    setUndoError(null);
 
     try {
       const combined = `${input.trim()}\n\n${t("llm.clarificationPrefix")}: ${clarification.trim()}`;
@@ -90,14 +96,15 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
 
     setApplying(true);
     setError(null);
+    setUndoStatus(null);
+    setUndoError(null);
 
     try {
-      for (const command of parsedResult.commands) {
-        await actions.applyContextualUpdate(command);
-      }
+      await actions.applyContextualUpdates(parsedResult.commands, parsedResult.summary);
       // Clear input and results on success
       setInput("");
       setParsedResult(null);
+      setUndoStatus(t("llm.undoAvailable"));
     } catch (err) {
       console.error("Apply error:", err);
       setError(err instanceof Error ? err.message : t("llm.applyFailed"));
@@ -112,9 +119,11 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
 
     setApplying(true);
     setError(null);
+    setUndoStatus(null);
+    setUndoError(null);
 
     try {
-      await actions.applyContextualUpdate(command);
+      await actions.applyContextualUpdates([command], parsedResult?.summary);
       // Remove this command from the list
       if (parsedResult) {
         const remaining = parsedResult.commands.filter((c) => c !== command);
@@ -125,6 +134,7 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
           setParsedResult({ ...parsedResult, commands: remaining });
         }
       }
+      setUndoStatus(t("llm.undoAvailable"));
     } catch (err) {
       console.error("Apply error:", err);
       setError(err instanceof Error ? err.message : t("llm.applySingleFailed"));
@@ -138,6 +148,23 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
     setParsedResult(null);
     setError(null);
     setClarification("");
+  };
+
+  const handleUndo = async () => {
+    if (!lastContextualUpdate) return;
+    setUndoStatus(null);
+    setUndoError(null);
+    try {
+      await actions.undoLastContextualUpdate();
+      setUndoStatus(t("llm.undoSuccess"));
+    } catch (err) {
+      setUndoError(err instanceof Error ? err.message : t("llm.undoFailed"));
+    }
+  };
+
+  const formatCommandFields = (command: ContextualUpdateCommand) => {
+    const fields = Object.keys(command.data ?? {}).filter((key) => key.trim().length > 0);
+    return fields.length ? fields.join(", ") : null;
   };
 
   // Handle Enter key to submit
@@ -206,6 +233,21 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
         </div>
       )}
 
+      {lastContextualUpdate && (
+        <div className="global-llm-input__undo">
+          <div>
+            <p className="text-label">{t("llm.lastApplied")}</p>
+            <p className="text-muted">{lastContextualUpdate.summary ?? t("llm.undoAvailable")}</p>
+          </div>
+          <button type="button" className="btn-ghost" onClick={() => void handleUndo()} disabled={isDisabled}>
+            {t("llm.undo")}
+          </button>
+        </div>
+      )}
+
+      {undoStatus && <div className="global-llm-input__status">{undoStatus}</div>}
+      {undoError && <div className="global-llm-input__error">{undoError}</div>}
+
       {parsedResult && (
           <div className="global-llm-input__preview">
             <div className="global-llm-input__preview-header">
@@ -249,23 +291,31 @@ export const GlobalLLMInput = ({ currentPhase, textareaRef }: GlobalLLMInputProp
           ) : (
             <>
               <ul className="global-llm-input__commands">
-                {parsedResult.commands.map((command, index) => (
-                  <li key={index} className="global-llm-input__command">
-                    <div className="global-llm-input__command-info">
-                      <span className="command-badge">{command.intent}</span>
-                      <span className="command-target">{command.target}</span>
-                      <span className="command-explanation">{command.explanation}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleApplySingle(command)}
-                      disabled={applying}
-                      className="btn-small"
-                    >
-                      {t("llm.apply")}
-                    </button>
-                  </li>
-                ))}
+                {parsedResult.commands.map((command, index) => {
+                  const fields = formatCommandFields(command);
+                  return (
+                    <li key={index} className="global-llm-input__command">
+                      <div className="global-llm-input__command-info">
+                        <span className="command-badge">{command.intent}</span>
+                        <span className="command-target">{command.target}</span>
+                        <span className="command-explanation">{command.explanation}</span>
+                        {fields && (
+                          <span className="command-fields">
+                            {t("llm.affectedFields", { values: { fields } })}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleApplySingle(command)}
+                        disabled={applying}
+                        className="btn-small"
+                      >
+                        {t("llm.apply")}
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
 
               <div className="global-llm-input__preview-actions">

@@ -22,6 +22,7 @@ import {
 } from "@/lib/riskMatrixSettings";
 import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/templateRiskScales";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseControlsProps {
@@ -101,6 +102,7 @@ export const PhaseControls = ({
   // State for inline editing of existing controls
   const [existingControlsEditing, setExistingControlsEditing] = useState<Record<string, string>>({});
   const { status, show, showSuccess, showError } = useSaveStatus();
+  const { confirm, dialog } = useConfirmDialog();
 
   const hierarchyOptions = useMemo(
     () => [
@@ -194,9 +196,14 @@ export const PhaseControls = ({
   };
 
   const handleDeleteControl = async (hazardId: string, controlId: string) => {
-    if (!window.confirm(t("ra.controls.confirmRemove"))) {
-      return;
-    }
+    const ok = await confirm({
+      title: t("common.delete"),
+      description: t("ra.controls.confirmRemove"),
+      confirmLabel: t("common.delete"),
+      cancelLabel: t("common.cancel"),
+      tone: "danger"
+    });
+    if (!ok) return;
     show({ message: t("ra.controls.removing"), tone: "info" });
     try {
       await onDeleteProposedControl(hazardId, controlId);
@@ -559,12 +566,13 @@ export const PhaseControls = ({
             {t("ra.controls.saveResidual")}
           </button>
           {canAdvance && (
-            <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
+            <button type="button" className="btn-primary" disabled={saving} onClick={onNext}>
               {t("common.continue")}
             </button>
           )}
         </div>
       </div>
+      {dialog}
     </div>
   );
 };

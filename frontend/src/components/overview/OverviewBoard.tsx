@@ -200,7 +200,7 @@ export const OverviewBoard = ({ raCase, saving, onAddHazard, onAddAction, onUpda
                     <div className="mt-2 flex justify-end">
                       <button
                         type="button"
-                        className="bg-slate-800"
+                        className="btn-primary btn-small"
                         onClick={() => handleAddAction(hazard.id)}
                         disabled={saving || !actionForm.description.trim()}
                       >

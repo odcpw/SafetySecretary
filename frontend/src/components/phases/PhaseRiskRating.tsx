@@ -362,7 +362,7 @@ export const PhaseRiskRating = ({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <SaveStatus status={status} />
         {canAdvance && (
-          <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
+          <button type="button" className="btn-primary" disabled={saving} onClick={onNext}>
             {t("common.continue")}
           </button>
         )}

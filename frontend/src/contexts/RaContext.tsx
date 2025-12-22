@@ -45,6 +45,12 @@ export interface ParsedContextualUpdate {
   rawResponse?: string;
 }
 
+type ContextualUpdateSnapshot = {
+  beforeCase: RiskAssessmentCase;
+  summary?: string;
+  appliedAt: string;
+};
+
 interface RaActions {
   extractSteps: (description: string) => Promise<void>;
   saveSteps: (steps: EditableProcessStep[]) => Promise<void>;
@@ -70,13 +76,18 @@ interface RaActions {
   // Contextual update actions for natural language input
   parseContextualUpdate: (userInput: string, currentPhase: string) => Promise<ParsedContextualUpdate>;
   applyContextualUpdate: (command: ContextualUpdateCommand) => Promise<void>;
+  applyContextualUpdates: (commands: ContextualUpdateCommand[], summary?: string) => Promise<void>;
+  undoLastContextualUpdate: () => Promise<void>;
 }
 
 interface RaContextValue {
   raCase: RiskAssessmentCase;
   saving: boolean;
-  refreshCase: () => Promise<void>;
+  loading: boolean;
+  error: string | null;
+  refreshCase: () => Promise<RiskAssessmentCase | null>;
   actions: RaActions;
+  lastContextualUpdate: ContextualUpdateSnapshot | null;
 }
 
 const RaContext = createContext<RaContextValue | null>(null);
@@ -106,23 +117,40 @@ const voidFetch = async (path: string, init?: RequestInit): Promise<void> => {
   }
 };
 
-export const RaProvider = ({ caseId, children }: { caseId: string; children: ReactNode }) => {
+interface RaProviderProps {
+  caseId: string;
+  children: ReactNode;
+  statusVariant?: "gui" | "tui";
+  renderLoading?: () => ReactNode;
+  renderError?: (error: string, retry: () => Promise<RiskAssessmentCase | null>) => ReactNode;
+}
+
+export const RaProvider = ({
+  caseId,
+  children,
+  statusVariant = "gui",
+  renderLoading,
+  renderError
+}: RaProviderProps) => {
   const [raCase, setRaCase] = useState<RiskAssessmentCase | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastContextualUpdate, setLastContextualUpdate] = useState<ContextualUpdateSnapshot | null>(null);
   const navigate = useNavigate();
   const isDemo = useDemoMode();
 
-  const refreshCase = useCallback(async () => {
+  const refreshCase = useCallback(async (): Promise<RiskAssessmentCase | null> => {
     try {
       setLoading(true);
       const data = await jsonFetch<RiskAssessmentCase>(`/api/ra-cases/${caseId}`);
       setRaCase(data);
       setError(null);
+      return data;
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Unable to load case");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -131,6 +159,10 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
   useEffect(() => {
     void refreshCase();
   }, [refreshCase]);
+
+  useEffect(() => {
+    setLastContextualUpdate(null);
+  }, [caseId]);
 
   const mutate = async (action: () => Promise<void>) => {
     setSaving(true);
@@ -360,21 +392,58 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
     },
     // Apply a single contextual update command to the case
     applyContextualUpdate: (command: ContextualUpdateCommand) =>
-      mutate(async () => {
-        await voidFetch(`/api/ra-cases/${caseId}/contextual-update/apply`, {
-          method: "POST",
-          body: JSON.stringify({ command })
+      actions.applyContextualUpdates([command]),
+    applyContextualUpdates: async (commands, summary) => {
+      if (!raCase || commands.length === 0) {
+        return;
+      }
+      const beforeCase = raCase;
+      setSaving(true);
+      try {
+        for (const command of commands) {
+          await voidFetch(`/api/ra-cases/${caseId}/contextual-update/apply`, {
+            method: "POST",
+            body: JSON.stringify({ command })
+          });
+        }
+        await refreshCase();
+        setLastContextualUpdate({
+          beforeCase,
+          summary,
+          appliedAt: new Date().toISOString()
         });
-      })
+      } finally {
+        setSaving(false);
+      }
+    },
+    undoLastContextualUpdate: async () => {
+      if (!lastContextualUpdate) {
+        return;
+      }
+      setSaving(true);
+      try {
+        await jsonFetch(`/api/ra-cases/${caseId}/contextual-update/undo`, {
+          method: "POST",
+          body: JSON.stringify({ snapshot: lastContextualUpdate.beforeCase })
+        });
+        await refreshCase();
+        setLastContextualUpdate(null);
+      } finally {
+        setSaving(false);
+      }
+    }
   };
 
   if (!raCase) {
     if (error) {
+      if (renderError) {
+        return <>{renderError(error, refreshCase)}</>;
+      }
       return (
         <div className="p-6">
           <p className="text-red-600">
             Failed to load case: {error}
-            <button type="button" className="ml-3 bg-slate-800" onClick={() => refreshCase()}>
+            <button type="button" className="ml-3 btn-outline btn-small" onClick={() => refreshCase()}>
               Retry
             </button>
           </p>
@@ -382,17 +451,20 @@ export const RaProvider = ({ caseId, children }: { caseId: string; children: Rea
         </div>
       );
     }
+    if (renderLoading) {
+      return <>{renderLoading()}</>;
+    }
     return <div className="p-6 text-slate-600">Loading case…</div>;
   }
 
   return (
-    <RaContext.Provider value={{ raCase, saving, refreshCase, actions }}>
-      {loading && (
+    <RaContext.Provider value={{ raCase, saving, refreshCase, actions, loading, error, lastContextualUpdate }}>
+      {statusVariant !== "tui" && loading && (
         <div className="bg-slate-50 text-slate-500 px-4 py-2 mb-4 rounded">
           Refreshing latest data…
         </div>
       )}
-      {error && (
+      {statusVariant !== "tui" && error && (
         <div className="bg-amber-50 text-amber-900 px-4 py-2 mb-4 rounded">
           Refresh failed: {error}{" "}
           <button type="button" className="underline" onClick={() => refreshCase()}>

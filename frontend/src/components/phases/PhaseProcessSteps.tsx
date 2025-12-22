@@ -387,7 +387,7 @@ export const PhaseProcessSteps = ({
           {canAdvance && (
             <button
               type="button"
-              className="bg-emerald-600"
+              className="btn-primary"
               disabled={saving || isDirty || draftSteps.length === 0}
               onClick={onNext}
             >

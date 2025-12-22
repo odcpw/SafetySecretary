@@ -6,13 +6,18 @@ import { I18nProvider } from "@/i18n/I18nContext";
 
 const parseContextualUpdate = vi.fn();
 const applyContextualUpdate = vi.fn();
+const applyContextualUpdates = vi.fn();
+const undoLastContextualUpdate = vi.fn();
 
 vi.mock("@/contexts/RaContext", () => ({
   useRaContext: () => ({
     saving: false,
+    lastContextualUpdate: null,
     actions: {
       parseContextualUpdate,
-      applyContextualUpdate
+      applyContextualUpdate,
+      applyContextualUpdates,
+      undoLastContextualUpdate
     }
   })
 }));

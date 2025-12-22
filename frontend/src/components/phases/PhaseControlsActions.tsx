@@ -19,6 +19,7 @@ import {
 import type { ControlHierarchy } from "@/types/riskAssessment";
 import { useRaContext } from "@/contexts/RaContext";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseControlsActionsProps {
@@ -70,6 +71,7 @@ export const PhaseControlsActions = ({
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const { t, locale, formatDate } = useI18n();
   const { status, show, showSuccess, showError } = useSaveStatus();
+  const { confirm, dialog } = useConfirmDialog();
 
   const stepNumberById = useMemo(() => new Map(raCase.steps.map((step, index) => [step.id, index + 1])), [raCase.steps]);
   const hazardsByStep = useMemo(() => {
@@ -188,6 +190,18 @@ export const PhaseControlsActions = ({
         t("common.retry")
       );
     }
+  };
+
+  const handleConfirmDeleteAction = async (actionId: string) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      description: t("ra.actions.confirmDelete"),
+      confirmLabel: t("common.delete"),
+      cancelLabel: t("common.cancel"),
+      tone: "danger"
+    });
+    if (!ok) return;
+    await handleDeleteAction(actionId);
   };
 
   const handleInlineAdd = async (
@@ -431,11 +445,7 @@ export const PhaseControlsActions = ({
                                     <SheetCell>
                                       <SheetButton
                                         variant="danger"
-                                        onClick={() => {
-                                          if (window.confirm(t("ra.actions.confirmDelete"))) {
-                                            void handleDeleteAction(action.id);
-                                          }
-                                        }}
+                                        onClick={() => void handleConfirmDeleteAction(action.id)}
                                         disabled={saving}
                                       >
                                         {t("common.delete")}
@@ -586,11 +596,12 @@ export const PhaseControlsActions = ({
 
       {canAdvance && (
         <div className="flex justify-end">
-          <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
+          <button type="button" className="btn-primary" disabled={saving} onClick={onNext}>
             {t("common.continue")}
           </button>
         </div>
       )}
+      {dialog}
     </div>
   );
 };

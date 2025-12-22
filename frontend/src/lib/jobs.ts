@@ -8,6 +8,13 @@ export type LlmJobType =
   | "controls"
   | "actions"
   | "jha-rows"
+  | "jha-steps"
+  | "jha-hazards"
+  | "jha-controls"
+  | "incident-facts"
+  | "incident-causes"
+  | "incident-root-causes"
+  | "incident-actions"
   | "incident-witness"
   | "incident-merge"
   | "incident-consistency";
@@ -30,6 +37,13 @@ const KNOWN_JOB_TYPES = new Set<LlmJobType>([
   "controls",
   "actions",
   "jha-rows",
+  "jha-steps",
+  "jha-hazards",
+  "jha-controls",
+  "incident-facts",
+  "incident-causes",
+  "incident-root-causes",
+  "incident-actions",
   "incident-witness",
   "incident-merge",
   "incident-consistency"

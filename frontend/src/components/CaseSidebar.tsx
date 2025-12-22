@@ -21,7 +21,7 @@ export const CaseSidebar = ({ activityName, location, team, currentPhase, onRefr
         <p className="text-sm text-slate-600">{location || t("workspace.locationPending")}</p>
         <p className="text-sm text-slate-600">{team || t("workspace.teamPending")}</p>
         {onRefresh && (
-          <button type="button" className="mt-3 bg-slate-800 text-sm" onClick={onRefresh}>
+          <button type="button" className="mt-3 btn-outline btn-small" onClick={onRefresh}>
             {t("common.refresh")}
           </button>
         )}

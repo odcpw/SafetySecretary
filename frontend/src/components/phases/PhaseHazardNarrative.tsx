@@ -17,6 +17,7 @@ import type { Hazard, RiskAssessmentCase } from "@/types/riskAssessment";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import { useHazardDrafts } from "@/hooks/useHazardDrafts";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
 
 interface PhaseHazardNarrativeProps {
@@ -63,6 +64,7 @@ export const PhaseHazardNarrative = ({
   const { drafts, patchDraft, commitDraft } = useHazardDrafts(raCase.hazards);
   const { t, locale } = useI18n();
   const { status, show, showSuccess, showError, clear } = useSaveStatus();
+  const { confirm, dialog } = useConfirmDialog();
 
   const stepNumberMap = useMemo(
     () => new Map(raCase.steps.map((step, index) => [step.id, index + 1])),
@@ -129,9 +131,14 @@ export const PhaseHazardNarrative = ({
   );
 
   const handleDelete = async (hazardId: string) => {
-    if (!window.confirm(t("ra.hazards.confirmDelete"))) {
-      return;
-    }
+    const ok = await confirm({
+      title: t("common.delete"),
+      description: t("ra.hazards.confirmDelete"),
+      confirmLabel: t("common.delete"),
+      cancelLabel: t("common.cancel"),
+      tone: "danger"
+    });
+    if (!ok) return;
     show({ message: t("ra.hazards.deleting"), tone: "info" });
     try {
       await onDeleteHazard(hazardId);
@@ -588,7 +595,7 @@ export const PhaseHazardNarrative = ({
                             </SheetButton>
                             <SheetButton
                               variant="danger"
-                              onClick={() => handleDelete(hazard.id)}
+                              onClick={() => void handleDelete(hazard.id)}
                             >
                               {t("common.delete")}
                             </SheetButton>
@@ -611,11 +618,12 @@ export const PhaseHazardNarrative = ({
 
       {canAdvance && (
         <div className="flex justify-end gap-3">
-          <button type="button" className="bg-emerald-600" disabled={saving} onClick={onNext}>
+          <button type="button" className="btn-primary" disabled={saving} onClick={onNext}>
             {t("common.continue")}
           </button>
         </div>
       )}
+      {dialog}
     </div>
   );
 };

@@ -35,6 +35,7 @@ import {
 import { useHazardDrafts } from "@/hooks/useHazardDrafts";
 import { SaveStatus } from "@/components/common/SaveStatus";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
 
 const SEVERITY_OPTIONS = TEMPLATE_SEVERITY_OPTIONS;
@@ -57,6 +58,7 @@ const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
 export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   const { saving, actions } = useRaContext();
   const { t } = useI18n();
+  const { confirm, dialog } = useConfirmDialog();
   const { status, show, showSuccess, showError } = useSaveStatus();
   const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
   const [settings, setSettings] = useState(() => loadMatrixSettings(defaultLabels));
@@ -275,6 +277,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
       <div style={{ marginTop: "0.6rem" }}>
         <SaveStatus status={status} />
       </div>
+      {dialog}
     </div>
   );
 };
@@ -551,6 +554,7 @@ const EditableStepRows = ({
                     onDelete={actions.deleteAction}
                     onSuccess={onSuccess}
                     onError={onError}
+                    onConfirmDelete={confirm}
                   />
                 ))}
               </ul>
@@ -764,11 +768,26 @@ interface ActionItemProps {
     patch: { description?: string; owner?: string | null; dueDate?: string | null; status?: string }
   ) => Promise<void>;
   onDelete: (actionId: string) => Promise<void>;
+  onConfirmDelete: (options: {
+    title: string;
+    description?: string;
+    confirmLabel: string;
+    cancelLabel: string;
+    tone?: "default" | "danger";
+  }) => Promise<boolean>;
   onSuccess: (message: string, duration?: number) => void;
   onError: (message: string, retry?: () => void) => void;
 }
 
-const ActionItem = ({ action, saving, onUpdate, onDelete, onSuccess, onError }: ActionItemProps) => {
+const ActionItem = ({
+  action,
+  saving,
+  onUpdate,
+  onDelete,
+  onConfirmDelete,
+  onSuccess,
+  onError
+}: ActionItemProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [description, setDescription] = useState(action.description);
   const [owner, setOwner] = useState(action.owner ?? "");
@@ -808,6 +827,18 @@ const ActionItem = ({ action, saving, onUpdate, onDelete, onSuccess, onError }: 
       console.error(error);
       onError(t("ra.workspace.actionDeleteFailed"), () => void handleDelete());
     }
+  };
+
+  const handleConfirmDelete = async () => {
+    const ok = await onConfirmDelete({
+      title: t("common.delete"),
+      description: t("ra.actions.confirmDelete"),
+      confirmLabel: t("common.delete"),
+      cancelLabel: t("common.cancel"),
+      tone: "danger"
+    });
+    if (!ok) return;
+    await handleDelete();
   };
 
   if (isEditing) {
@@ -858,11 +889,7 @@ const ActionItem = ({ action, saving, onUpdate, onDelete, onSuccess, onError }: 
           <button
             type="button"
             className="sheet-button sheet-button--danger"
-            onClick={() => {
-              if (window.confirm(t("ra.actions.confirmDelete"))) {
-                void handleDelete();
-              }
-            }}
+            onClick={() => void handleConfirmDelete()}
             disabled={saving}
           >
             {t("common.delete")}

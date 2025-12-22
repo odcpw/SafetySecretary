@@ -35,7 +35,7 @@ export const PhaseReviewPlaceholder = ({
   ];
 
   return (
-    <section className="phase-review app-panel">
+    <section className="phase-review app-panel stack-lg">
       <header className="phase-review__header">
         <p className="text-label">{t("ra.review.badge")}</p>
         <h3>{copy.title}</h3>

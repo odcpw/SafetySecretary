@@ -2,7 +2,7 @@ import { useEffect, useCallback, type RefObject } from "react";
 import { useFocusMode } from "@/contexts/FocusModeContext";
 import type { Phase } from "@/types/riskAssessment";
 
-type WorkspaceView = "phases" | "table" | "matrix" | "actions" | "tui";
+type WorkspaceView = "phases" | "table" | "matrix" | "actions";
 
 interface UseGlobalHotkeysOptions {
   globalPromptRef?: RefObject<HTMLTextAreaElement | null>;
@@ -25,8 +25,7 @@ const VIEW_KEYS: Record<string, WorkspaceView> = {
   "1": "phases",
   "2": "table",
   "3": "matrix",
-  "4": "actions",
-  "5": "tui"
+  "4": "actions"
 };
 
 export const useGlobalHotkeys = ({

@@ -1,12 +1,15 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { GlobalLLMInput } from "@/components/GlobalLLMInput";
 import { FocusModeToggle } from "@/components/common/FocusModeToggle";
 import { HotkeysBar } from "@/components/common/HotkeysBar";
+import { RecentCasesModal } from "@/components/common/RecentCasesModal";
+import { OverflowMenu } from "@/components/common/OverflowMenu";
+import { SaveStatus } from "@/components/common/SaveStatus";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { UserMenu } from "@/components/common/UserMenu";
+import { WorkspaceTopBar } from "@/components/common/WorkspaceTopBar";
 import { RiskMatrixPanel } from "@/components/overview/RiskMatrixPanel";
-import { BrowserTuiSpreadsheetView } from "@/components/overview/BrowserTuiSpreadsheetView";
 import { WorkspaceTableView } from "@/components/overview/WorkspaceTableView";
 import { PhaseControls } from "@/components/phases/PhaseControls";
 import { PhaseControlsActions } from "@/components/phases/PhaseControlsActions";
@@ -16,104 +19,15 @@ import { PhaseReviewPlaceholder } from "@/components/phases/PhaseReviewPlacehold
 import { PhaseRiskRating } from "@/components/phases/PhaseRiskRating";
 import { PHASES } from "@/lib/phases";
 import { useRaContext } from "@/contexts/RaContext";
+import { apiFetch } from "@/lib/api";
 import { useGlobalHotkeys } from "@/hooks/useGlobalHotkeys";
-import type { Phase } from "@/types/riskAssessment";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { useSaveStatus } from "@/hooks/useSaveStatus";
+import type { Phase, RiskAssessmentCaseSummary } from "@/types/riskAssessment";
 import type { WorkspaceContext } from "@/types/workspace";
 import { useI18n } from "@/i18n/I18nContext";
 
-type WorkspaceView = "phases" | "table" | "matrix" | "actions" | "tui";
-
-interface WorkspaceTopBarProps {
-  activityName: string;
-  location: string | null;
-  team: string | null;
-  caseId: string;
-  saving: boolean;
-  currentView: WorkspaceView;
-  tuiEnabled?: boolean;
-  onRefresh: () => Promise<void>;
-  onNewCase: () => void;
-  onLoadCase: (id: string) => void;
-  onChangeView: (view: WorkspaceView) => void;
-}
-
-const WorkspaceTopBar = ({
-  activityName,
-  location,
-  team,
-  caseId,
-  saving,
-  currentView,
-  tuiEnabled = false,
-  onRefresh,
-  onNewCase,
-  onLoadCase,
-  onChangeView
-}: WorkspaceTopBarProps) => {
-  const { t } = useI18n();
-  const handleLoad = () => {
-    const id = window.prompt(t("ra.topbar.loadPrompt"));
-    if (id?.trim()) {
-      onLoadCase(id.trim());
-    }
-  };
-
-  const viewButton = (view: WorkspaceView, label: string) => (
-    <button
-      type="button"
-      className={currentView === view ? "btn-outline active" : "btn-outline"}
-      onClick={() => onChangeView(view)}
-    >
-      {label}
-    </button>
-  );
-
-  return (
-    <header className="workspace-topbar">
-      <div className="workspace-topbar__summary">
-        <p className="text-label">{t("workspace.hiraWorkspace")}</p>
-        <h1>{activityName}</h1>
-        <p>
-          {location || t("workspace.locationPending")} · {team || t("workspace.teamPending")}
-        </p>
-        {saving && <p className="text-saving">{t("workspace.saving")}</p>}
-      </div>
-      <div className="workspace-topbar__actions">
-        <button type="button" className="btn-outline" onClick={onNewCase}>
-          {t("common.new")}
-        </button>
-        <button type="button" className="btn-outline" onClick={handleLoad}>
-          {t("common.load")}
-        </button>
-        <button type="button" onClick={() => onRefresh()}>
-          {t("common.refresh")}
-        </button>
-        {viewButton("phases", t("ra.topbar.viewGuided"))}
-        {viewButton("table", t("ra.topbar.viewWorkspace"))}
-        {viewButton("matrix", t("ra.topbar.viewMatrix"))}
-        {viewButton("actions", t("ra.topbar.viewActions"))}
-        {tuiEnabled && viewButton("tui", t("ra.topbar.viewTui"))}
-        <button
-          type="button"
-          className="btn-outline"
-          onClick={() => window.open(`/api/ra-cases/${caseId}/export/pdf`, "_blank", "noopener")}
-        >
-          {t("common.exportPdf")}
-        </button>
-        <button
-          type="button"
-          className="btn-outline"
-          onClick={() => window.open(`/api/ra-cases/${caseId}/export/xlsx`, "_blank", "noopener")}
-        >
-          {t("common.exportXlsx")}
-        </button>
-        <ThemeToggle />
-        <FocusModeToggle />
-        <UserMenu />
-      </div>
-    </header>
-  );
-};
+type WorkspaceView = "phases" | "table" | "matrix" | "actions";
 
 interface PhaseStepperProps {
   currentPhase: Phase;
@@ -121,12 +35,13 @@ interface PhaseStepperProps {
   saving: boolean;
   onSelectPhase: (phase: Phase) => void;
   onAdvance: () => Promise<void>;
+  compact?: boolean;
 }
 
 const HIDDEN_PHASES: Phase[] = [];
 
-const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvance }: PhaseStepperProps) => {
-  const { t } = useI18n();
+const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvance, compact = false }: PhaseStepperProps) => {
+  const { t, formatDateTime } = useI18n();
   const viewIndex = PHASES.findIndex((phase) => phase.id === viewPhase);
   const prevPhase = viewIndex > 0 ? PHASES[viewIndex - 1]?.id : null;
   const nextPhase = viewIndex < PHASES.length - 1 ? PHASES[viewIndex + 1]?.id : null;
@@ -134,19 +49,29 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
   const chipPhases = PHASES.filter((phase) => !HIDDEN_PHASES.includes(phase.id));
 
   return (
-    <footer className="phase-stepper">
+    <footer className={`phase-stepper${compact ? " phase-stepper--compact" : ""}`}>
       <div className="phase-stepper__nav">
-        <button type="button" className="btn-outline" disabled={!prevPhase} onClick={() => prevPhase && onSelectPhase(prevPhase)}>
+        <button
+          type="button"
+          className={compact ? "btn-outline btn-small" : "btn-outline"}
+          disabled={!prevPhase}
+          onClick={() => prevPhase && void onSelectPhase(prevPhase)}
+        >
           ← {t("ra.stepper.previous")}
         </button>
-        <button type="button" className="btn-outline" disabled={!nextPhase} onClick={() => nextPhase && onSelectPhase(nextPhase)}>
+        <button
+          type="button"
+          className={compact ? "btn-outline btn-small" : "btn-outline"}
+          disabled={!nextPhase}
+          onClick={() => nextPhase && void onSelectPhase(nextPhase)}
+        >
           {t("ra.stepper.next")} →
         </button>
-        <span className="text-label">
+        <span className={`text-label${compact ? " phase-stepper__label" : ""}`}>
           {t("ra.stepper.viewing")}: {t(PHASES[viewIndex]?.labelKey ?? "", { fallback: PHASES[viewIndex]?.label ?? viewPhase })}
         </span>
       </div>
-      <div className="phase-stepper__chips">
+      <div className={`phase-stepper__chips${compact ? " phase-stepper__chips--compact" : ""}`}>
         {chipPhases.map((phase) => {
           const state =
             phase.id === currentPhase
@@ -162,18 +87,20 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
                 ? "phase-chip phase-chip--active"
                 : "phase-chip";
           return (
-            <button key={phase.id} type="button" className={chipClass} onClick={() => onSelectPhase(phase.id)}>
+            <button key={phase.id} type="button" className={chipClass} onClick={() => void onSelectPhase(phase.id)}>
               {t(phase.labelKey, { fallback: phase.label })}
             </button>
           );
         })}
       </div>
       <div className="phase-stepper__status">
-        <p>
-          {t("ra.stepper.currentPhase")}:{" "}
-          <strong>{t(currentPhaseMeta?.labelKey ?? "", { fallback: currentPhaseMeta?.label ?? currentPhase })}</strong>
-        </p>
-        <button type="button" disabled={saving} onClick={() => onAdvance()}>
+        {!compact && (
+          <p>
+            {t("ra.stepper.currentPhase")}:{" "}
+            <strong>{t(currentPhaseMeta?.labelKey ?? "", { fallback: currentPhaseMeta?.label ?? currentPhase })}</strong>
+          </p>
+        )}
+        <button type="button" className={compact ? "btn-primary btn-small" : undefined} disabled={saving} onClick={() => void onAdvance()}>
           {t("ra.stepper.advance")}
         </button>
       </div>
@@ -184,9 +111,16 @@ const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvanc
 export const RaEditor = () => {
   const { raCase, saving, actions, refreshCase } = useRaContext();
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, formatDateTime } = useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const [stepsDirty, setStepsDirty] = useState(false);
+  const [loadModalOpen, setLoadModalOpen] = useState(false);
+  const [recentCases, setRecentCases] = useState<RiskAssessmentCaseSummary[]>([]);
+  const [casesLoading, setCasesLoading] = useState(false);
+  const [casesError, setCasesError] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirmDialog();
+  const { status: exportStatus, show: showExportStatus, showSuccess: showExportSuccess, showError: showExportError } =
+    useSaveStatus();
 
   const globalPromptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -202,7 +136,7 @@ export const RaEditor = () => {
     if (!param) {
       return null;
     }
-    return ["phases", "table", "matrix", "actions", "tui"].includes(param) ? (param as WorkspaceView) : null;
+    return ["phases", "table", "matrix", "actions"].includes(param) ? (param as WorkspaceView) : null;
   }, []);
 
   const [viewPhaseState, setViewPhaseState] = useState<Phase>(
@@ -215,15 +149,7 @@ export const RaEditor = () => {
   const viewPhase = paramPhase ?? viewPhaseState;
   const safeViewPhase = PHASES.some((phase) => phase.id === viewPhase) ? viewPhase : raCase.phase;
   const paramWorkspaceView = getWorkspaceFromParam(searchParams.get("view"));
-  const requestedWorkspaceView = paramWorkspaceView ?? workspaceViewState;
-  const tuiEnabled = (() => {
-    try {
-      return searchParams.get("tui") === "1" || window.localStorage.getItem("ss_tui") === "1";
-    } catch {
-      return false;
-    }
-  })();
-  const workspaceView: WorkspaceView = requestedWorkspaceView === "tui" && !tuiEnabled ? "table" : requestedWorkspaceView;
+  const workspaceView = paramWorkspaceView ?? workspaceViewState;
 
   const updateSearchParams = useCallback(
     (patch: Record<string, string | null>) => {
@@ -242,19 +168,47 @@ export const RaEditor = () => {
     [setSearchParams]
   );
 
+  const fetchRecentCases = useCallback(async () => {
+    setCasesLoading(true);
+    setCasesError(null);
+    try {
+      const response = await apiFetch("/api/ra-cases?limit=20");
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      const data = (await response.json()) as { cases: RiskAssessmentCaseSummary[] };
+      setRecentCases(data.cases ?? []);
+    } catch (error) {
+      setCasesError(error instanceof Error ? error.message : t("landing.hira.errors.loadFailed"));
+    } finally {
+      setCasesLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    if (loadModalOpen) {
+      void fetchRecentCases();
+    }
+  }, [fetchRecentCases, loadModalOpen]);
+
   const confirmLeaveSteps = useCallback(
-    (message?: string) => {
+    async (message?: string) => {
       if (!stepsDirty || safeViewPhase !== "PROCESS_STEPS") {
         return true;
       }
-      return window.confirm(message ?? t("ra.confirmLeaveSteps"));
+      return confirm({
+        title: t("common.continue"),
+        description: message ?? t("ra.confirmLeaveSteps"),
+        confirmLabel: t("common.continue"),
+        cancelLabel: t("common.cancel")
+      });
     },
-    [stepsDirty, safeViewPhase]
+    [confirm, stepsDirty, safeViewPhase, t]
   );
 
   const setViewPhase = useCallback(
-    (phase: Phase) => {
-      if (phase !== safeViewPhase && !confirmLeaveSteps()) {
+    async (phase: Phase) => {
+      if (phase !== safeViewPhase && !(await confirmLeaveSteps())) {
         return;
       }
       setViewPhaseState(phase);
@@ -264,8 +218,8 @@ export const RaEditor = () => {
   );
 
   const setWorkspaceView = useCallback(
-    (view: WorkspaceView) => {
-      if (view !== workspaceView && !confirmLeaveSteps()) {
+    async (view: WorkspaceView) => {
+      if (view !== workspaceView && !(await confirmLeaveSteps())) {
         return;
       }
       setWorkspaceViewState(view);
@@ -274,30 +228,67 @@ export const RaEditor = () => {
     [confirmLeaveSteps, updateSearchParams, workspaceView]
   );
 
+  const handleNewCase = async () => {
+    if (await confirmLeaveSteps()) {
+      navigate("/hira");
+    }
+  };
+
+  const handleLoadCase = () => {
+    setLoadModalOpen(true);
+  };
+
+  const handleLoadById = async (id: string) => {
+    if (await confirmLeaveSteps()) {
+      navigate(`/cases/${encodeURIComponent(id)}`);
+    }
+  };
+
+  const viewButton = (view: WorkspaceView, label: string) => (
+    <button
+      type="button"
+      className={workspaceView === view ? "btn-outline active" : "btn-outline"}
+      onClick={() => void setWorkspaceView(view)}
+    >
+      {label}
+    </button>
+  );
+
   // Global hotkeys for focus mode
   useGlobalHotkeys({
     globalPromptRef,
     onSave: refreshCase,
-    onChangeView: setWorkspaceView,
-    onChangePhase: setViewPhase,
+    onChangeView: (view) => void setWorkspaceView(view),
+    onChangePhase: (phase) => void setViewPhase(phase),
     currentPhase: safeViewPhase
   });
 
   // Determine workspace context for hotkeys bar hints
   const getWorkspaceContext = (): WorkspaceContext => {
-    if (workspaceView === "tui") return "tui";
     if (workspaceView === "table") return "table";
     return "default";
   };
 
   const handleAdvancePhase = async () => {
-    if (!confirmLeaveSteps(t("ra.confirmAdvanceSteps"))) {
+    if (!(await confirmLeaveSteps(t("ra.confirmAdvanceSteps")))) {
       return;
     }
     const currentIndex = PHASES.findIndex((phase) => phase.id === raCase.phase);
     const nextPhase = PHASES[Math.min(currentIndex + 1, PHASES.length - 1)]?.id ?? raCase.phase;
     await actions.advancePhase();
-    setViewPhase(nextPhase);
+    void setViewPhase(nextPhase);
+  };
+
+  const handleExport = (url: string, label: string) => {
+    showExportStatus({ message: t("common.exportPreparing", { values: { label } }), tone: "info" });
+    const popup = window.open(url, "_blank", "noopener");
+    if (!popup) {
+      showExportError(t("common.exportBlocked"), () => handleExport(url, label), undefined, t("common.retry"));
+      return;
+    }
+    window.setTimeout(() => {
+      showExportSuccess(t("common.exportReady", { values: { label } }), 2000);
+    }, 800);
   };
 
   const renderPhase = (phase: Phase) => {
@@ -439,23 +430,6 @@ export const RaEditor = () => {
       );
     }
 
-    if (workspaceView === "tui") {
-      return (
-        <section className="workspace-phase-panel app-panel">
-          <div className="workspace-phase-panel__header">
-            <p className="text-label">{t("ra.workspace.tuiTitle")}</p>
-            <h2>{t("ra.workspace.tuiHeadline")}</h2>
-            <p className="workspace-phase-panel__description">
-              {t("ra.workspace.tuiDescription")}
-            </p>
-          </div>
-          <div className="workspace-phase-panel__body">
-            <BrowserTuiSpreadsheetView raCase={raCase} />
-          </div>
-        </section>
-      );
-    }
-
     return (
       <section className="workspace-phase-panel app-panel">
         <div className="workspace-phase-panel__header">
@@ -483,38 +457,85 @@ export const RaEditor = () => {
     <div className="workspace-shell">
       <div className="workspace-menus">
         <WorkspaceTopBar
-          activityName={raCase.activityName}
-          location={raCase.location}
-          team={raCase.team}
-          caseId={raCase.id}
+          label={t("workspace.hiraWorkspace")}
+          title={raCase.activityName}
+          subtitle={`${raCase.location || t("workspace.locationPending")} · ${raCase.team || t("workspace.teamPending")}`}
+          breadcrumbs={[
+            { label: t("navigation.home"), to: "/" },
+            { label: t("navigation.hira"), to: "/hira" },
+            { label: raCase.activityName || t("hira.create.label") }
+          ]}
           saving={saving}
-          currentView={workspaceView}
-          tuiEnabled={tuiEnabled}
-          onRefresh={refreshCase}
-          onNewCase={() => {
-            if (confirmLeaveSteps()) {
-              navigate("/hira");
-            }
-          }}
-          onLoadCase={(id) => {
-            if (confirmLeaveSteps()) {
-              navigate(`/cases/${encodeURIComponent(id)}`);
-            }
-          }}
-          onChangeView={setWorkspaceView}
+          actions={
+            <>
+              <div className="workspace-topbar__group">
+                <button type="button" className="btn-outline" onClick={() => void handleNewCase()}>
+                  {t("common.new")}
+                </button>
+                <button type="button" className="btn-outline" onClick={handleLoadCase}>
+                  {t("common.load")}
+                </button>
+                <button type="button" className="btn-outline" onClick={() => void refreshCase()}>
+                  {t("common.refresh")}
+                </button>
+              </div>
+              <div className="workspace-topbar__group">
+                {viewButton("phases", t("ra.topbar.viewGuided"))}
+                {viewButton("table", t("ra.topbar.viewWorkspace"))}
+                {viewButton("matrix", t("ra.topbar.viewMatrix"))}
+                {viewButton("actions", t("ra.topbar.viewActions"))}
+              </div>
+              <div className="workspace-topbar__group">
+                <OverflowMenu label={t("common.more")}>
+                  <button
+                    type="button"
+                    className="btn-outline btn-small overflow-menu__item"
+                    onClick={() => handleExport(`/api/ra-cases/${raCase.id}/export/pdf`, t("common.exportPdf"))}
+                  >
+                    {t("common.exportPdf")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline btn-small overflow-menu__item"
+                    onClick={() => handleExport(`/api/ra-cases/${raCase.id}/export/xlsx`, t("common.exportXlsx"))}
+                  >
+                    {t("common.exportXlsx")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline btn-small overflow-menu__item"
+                    onClick={() => window.location.assign(`/tui/cases/${raCase.id}`)}
+                  >
+                    {t("ra.topbar.viewTui")}
+                  </button>
+                </OverflowMenu>
+              </div>
+              <div className="workspace-topbar__group">
+                <SaveStatus status={exportStatus} />
+              </div>
+              <div className="workspace-topbar__group">
+                <ThemeToggle />
+                <FocusModeToggle />
+                <UserMenu />
+              </div>
+            </>
+          }
+          prompt={(
+            <div className={`workspace-topbar__prompt-grid${workspaceView === "phases" ? "" : " workspace-topbar__prompt-grid--solo"}`}>
+              <GlobalLLMInput currentPhase={safeViewPhase} textareaRef={globalPromptRef} />
+              {workspaceView === "phases" && (
+                <PhaseStepper
+                  currentPhase={raCase.phase}
+                  viewPhase={safeViewPhase}
+                  saving={saving}
+                  onSelectPhase={(phase) => void setViewPhase(phase)}
+                  onAdvance={handleAdvancePhase}
+                  compact
+                />
+              )}
+            </div>
+          )}
         />
-        {workspaceView === "phases" && (
-          <PhaseStepper
-            currentPhase={raCase.phase}
-            viewPhase={safeViewPhase}
-            saving={saving}
-            onSelectPhase={setViewPhase}
-            onAdvance={handleAdvancePhase}
-          />
-        )}
-      </div>
-      <div className="workspace-prompt-pinned">
-        <GlobalLLMInput currentPhase={safeViewPhase} textareaRef={globalPromptRef} />
       </div>
       <main className="workspace-main">
         <div className="workspace-main__inner">
@@ -522,6 +543,37 @@ export const RaEditor = () => {
         </div>
       </main>
       <HotkeysBar context={getWorkspaceContext()} />
+      <RecentCasesModal
+        open={loadModalOpen}
+        onClose={() => setLoadModalOpen(false)}
+        title={t("landing.hira.recent.title")}
+        subtitle={t("landing.hira.recent.subtitle")}
+        searchPlaceholder={t("common.searchPlaceholder")}
+        items={recentCases}
+        loading={casesLoading}
+        error={casesError}
+        emptyText={t("landing.hira.recent.empty")}
+        loadingText={t("landing.hira.recent.loading")}
+        loadLabel={t("common.load")}
+        onSelect={(item) => handleLoadById(item.id)}
+        getTitle={(item) => item.activityName}
+        getMeta={(item) =>
+          `${item.location || t("workspace.locationPending")} · ${item.team || t("workspace.teamPending")}`
+        }
+        getSearchText={(item) =>
+          `${item.activityName} ${item.location ?? ""} ${item.team ?? ""} ${item.id}`.trim()
+        }
+        getUpdatedLabel={(item) =>
+          t("landing.hira.recent.updated", { values: { date: formatDateTime(item.updatedAt) } })
+        }
+        loadById={{
+          label: t("common.loadById"),
+          placeholder: t("landing.hira.load.inputPlaceholder"),
+          actionLabel: t("common.load"),
+          onLoad: handleLoadById
+        }}
+      />
+      {dialog}
     </div>
   );
 };

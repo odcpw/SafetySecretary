@@ -1600,4 +1600,149 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
   }
 });
 
+// Undo the last contextual update by restoring a client snapshot
+raCasesRouter.post("/:id/contextual-update/undo", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+
+    const snapshot = typeof req.body === "object" && req.body ? (req.body as any).snapshot : null;
+    if (!snapshot || typeof snapshot !== "object") {
+      return res.status(400).json({ error: "snapshot is required" });
+    }
+
+    const stepsRaw = Array.isArray(snapshot.steps) ? snapshot.steps : null;
+    const hazardsRaw = Array.isArray(snapshot.hazards) ? snapshot.hazards : null;
+    const actionsRaw = Array.isArray(snapshot.actions) ? snapshot.actions : null;
+    if (!stepsRaw || !hazardsRaw || !actionsRaw) {
+      return res.status(400).json({ error: "snapshot steps/hazards/actions are required" });
+    }
+
+    const steps = stepsRaw.map((step: any, index: number) => {
+      if (!step || typeof step.activity !== "string") {
+        return null;
+      }
+      const id = typeof step.id === "string" ? step.id : undefined;
+      if (!id) {
+        return null;
+      }
+      const equipment = normalizeStringArray(step.equipment) ?? [];
+      const substances = normalizeStringArray(step.substances) ?? [];
+      const description =
+        typeof step.description === "string" || step.description === null ? step.description ?? null : null;
+      const orderIndex = typeof step.orderIndex === "number" ? step.orderIndex : index;
+      return {
+        id,
+        activity: step.activity,
+        equipment,
+        substances,
+        description,
+        orderIndex
+      };
+    });
+
+    if (steps.some((step: any) => !step)) {
+      return res.status(400).json({ error: "Invalid snapshot steps" });
+    }
+
+    const hazards = hazardsRaw.map((hazard: any, index: number) => {
+      if (!hazard || typeof hazard.id !== "string" || typeof hazard.stepId !== "string" || typeof hazard.label !== "string") {
+        return null;
+      }
+      const existingControls = normalizeStringArray(hazard.existingControls) ?? [];
+      const description =
+        typeof hazard.description === "string" || hazard.description === null ? hazard.description ?? null : null;
+      const categoryCode =
+        typeof hazard.categoryCode === "string" || hazard.categoryCode === null ? hazard.categoryCode ?? null : null;
+      const proposedControls = Array.isArray(hazard.proposedControls)
+        ? hazard.proposedControls.map((control: any) => {
+            if (!control || typeof control.id !== "string" || typeof control.description !== "string") {
+              return null;
+            }
+            const hierarchy =
+              typeof control.hierarchy === "string" || control.hierarchy === null ? control.hierarchy ?? null : null;
+            return {
+              id: control.id,
+              description: control.description,
+              hierarchy
+            };
+          })
+        : [];
+      if (proposedControls.some((control: any) => !control)) {
+        return null;
+      }
+      const parseAssessment = (value: any) => {
+        if (!value || typeof value !== "object") {
+          return undefined;
+        }
+        const severity = typeof value.severity === "string" ? value.severity : null;
+        const likelihood = typeof value.likelihood === "string" ? value.likelihood : null;
+        const riskRating = typeof value.riskRating === "string" ? value.riskRating : undefined;
+        if (!severity || !likelihood) {
+          return undefined;
+        }
+        return { severity, likelihood, riskRating };
+      };
+      return {
+        id: hazard.id,
+        stepId: hazard.stepId,
+        orderIndex: typeof hazard.orderIndex === "number" ? hazard.orderIndex : index,
+        label: hazard.label,
+        description,
+        categoryCode,
+        existingControls,
+        proposedControls,
+        baseline: parseAssessment(hazard.baseline),
+        residual: parseAssessment(hazard.residual)
+      };
+    });
+
+    if (hazards.some((hazard: any) => !hazard)) {
+      return res.status(400).json({ error: "Invalid snapshot hazards" });
+    }
+
+    const actions = actionsRaw.map((action: any, index: number) => {
+      if (!action || typeof action.id !== "string" || typeof action.description !== "string") {
+        return null;
+      }
+      const hazardId = typeof action.hazardId === "string" ? action.hazardId : null;
+      const controlId = typeof action.controlId === "string" ? action.controlId : null;
+      const owner = typeof action.owner === "string" || action.owner === null ? action.owner ?? null : null;
+      const dueDate =
+        typeof action.dueDate === "string" || action.dueDate === null ? action.dueDate ?? null : null;
+      const status = typeof action.status === "string" && normalizeActionStatus(action.status) ? action.status : undefined;
+      return {
+        id: action.id,
+        hazardId,
+        controlId,
+        orderIndex: typeof action.orderIndex === "number" ? action.orderIndex : index,
+        description: action.description,
+        owner,
+        dueDate,
+        status
+      };
+    });
+
+    if (actions.some((action: any) => !action)) {
+      return res.status(400).json({ error: "Invalid snapshot actions" });
+    }
+
+    const { raService } = getTenantServices(req);
+    const updated = await raService.restoreCaseSnapshot(caseId, {
+      steps,
+      hazards,
+      actions
+    });
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("[raCasesRouter] undoContextualUpdate", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default raCasesRouter;

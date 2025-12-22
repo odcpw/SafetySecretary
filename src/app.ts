@@ -21,17 +21,18 @@ import { tenantErrorHandler } from "./middleware/tenantErrorHandler";
 export const createApp = () => {
   const app = express();
 
-  const allowedOrigins = new Set(env.allowedOrigins);
+  const normalizeOrigin = (origin: string) => origin.replace(/\/$/, "");
+  const allowedOrigins = new Set(env.allowedOrigins.map(normalizeOrigin));
   app.use(
     cors({
       origin: (origin, callback) => {
         if (!origin) {
-          return callback(null, true);
+          return callback(null, false);
         }
         if (allowedOrigins.size === 0) {
-          return callback(null, true);
+          return callback(null, false);
         }
-        return callback(null, allowedOrigins.has(origin));
+        return callback(null, allowedOrigins.has(normalizeOrigin(origin)));
       },
       credentials: true
     })

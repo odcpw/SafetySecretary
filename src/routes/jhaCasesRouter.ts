@@ -214,6 +214,127 @@ jhaCasesRouter.put("/:id/rows", async (req: Request, res: Response) => {
   }
 });
 
+// Apply LLM patch updates to JHA steps
+jhaCasesRouter.post("/:id/assistant/steps", async (req: Request, res: Response) => {
+  try {
+    const { notes, apply } = req.body ?? {};
+    if (!notes || typeof notes !== "string") {
+      return res.status(400).json({ error: "notes is required" });
+    }
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+    const shouldApply = apply === undefined ? true : Boolean(apply);
+    const job = llmJobManager.enqueueJhaStepPatch({ caseId, notes, tenantDbUrl, apply: shouldApply });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[jhaCasesRouter] assistant steps", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Apply LLM patch updates to JHA hazards
+jhaCasesRouter.post("/:id/assistant/hazards", async (req: Request, res: Response) => {
+  try {
+    const { notes, apply } = req.body ?? {};
+    if (!notes || typeof notes !== "string") {
+      return res.status(400).json({ error: "notes is required" });
+    }
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+    const shouldApply = apply === undefined ? true : Boolean(apply);
+    const job = llmJobManager.enqueueJhaHazardPatch({ caseId, notes, tenantDbUrl, apply: shouldApply });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[jhaCasesRouter] assistant hazards", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Apply assistant step patch commands after review
+jhaCasesRouter.post("/:id/assistant/steps/apply", async (req: Request, res: Response) => {
+  try {
+    const { commands } = req.body ?? {};
+    if (!Array.isArray(commands)) {
+      return res.status(400).json({ error: "commands must be an array" });
+    }
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+    const { jhaService } = getTenantServices(req);
+    const stepCommands = commands.filter((command) => command?.target === "step");
+    const updated = await jhaService.applyPatchCommands(caseId, stepCommands, { allowControlEdits: false });
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json({ applied: stepCommands.length });
+  } catch (error) {
+    console.error("[jhaCasesRouter] apply step commands", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Apply assistant hazard patch commands after review
+jhaCasesRouter.post("/:id/assistant/hazards/apply", async (req: Request, res: Response) => {
+  try {
+    const { commands } = req.body ?? {};
+    if (!Array.isArray(commands)) {
+      return res.status(400).json({ error: "commands must be an array" });
+    }
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+    const { jhaService } = getTenantServices(req);
+    const hazardCommands = commands.filter((command) => command?.target === "hazard");
+    const updated = await jhaService.applyPatchCommands(caseId, hazardCommands, { allowControlEdits: false });
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json({ applied: hazardCommands.length });
+  } catch (error) {
+    console.error("[jhaCasesRouter] apply hazard commands", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Suggest additional controls for JHA hazards
+jhaCasesRouter.post("/:id/assistant/controls", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) {
+      return;
+    }
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+    const job = llmJobManager.enqueueJhaControlsSuggestion({ caseId, tenantDbUrl });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[jhaCasesRouter] assistant controls", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Extract JHA rows from job description using LLM
 jhaCasesRouter.post("/:id/rows/extract", async (req: Request, res: Response) => {
   try {

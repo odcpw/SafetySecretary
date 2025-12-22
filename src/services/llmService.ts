@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { env } from "../config/env";
 import { ControlHierarchy, LikelihoodLevel, ProcessStepInput, SeverityLevel } from "../types/riskAssessment";
 import { IncidentTimelineConfidence } from "../types/incident";
+import { JhaPatchCommand, JhaPatchParseResult, JhaWorkflowStage } from "../types/jha";
 
 // Result of extracting process steps with HIRA triad
 export interface ExtractedStepsResult {
@@ -86,7 +87,7 @@ export interface IncidentNarrativeClarification {
 
 export interface IncidentNarrativeExtractionResult {
   facts: { text: string }[];
-  timeline: { timeLabel?: string | null; text: string; confidence?: IncidentTimelineConfidence }[];
+  timeline: { eventAt?: string | null; timeLabel?: string | null; text: string; confidence?: IncidentTimelineConfidence }[];
   clarifications: IncidentNarrativeClarification[];
   rawResponse?: string;
 }
@@ -94,7 +95,7 @@ export interface IncidentNarrativeExtractionResult {
 // Incident witness extraction
 export interface IncidentWitnessExtractionResult {
   facts: { text: string }[];
-  personalTimeline: { timeLabel?: string | null; text: string }[];
+  personalTimeline: { eventAt?: string | null; timeLabel?: string | null; text: string }[];
   openQuestions: string[];
   rawResponse?: string;
 }
@@ -104,11 +105,12 @@ export interface IncidentWitnessMergeAccount {
   role?: string | null;
   name?: string | null;
   facts: { text: string }[];
-  personalTimeline: { timeLabel?: string | null; text: string }[];
+  personalTimeline: { eventAt?: string | null; timeLabel?: string | null; text: string }[];
 }
 
 export interface IncidentTimelineMergeResult {
   timeline: Array<{
+    eventAt?: string | null;
     timeLabel?: string | null;
     text: string;
     confidence: IncidentTimelineConfidence;
@@ -130,6 +132,76 @@ export interface IncidentConsistencyIssue {
 
 export interface IncidentConsistencyCheckResult {
   issues: IncidentConsistencyIssue[];
+  rawResponse?: string;
+}
+
+export type StopCategory = "SUBSTITUTION" | "TECHNICAL" | "ORGANIZATIONAL" | "PPE";
+
+export interface IncidentCauseCoachingParams {
+  timeline: Array<{ eventAt?: string | null; timeLabel?: string | null; text: string }>;
+}
+
+export interface IncidentCauseCoachingResult {
+  questions: string[];
+  rawResponse?: string;
+}
+
+export interface IncidentRootCauseCoachingParams {
+  causes: Array<{ causeNodeId: string; statement: string }>;
+}
+
+export interface IncidentRootCauseCoachingResult {
+  questions: Array<{ causeNodeId: string; question: string }>;
+  rawResponse?: string;
+}
+
+export interface IncidentActionSuggestion {
+  causeNodeId: string;
+  description: string;
+  category: StopCategory;
+}
+
+export interface IncidentActionCoachingParams {
+  causes: Array<{ causeNodeId: string; statement: string }>;
+  existingActions?: Array<{ causeNodeId: string; description: string }>;
+}
+
+export interface IncidentActionCoachingResult {
+  suggestions: IncidentActionSuggestion[];
+  rawResponse?: string;
+}
+
+export interface JhaPatchParseParams {
+  userInput: string;
+  phase: Exclude<JhaWorkflowStage, "review">;
+  steps: Array<{ id: string; label: string }>;
+  hazards: Array<{
+    id: string;
+    stepId: string;
+    hazard: string;
+    consequence?: string | null;
+    controls?: string[] | null;
+  }>;
+}
+
+export interface JhaControlSuggestionParams {
+  steps: Array<{ id: string; label: string }>;
+  hazards: Array<{
+    id: string;
+    stepId: string;
+    hazard: string;
+    consequence?: string | null;
+    controls?: string[] | null;
+  }>;
+}
+
+export interface JhaControlSuggestion {
+  hazardId: string;
+  control: string;
+}
+
+export interface JhaControlSuggestionResult {
+  suggestions: JhaControlSuggestion[];
   rawResponse?: string;
 }
 
@@ -584,6 +656,24 @@ Respond as JSON:
       : undefined;
   }
 
+  private normalizeStopCategory(input: unknown): StopCategory | undefined {
+    const value = typeof input === "string" ? input.trim().toUpperCase() : "";
+    if (["SUBSTITUTION", "TECHNICAL", "ORGANIZATIONAL", "PPE"].includes(value)) {
+      return value as StopCategory;
+    }
+    const map: Record<string, StopCategory> = {
+      ORGANISATIONAL: "ORGANIZATIONAL",
+      ORGANIZATION: "ORGANIZATIONAL",
+      ORG: "ORGANIZATIONAL",
+      TECH: "TECHNICAL",
+      ENGINEERING: "TECHNICAL",
+      SUB: "SUBSTITUTION",
+      SUBSTITUTION: "SUBSTITUTION",
+      PPE: "PPE"
+    };
+    return map[value];
+  }
+
   // Parse contextual update from natural language
   async parseContextualUpdate(params: ContextualUpdateParams): Promise<ContextualUpdateResult> {
     const { userInput, currentPhase, tableState } = params;
@@ -799,6 +889,7 @@ Respond as JSON:
                   ? (event.confidence as IncidentTimelineConfidence)
                   : IncidentTimelineConfidence.LIKELY;
               return {
+                eventAt: typeof event?.eventAt === "string" ? event.eventAt : null,
                 timeLabel: typeof event?.timeLabel === "string" ? event.timeLabel : null,
                 text,
                 confidence
@@ -886,6 +977,7 @@ Respond as JSON:
               const text = typeof event?.text === "string" ? event.text : null;
               if (!text) return null;
               return {
+                eventAt: typeof event?.eventAt === "string" ? event.eventAt : null,
                 timeLabel: typeof event?.timeLabel === "string" ? event.timeLabel : null,
                 text
               };
@@ -984,6 +1076,7 @@ Respond as JSON:
                     )
                 : [];
               return {
+                eventAt: typeof row?.eventAt === "string" ? row.eventAt : null,
                 timeLabel: typeof row?.timeLabel === "string" ? row.timeLabel : null,
                 text,
                 confidence,
@@ -1065,6 +1158,352 @@ Respond as JSON:
     } catch (error) {
       console.warn("[llmService] Falling back to empty incident consistency issues", error);
       return { issues: [] };
+    }
+  }
+
+  async coachIncidentCauses(params: IncidentCauseCoachingParams): Promise<IncidentCauseCoachingResult> {
+    if (!this.client) {
+      return { questions: this.fallbackIncidentCauseQuestions(params.timeline) };
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation.
+Ask clarifying questions that help the investigator select proximate causes from the facts.
+Do NOT suggest causes or answers. Keep questions concise.
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"questions":[string]}`
+          },
+          {
+            role: "user",
+            content: `TIMELINE FACTS:\n${JSON.stringify(params.timeline, null, 2)}`
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return { questions: this.fallbackIncidentCauseQuestions(params.timeline) };
+      }
+
+      const parsed = JSON.parse(content);
+      const questions = Array.isArray(parsed.questions)
+        ? parsed.questions.filter((q: unknown) => typeof q === "string" && q.trim().length > 0)
+        : [];
+
+      return {
+        questions: questions.length ? questions : this.fallbackIncidentCauseQuestions(params.timeline),
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic incident cause questions", error);
+      return { questions: this.fallbackIncidentCauseQuestions(params.timeline) };
+    }
+  }
+
+  async coachIncidentRootCauses(params: IncidentRootCauseCoachingParams): Promise<IncidentRootCauseCoachingResult> {
+    if (!this.client) {
+      return { questions: this.fallbackIncidentRootCauseQuestions(params.causes) };
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation.
+For each proximate cause, ask one follow-up "why" question to deepen the root cause analysis.
+Do NOT suggest answers. Keep questions concise and specific.
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"questions":[{"causeNodeId":string,"question":string}]}`
+          },
+          {
+            role: "user",
+            content: `PROXIMATE CAUSES:\n${JSON.stringify(params.causes, null, 2)}`
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return { questions: this.fallbackIncidentRootCauseQuestions(params.causes) };
+      }
+
+      const parsed = JSON.parse(content);
+      const questions = Array.isArray(parsed.questions)
+        ? parsed.questions
+            .map((item: any) => {
+              if (typeof item?.causeNodeId !== "string" || typeof item?.question !== "string") {
+                return null;
+              }
+              return { causeNodeId: item.causeNodeId, question: item.question };
+            })
+            .filter((item: any): item is IncidentRootCauseCoachingResult["questions"][number] => Boolean(item))
+        : [];
+
+      return {
+        questions: questions.length ? questions : this.fallbackIncidentRootCauseQuestions(params.causes),
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic root cause questions", error);
+      return { questions: this.fallbackIncidentRootCauseQuestions(params.causes) };
+    }
+  }
+
+  async suggestIncidentActions(params: IncidentActionCoachingParams): Promise<IncidentActionCoachingResult> {
+    if (!this.client) {
+      return { suggestions: this.fallbackIncidentActionSuggestions(params.causes) };
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with an incident investigation.
+Suggest corrective actions for each cause. Use STOP categories: SUBSTITUTION, TECHNICAL, ORGANIZATIONAL, PPE.
+Do NOT repeat existing actions. Keep each action concise.
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"suggestions":[{"causeNodeId":string,"description":string,"category":"SUBSTITUTION|TECHNICAL|ORGANIZATIONAL|PPE"}]}`
+          },
+          {
+            role: "user",
+            content: JSON.stringify(params)
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return { suggestions: this.fallbackIncidentActionSuggestions(params.causes) };
+      }
+
+      const parsed = JSON.parse(content);
+      const suggestions = Array.isArray(parsed.suggestions)
+        ? parsed.suggestions
+            .map((item: any) => {
+              const category = this.normalizeStopCategory(item?.category);
+              if (typeof item?.causeNodeId !== "string" || typeof item?.description !== "string" || !category) {
+                return null;
+              }
+              return {
+                causeNodeId: item.causeNodeId,
+                description: item.description,
+                category
+              };
+            })
+            .filter((item: any): item is IncidentActionSuggestion => Boolean(item))
+        : [];
+
+      return {
+        suggestions: suggestions.length ? suggestions : this.fallbackIncidentActionSuggestions(params.causes),
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic incident actions", error);
+      return { suggestions: this.fallbackIncidentActionSuggestions(params.causes) };
+    }
+  }
+
+  async suggestJhaControls(params: JhaControlSuggestionParams): Promise<JhaControlSuggestionResult> {
+    if (!this.client) {
+      return { suggestions: this.fallbackJhaControlSuggestions(params) };
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are assisting with a Job Hazard Analysis (JHA).
+Suggest additional control measures for each hazard based on the steps and existing controls.
+Do NOT repeat controls that already exist. Keep each control concise.
+
+Return ONLY valid JSON.
+
+Respond as JSON:
+{"suggestions":[{"hazardId":string,"control":string}]}`
+          },
+          {
+            role: "user",
+            content: JSON.stringify(params)
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        return { suggestions: this.fallbackJhaControlSuggestions(params) };
+      }
+
+      const parsed = JSON.parse(content);
+      const suggestions = Array.isArray(parsed.suggestions)
+        ? parsed.suggestions
+            .map((item: any) => {
+              if (typeof item?.hazardId !== "string" || typeof item?.control !== "string") {
+                return null;
+              }
+              return { hazardId: item.hazardId, control: item.control };
+            })
+            .filter((item: any): item is JhaControlSuggestion => Boolean(item))
+        : [];
+
+      return {
+        suggestions: suggestions.length ? suggestions : this.fallbackJhaControlSuggestions(params),
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic JHA controls", error);
+      return { suggestions: this.fallbackJhaControlSuggestions(params) };
+    }
+  }
+
+  async parseJhaPatch(params: JhaPatchParseParams): Promise<JhaPatchParseResult> {
+    const { userInput, phase, steps, hazards } = params;
+    const stepPayload = steps.map((step, index) => ({
+      id: step.id,
+      index: index + 1,
+      label: step.label
+    }));
+    const stepIndexById = new Map(stepPayload.map((step) => [step.id, step.index]));
+    const hazardIndexByStep = new Map<string, number>();
+    const hazardPayload = hazards.map((hazard) => {
+      const stepIndex = stepIndexById.get(hazard.stepId) ?? null;
+      const count = (hazardIndexByStep.get(hazard.stepId) ?? 0) + 1;
+      hazardIndexByStep.set(hazard.stepId, count);
+      return {
+        id: hazard.id,
+        stepId: hazard.stepId,
+        stepIndex,
+        hazardIndex: count,
+        hazard: hazard.hazard,
+        consequence: hazard.consequence ?? null,
+        controls: Array.isArray(hazard.controls) ? hazard.controls : []
+      };
+    });
+
+    if (!this.client) {
+      const commands = this.fallbackJhaPatch(userInput, phase, steps);
+      return {
+        commands,
+        summary: this.buildJhaPatchSummary(commands, userInput),
+        needsClarification: false
+      };
+    }
+
+    try {
+      const response = await this.client.chat.completions.create({
+        model: DEFAULT_MODEL,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You are helping update a Job Hazard Analysis (JHA).
+
+CURRENT PHASE: ${phase.toUpperCase()}
+Only return commands for this phase.
+
+Command format:
+{"commands":[{"intent":"add|insert|modify|delete|move","target":"step|hazard|control","location":{...},"data":{...},"explanation":string}],"needsClarification":boolean,"clarificationPrompt":string,"summary":string}
+
+Locations:
+- stepIndex (1-based), stepId
+- hazardIndex (1-based within step), hazardId
+- insertAfterStepIndex / insertBeforeStepIndex
+- insertAfterHazardIndex / insertBeforeHazardIndex
+- toStepIndex (for moving hazards)
+
+Data fields:
+- step: label
+- hazard: hazard, consequence, controls
+- control: control (single string)
+
+If the request is ambiguous, set needsClarification true and return an empty commands array with a single clarificationPrompt.
+
+Examples:
+- "Insert a step to move the ladder between steps 2 and 3" -> intent "insert", target "step", location {"insertBeforeStepIndex":3}
+- "Add a new prep step after step 1" -> intent "add", target "step", location {"insertAfterStepIndex":1}
+- "For step 2, add hazard: pinch points" -> intent "add", target "hazard", location {"stepIndex":2}
+
+Return ONLY valid JSON.`
+          },
+          {
+            role: "user",
+            content: JSON.stringify({
+              userInput,
+              tableState: {
+                steps: stepPayload,
+                hazards: hazardPayload
+              }
+            })
+          }
+        ]
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+      if (!content) {
+        const commands = this.fallbackJhaPatch(userInput, phase, steps);
+        return {
+          commands,
+          summary: this.buildJhaPatchSummary(commands, userInput),
+          needsClarification: false
+        };
+      }
+
+      const parsed = JSON.parse(content);
+      const commands = Array.isArray(parsed.commands)
+        ? parsed.commands.map((cmd: any) => ({
+            intent: typeof cmd.intent === "string" ? cmd.intent : "modify",
+            target: typeof cmd.target === "string" ? cmd.target : "step",
+            location: typeof cmd.location === "object" && cmd.location ? cmd.location : {},
+            data: typeof cmd.data === "object" && cmd.data ? cmd.data : {},
+            explanation: typeof cmd.explanation === "string" ? cmd.explanation : "Update requested"
+          }))
+        : this.fallbackJhaPatch(userInput, phase, steps);
+
+      const needsClarification = Boolean(parsed.needsClarification);
+
+      return {
+        commands: needsClarification ? [] : (commands as JhaPatchCommand[]),
+        summary: parsed.summary ?? this.buildJhaPatchSummary(commands, userInput),
+        needsClarification,
+        clarificationPrompt: parsed.clarificationPrompt,
+        rawResponse: content
+      };
+    } catch (error) {
+      console.warn("[llmService] Falling back to heuristic JHA patch", error);
+      const commands = this.fallbackJhaPatch(userInput, phase, steps);
+      return {
+        commands,
+        summary: this.buildJhaPatchSummary(commands, userInput),
+        needsClarification: false
+      };
     }
   }
 
@@ -1161,6 +1600,65 @@ Respond as JSON:
     }));
   }
 
+  private fallbackJhaPatch(
+    userInput: string,
+    phase: Exclude<JhaWorkflowStage, "review">,
+    steps: Array<{ id: string; label: string }>
+  ): JhaPatchCommand[] {
+    const lines = userInput
+      .split(/\n|\r|\./)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 3);
+    if (!lines.length) {
+      return [];
+    }
+
+    if (phase === "steps") {
+      return lines.map((line) => ({
+        intent: "add",
+        target: "step",
+        data: { label: line },
+        explanation: "Add step"
+      }));
+    }
+
+    if (phase === "hazards") {
+      const stepIndex = steps.length ? 1 : undefined;
+      return lines.map((line) => ({
+        intent: "add",
+        target: "hazard",
+        location: stepIndex ? { stepIndex } : undefined,
+        data: { hazard: line },
+        explanation: "Add hazard"
+      }));
+    }
+
+    return lines.map((line) => ({
+      intent: "add",
+      target: "control",
+      location: { stepIndex: 1, hazardIndex: 1 },
+      data: { control: line },
+      explanation: "Add control"
+    }));
+  }
+
+  private buildJhaPatchSummary(commands: JhaPatchCommand[], userInput: string): string {
+    if (!commands.length) {
+      return `No updates parsed from \"${userInput}\"`;
+    }
+    if (commands.length === 1) {
+      return commands[0]?.explanation ?? `1 update parsed from \"${userInput}\"`;
+    }
+    return `${commands.length} updates parsed from \"${userInput}\"`;
+  }
+
+  private fallbackJhaControlSuggestions(params: JhaControlSuggestionParams): JhaControlSuggestion[] {
+    return params.hazards.map((hazard) => ({
+      hazardId: hazard.id,
+      control: `Review controls for ${hazard.hazard}.`
+    }));
+  }
+
   private fallbackIncidentNarrative(narrative: string): IncidentNarrativeExtractionResult {
     const trimmed = narrative.trim();
     const facts = this.fallbackIncidentFacts(narrative);
@@ -1232,6 +1730,47 @@ Respond as JSON:
       });
     });
     return { timeline, openQuestions: [] };
+  }
+
+  private fallbackIncidentCauseQuestions(
+    timeline: IncidentCauseCoachingParams["timeline"]
+  ): string[] {
+    if (!timeline.length) {
+      return [
+        "Which event most directly led to the incident?",
+        "What unsafe condition or action made the incident possible?"
+      ];
+    }
+    return [
+      "Which timeline event most directly triggered the incident?",
+      "What conditions or actions immediately before the incident could be considered proximate causes?",
+      "Which step or decision created the final unsafe situation?"
+    ];
+  }
+
+  private fallbackIncidentRootCauseQuestions(
+    causes: IncidentRootCauseCoachingParams["causes"]
+  ): IncidentRootCauseCoachingResult["questions"] {
+    if (!causes.length) {
+      return [];
+    }
+    return causes.map((cause) => ({
+      causeNodeId: cause.causeNodeId,
+      question: `Why did this happen: "${cause.statement}"?`
+    }));
+  }
+
+  private fallbackIncidentActionSuggestions(
+    causes: IncidentActionCoachingParams["causes"]
+  ): IncidentActionSuggestion[] {
+    if (!causes.length) {
+      return [];
+    }
+    return causes.map((cause) => ({
+      causeNodeId: cause.causeNodeId,
+      description: `Review procedures and training related to "${cause.statement}".`,
+      category: "ORGANIZATIONAL"
+    }));
   }
 }
 

@@ -1,6 +1,6 @@
 import { Prisma, type JhaAttachment } from "@prisma/client";
 import prisma from "./prismaClient";
-import { CreateJhaCaseInput, JhaHazardInput, JhaStepInput } from "../types/jha";
+import { CreateJhaCaseInput, JhaHazardInput, JhaPatchCommand, JhaStepInput } from "../types/jha";
 
 const caseInclude = {
   steps: {
@@ -326,6 +326,356 @@ export class JhaService {
     });
 
     return this.getCaseById(caseId);
+  }
+
+  async applyPatchCommands(
+    caseId: string,
+    commands: JhaPatchCommand[],
+    options: { allowControlEdits?: boolean } = {}
+  ): Promise<JhaCaseDto | null> {
+    const allowControlEdits = options.allowControlEdits ?? false;
+    let workingCase = await this.getCaseById(caseId);
+    if (!workingCase) return null;
+
+    const stepCommands = commands.filter((cmd) => cmd.target === "step");
+    const hazardCommands = commands.filter((cmd) => cmd.target === "hazard" || cmd.target === "control");
+
+    if (stepCommands.length) {
+      const errors: string[] = [];
+      const nextSteps = workingCase.steps.map((step) => ({
+        id: step.id,
+        label: step.label,
+        orderIndex: step.orderIndex
+      }));
+
+      const resolveStepIndex = (location: JhaPatchCommand["location"]) => {
+        if (location?.stepId) {
+          const idx = nextSteps.findIndex((step) => step.id === location.stepId);
+          return idx >= 0 ? idx : null;
+        }
+        if (typeof location?.stepIndex === "number") {
+          const idx = location.stepIndex - 1;
+          return idx >= 0 && idx < nextSteps.length ? idx : null;
+        }
+        return null;
+      };
+
+      const resolveInsertIndex = (location: JhaPatchCommand["location"]) => {
+        if (typeof location?.insertBeforeStepIndex === "number") {
+          return Math.max(0, Math.min(nextSteps.length, location.insertBeforeStepIndex - 1));
+        }
+        if (typeof location?.insertAfterStepIndex === "number") {
+          return Math.max(0, Math.min(nextSteps.length, location.insertAfterStepIndex));
+        }
+        return nextSteps.length;
+      };
+
+      stepCommands.forEach((command) => {
+        const data = (command.data ?? {}) as Record<string, unknown>;
+        const label =
+          typeof data.label === "string" && data.label.trim().length > 0
+            ? data.label.trim()
+            : typeof data.step === "string" && data.step.trim().length > 0
+              ? data.step.trim()
+              : null;
+
+        switch (command.intent) {
+          case "add": {
+            if (!label) {
+              errors.push("Step add requires a label.");
+              return;
+            }
+            const insertIndex = resolveInsertIndex(command.location);
+            nextSteps.splice(insertIndex, 0, { label });
+            break;
+          }
+          case "insert": {
+            if (!label) {
+              errors.push("Step insert requires a label.");
+              return;
+            }
+            const insertIndex = resolveInsertIndex(command.location);
+            nextSteps.splice(insertIndex, 0, { label });
+            break;
+          }
+          case "modify": {
+            const index = resolveStepIndex(command.location);
+            if (index === null) {
+              errors.push("Step modify requires stepId or stepIndex.");
+              return;
+            }
+            if (!label) {
+              errors.push("Step modify requires a label.");
+              return;
+            }
+            nextSteps[index] = { ...nextSteps[index]!, label };
+            break;
+          }
+          case "delete": {
+            const index = resolveStepIndex(command.location);
+            if (index === null) {
+              errors.push("Step delete requires stepId or stepIndex.");
+              return;
+            }
+            nextSteps.splice(index, 1);
+            break;
+          }
+          case "move": {
+            const index = resolveStepIndex(command.location);
+            if (index === null) {
+              errors.push("Step move requires stepId or stepIndex.");
+              return;
+            }
+            const insertIndex = resolveInsertIndex(command.location);
+            const [step] = nextSteps.splice(index, 1);
+            if (!step) {
+              errors.push("Step move failed to locate step.");
+              return;
+            }
+            const adjustedIndex = index < insertIndex ? insertIndex - 1 : insertIndex;
+            nextSteps.splice(Math.max(0, Math.min(nextSteps.length, adjustedIndex)), 0, step);
+            break;
+          }
+          default:
+            errors.push(`Unsupported step intent: ${command.intent}`);
+        }
+      });
+
+      if (errors.length) {
+        throw new Error(errors[0]);
+      }
+
+      const updated = await this.updateSteps(
+        caseId,
+        nextSteps.map((step, index) => ({
+          id: step.id,
+          label: step.label,
+          orderIndex: index
+        }))
+      );
+      if (!updated) {
+        return null;
+      }
+      workingCase = updated;
+    }
+
+    if (hazardCommands.length) {
+      const errors: string[] = [];
+      const steps = workingCase.steps.map((step) => ({ id: step.id, label: step.label }));
+      const stepIdByIndex = new Map(steps.map((step, index) => [index + 1, step.id]));
+      const hazardsByStep = new Map<string, JhaHazardInput[]>();
+      steps.forEach((step) => hazardsByStep.set(step.id, []));
+      workingCase.hazards.forEach((hazard) => {
+        const list = hazardsByStep.get(hazard.stepId);
+        if (!list) return;
+        list.push({
+          id: hazard.id,
+          stepId: hazard.stepId,
+          hazard: hazard.hazard,
+          consequence: hazard.consequence ?? null,
+          controls: normalizeControls(hazard.controls),
+          orderIndex: hazard.orderIndex
+        });
+      });
+      hazardsByStep.forEach((list, stepId) => {
+        list.sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
+        hazardsByStep.set(stepId, list);
+      });
+
+      const resolveStepId = (location: JhaPatchCommand["location"]) => {
+        if (location?.stepId) return location.stepId;
+        if (typeof location?.stepIndex === "number") {
+          return stepIdByIndex.get(location.stepIndex) ?? null;
+        }
+        return null;
+      };
+
+      const resolveHazardRef = (location: JhaPatchCommand["location"]) => {
+        if (location?.hazardId) {
+          for (const [stepId, list] of hazardsByStep.entries()) {
+            const index = list.findIndex((item) => item.id === location.hazardId);
+            if (index >= 0) {
+              return { stepId, index };
+            }
+          }
+        }
+        if (typeof location?.hazardIndex === "number") {
+          const stepId = resolveStepId(location);
+          if (!stepId) {
+            errors.push("Hazard index requires stepId or stepIndex.");
+            return null;
+          }
+          const list = hazardsByStep.get(stepId) ?? [];
+          const index = location.hazardIndex - 1;
+          if (index < 0 || index >= list.length) {
+            errors.push("Hazard index out of range.");
+            return null;
+          }
+          return { stepId, index };
+        }
+        errors.push("Hazard command requires hazardId or hazardIndex.");
+        return null;
+      };
+
+      const resolveHazardInsertIndex = (location: JhaPatchCommand["location"], listLength: number) => {
+        if (typeof location?.insertBeforeHazardIndex === "number") {
+          return Math.max(0, Math.min(listLength, location.insertBeforeHazardIndex - 1));
+        }
+        if (typeof location?.insertAfterHazardIndex === "number") {
+          return Math.max(0, Math.min(listLength, location.insertAfterHazardIndex));
+        }
+        return listLength;
+      };
+
+      hazardCommands.forEach((command) => {
+        if (command.target === "control" && !allowControlEdits) {
+          errors.push("Control updates are only allowed in the controls phase.");
+          return;
+        }
+        const data = (command.data ?? {}) as Record<string, unknown>;
+        const hazardLabel =
+          typeof data.hazard === "string" && data.hazard.trim().length > 0
+            ? data.hazard.trim()
+            : null;
+        const consequence =
+          typeof data.consequence === "string" && data.consequence.trim().length > 0
+            ? data.consequence.trim()
+            : null;
+        const rawControls = data.controls;
+        const controlsInput = allowControlEdits
+          ? normalizeControls(
+              Array.isArray(rawControls) || typeof rawControls === "string" ? rawControls : null
+            )
+          : [];
+
+        if (command.target === "hazard") {
+          switch (command.intent) {
+            case "add":
+            case "insert": {
+              const stepId = resolveStepId(command.location);
+              if (!stepId) {
+                errors.push("Hazard add requires stepId or stepIndex.");
+                return;
+              }
+              if (!hazardLabel) {
+                errors.push("Hazard add requires hazard text.");
+                return;
+              }
+              const list = hazardsByStep.get(stepId) ?? [];
+              const insertIndex = resolveHazardInsertIndex(command.location, list.length);
+              list.splice(insertIndex, 0, {
+                stepId,
+                hazard: hazardLabel,
+                consequence,
+                controls: controlsInput
+              });
+              hazardsByStep.set(stepId, list);
+              break;
+            }
+            case "modify": {
+              const ref = resolveHazardRef(command.location);
+              if (!ref) return;
+              const list = hazardsByStep.get(ref.stepId) ?? [];
+              const current = list[ref.index];
+              if (!current) return;
+              list[ref.index] = {
+                ...current,
+                hazard: hazardLabel ?? current.hazard,
+                consequence: consequence ?? current.consequence,
+                controls: controlsInput.length ? controlsInput : current.controls
+              };
+              hazardsByStep.set(ref.stepId, list);
+              break;
+            }
+            case "delete": {
+              const ref = resolveHazardRef(command.location);
+              if (!ref) return;
+              const list = hazardsByStep.get(ref.stepId) ?? [];
+              list.splice(ref.index, 1);
+              hazardsByStep.set(ref.stepId, list);
+              break;
+            }
+            case "move": {
+              const ref = resolveHazardRef(command.location);
+              if (!ref) return;
+              const fromList = hazardsByStep.get(ref.stepId) ?? [];
+              const [moving] = fromList.splice(ref.index, 1);
+              if (!moving) return;
+              const targetStepId =
+                typeof command.location?.toStepIndex === "number"
+                  ? stepIdByIndex.get(command.location.toStepIndex) ?? null
+                  : moving.stepId;
+              if (!targetStepId) {
+                errors.push("Hazard move target step not found.");
+                return;
+              }
+              moving.stepId = targetStepId;
+              const toList = hazardsByStep.get(targetStepId) ?? [];
+              const insertIndex = resolveHazardInsertIndex(command.location, toList.length);
+              toList.splice(insertIndex, 0, moving);
+              hazardsByStep.set(ref.stepId, fromList);
+              hazardsByStep.set(targetStepId, toList);
+              break;
+            }
+            default:
+              errors.push(`Unsupported hazard intent: ${command.intent}`);
+          }
+          return;
+        }
+
+        if (command.target === "control") {
+          if (command.intent !== "add") {
+            errors.push("Only add intent is supported for controls.");
+            return;
+          }
+          const ref = resolveHazardRef(command.location);
+          if (!ref) return;
+          const list = hazardsByStep.get(ref.stepId) ?? [];
+          const current = list[ref.index];
+          if (!current) return;
+          const controls =
+            typeof data.control === "string" && data.control.trim().length > 0
+              ? normalizeControls(data.control)
+              : normalizeControls(
+                  Array.isArray(data.controls) || typeof data.controls === "string" ? data.controls : null
+                );
+          if (!controls.length) {
+            errors.push("Control add requires control text.");
+            return;
+          }
+          const merged = Array.from(new Set([...(current.controls ?? []), ...controls]));
+          list[ref.index] = { ...current, controls: merged };
+          hazardsByStep.set(ref.stepId, list);
+        }
+      });
+
+      if (errors.length) {
+        throw new Error(errors[0]);
+      }
+
+      const nextHazards: JhaHazardInput[] = [];
+      steps.forEach((step) => {
+        const list = hazardsByStep.get(step.id) ?? [];
+        list.forEach((hazard, index) => {
+          nextHazards.push({
+            id: hazard.id,
+            stepId: step.id,
+            hazard: hazard.hazard,
+            consequence: hazard.consequence ?? null,
+            controls: normalizeControls(hazard.controls),
+            orderIndex: index
+          });
+        });
+      });
+
+      const updated = await this.updateHazards(caseId, nextHazards);
+      if (!updated) {
+        return null;
+      }
+      workingCase = updated;
+    }
+
+    return workingCase;
   }
 
   async listAttachments(caseId: string): Promise<JhaAttachmentDto[]> {

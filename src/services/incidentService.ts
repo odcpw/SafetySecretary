@@ -3,6 +3,8 @@ import prisma from "./prismaClient";
 import {
   CreateIncidentCaseInput,
   IncidentActionInput,
+  IncidentCauseActionInput,
+  IncidentCauseNodeInput,
   IncidentCaseSummary,
   IncidentDeviationInput,
   IncidentPersonInput,
@@ -42,6 +44,12 @@ const caseInclude = {
     },
     orderBy: { orderIndex: "asc" as const }
   },
+  causeNodes: {
+    include: {
+      actions: { orderBy: { orderIndex: "asc" as const } }
+    },
+    orderBy: { orderIndex: "asc" as const }
+  },
   attachments: {
     orderBy: { orderIndex: "asc" as const }
   }
@@ -61,6 +69,7 @@ type TimelineSourceInput = {
 };
 
 type TimelineMergeRow = {
+  eventAt?: string | null;
   timeLabel?: string | null;
   text: string;
   confidence?: IncidentTimelineConfidence;
@@ -86,14 +95,17 @@ export class IncidentService {
 
   async listCases(params: { createdBy?: string | null; limit?: number } = {}): Promise<IncidentCaseSummary[]> {
     const { createdBy, limit } = params;
+    const take =
+      typeof limit === "number" && Number.isFinite(limit) && limit > 0 ? Math.min(100, limit) : undefined;
     const cases = await this.db.incidentCase.findMany({
       ...(createdBy ? { where: { createdBy } } : {}),
       orderBy: { updatedAt: "desc" },
-      ...(typeof limit === "number" ? { take: limit } : {})
+      ...(take ? { take } : {})
     });
     return cases.map((item) => ({
       id: item.id,
       title: item.title,
+      workflowStage: item.workflowStage,
       incidentAt: item.incidentAt,
       incidentTimeNote: item.incidentTimeNote,
       location: item.location,
@@ -110,6 +122,7 @@ export class IncidentService {
     return this.db.incidentCase.create({
       data: {
         title: input.title,
+        workflowStage: input.workflowStage ?? undefined,
         incidentAt: parseDate(input.incidentAt),
         incidentTimeNote: input.incidentTimeNote ?? null,
         location: input.location ?? null,
@@ -131,6 +144,9 @@ export class IncidentService {
       const data: Prisma.IncidentCaseUpdateInput = {};
       if (patch.title !== undefined) {
         data.title = patch.title;
+      }
+      if (patch.workflowStage !== undefined) {
+        data.workflowStage = patch.workflowStage;
       }
       if (patch.incidentAt !== undefined) {
         data.incidentAt = parseDate(patch.incidentAt);
@@ -214,7 +230,8 @@ export class IncidentService {
       data: {
         caseId,
         role: input.role,
-        name: input.name ?? null
+        name: input.name ?? null,
+        otherInfo: input.otherInfo ?? null
       }
     });
   }
@@ -227,7 +244,8 @@ export class IncidentService {
       where: { id: personId },
       data: {
         role: patch.role,
-        name: patch.name ?? null
+        name: patch.name ?? null,
+        otherInfo: patch.otherInfo ?? null
       }
     });
   }
@@ -292,6 +310,7 @@ export class IncidentService {
           data: {
             accountId,
             orderIndex: event.orderIndex ?? index,
+            eventAt: parseDate(event.eventAt),
             timeLabel: event.timeLabel ?? null,
             text: event.text
           }
@@ -316,6 +335,7 @@ export class IncidentService {
           data: {
             caseId,
             orderIndex: index,
+            eventAt: parseDate(row.eventAt),
             timeLabel: row.timeLabel ?? null,
             text: row.text,
             confidence: row.confidence ?? IncidentTimelineConfidence.LIKELY
@@ -351,6 +371,7 @@ export class IncidentService {
         const event = events[index]!;
         const payload = {
           orderIndex: event.orderIndex ?? index,
+          eventAt: parseDate(event.eventAt),
           timeLabel: event.timeLabel ?? null,
           text: event.text,
           confidence: event.confidence ?? IncidentTimelineConfidence.LIKELY
@@ -507,6 +528,97 @@ export class IncidentService {
       const obsolete = existing.filter((item) => !seen.has(item.id)).map((item) => item.id);
       if (obsolete.length) {
         await tx.incidentAction.deleteMany({ where: { id: { in: obsolete } } });
+      }
+    });
+
+    return this.getCaseById(caseId);
+  }
+
+  async updateCauseNodes(caseId: string, nodes: IncidentCauseNodeInput[]): Promise<IncidentCaseDto | null> {
+    const incidentCase = await this.db.incidentCase.findUnique({ where: { id: caseId } });
+    if (!incidentCase) return null;
+
+    await this.db.$transaction(async (tx) => {
+      const existing = await tx.incidentCauseNode.findMany({ where: { caseId } });
+      const seen = new Set<string>();
+
+      for (let index = 0; index < nodes.length; index += 1) {
+        const node = nodes[index]!;
+        const payload = {
+          caseId,
+          parentId: node.parentId ?? null,
+          timelineEventId: node.timelineEventId ?? null,
+          orderIndex: node.orderIndex ?? index,
+          statement: node.statement,
+          question: node.question ?? null,
+          isRootCause: Boolean(node.isRootCause)
+        };
+
+        if (node.id) {
+          await tx.incidentCauseNode.upsert({
+            where: { id: node.id },
+            create: { id: node.id, ...payload },
+            update: payload
+          });
+          seen.add(node.id);
+        } else {
+          const created = await tx.incidentCauseNode.create({ data: payload });
+          seen.add(created.id);
+        }
+      }
+
+      const obsolete = existing.filter((item) => !seen.has(item.id)).map((item) => item.id);
+      if (obsolete.length) {
+        await tx.incidentCauseNode.deleteMany({ where: { id: { in: obsolete } } });
+      }
+    });
+
+    return this.getCaseById(caseId);
+  }
+
+  async updateCauseActions(caseId: string, actions: IncidentCauseActionInput[]): Promise<IncidentCaseDto | null> {
+    const incidentCase = await this.db.incidentCase.findUnique({ where: { id: caseId } });
+    if (!incidentCase) return null;
+
+    const causeNodeIds = Array.from(new Set(actions.map((item) => item.causeNodeId)));
+    const validCount = await this.db.incidentCauseNode.count({
+      where: { caseId, id: { in: causeNodeIds } }
+    });
+    if (validCount !== causeNodeIds.length) return null;
+
+    await this.db.$transaction(async (tx) => {
+      const existing = await tx.incidentCauseAction.findMany({
+        where: { causeNode: { caseId } }
+      });
+      const seen = new Set<string>();
+
+      for (let index = 0; index < actions.length; index += 1) {
+        const action = actions[index]!;
+        const payload = {
+          causeNodeId: action.causeNodeId,
+          orderIndex: action.orderIndex ?? index,
+          description: action.description,
+          ownerRole: action.ownerRole ?? null,
+          dueDate: action.dueDate ? parseDate(action.dueDate) : null,
+          actionType: action.actionType ?? null
+        };
+
+        if (action.id) {
+          await tx.incidentCauseAction.upsert({
+            where: { id: action.id },
+            create: { id: action.id, ...payload },
+            update: payload
+          });
+          seen.add(action.id);
+        } else {
+          const created = await tx.incidentCauseAction.create({ data: payload });
+          seen.add(created.id);
+        }
+      }
+
+      const obsolete = existing.filter((item) => !seen.has(item.id)).map((item) => item.id);
+      if (obsolete.length) {
+        await tx.incidentCauseAction.deleteMany({ where: { id: { in: obsolete } } });
       }
     });
 

@@ -16,6 +16,13 @@ export type LlmJobType =
   | "controls"
   | "actions"
   | "jha-rows"
+  | "jha-steps"
+  | "jha-hazards"
+  | "jha-controls"
+  | "incident-facts"
+  | "incident-causes"
+  | "incident-root-causes"
+  | "incident-actions"
   | "incident-narrative"
   | "incident-witness"
   | "incident-merge"
@@ -46,6 +53,18 @@ interface JhaRowsJobInput extends BaseJobInput {
   jobDescription: string;
 }
 
+interface JhaStepsPatchJobInput extends BaseJobInput {
+  notes: string;
+  apply?: boolean;
+}
+
+interface JhaHazardsPatchJobInput extends BaseJobInput {
+  notes: string;
+  apply?: boolean;
+}
+
+interface JhaControlsSuggestionJobInput extends BaseJobInput {}
+
 interface IncidentWitnessJobInput extends BaseJobInput {
   accountId: string;
   statement: string;
@@ -55,9 +74,23 @@ interface IncidentNarrativeJobInput extends BaseJobInput {
   narrative: string;
 }
 
+interface IncidentFactsJobInput extends BaseJobInput {
+  narrative: string;
+}
+
 interface IncidentMergeJobInput extends BaseJobInput {}
 
 interface IncidentConsistencyJobInput extends BaseJobInput {}
+
+interface IncidentCausesJobInput extends BaseJobInput {}
+
+interface IncidentRootCauseJobInput extends BaseJobInput {
+  causeNodeIds?: string[];
+}
+
+interface IncidentActionsJobInput extends BaseJobInput {
+  causeNodeIds?: string[];
+}
 
 interface LlmJob<TInput, TResult = unknown> {
   id: string;
@@ -120,14 +153,56 @@ export class LlmJobManager {
     return this.toPublicJob(job);
   }
 
+  enqueueJhaStepPatch(payload: JhaStepsPatchJobInput): PublicLlmJob {
+    const job = this.createJob<JhaStepsPatchJobInput>({ type: "jha-steps", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueJhaHazardPatch(payload: JhaHazardsPatchJobInput): PublicLlmJob {
+    const job = this.createJob<JhaHazardsPatchJobInput>({ type: "jha-hazards", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueJhaControlsSuggestion(payload: JhaControlsSuggestionJobInput): PublicLlmJob {
+    const job = this.createJob<JhaControlsSuggestionJobInput>({ type: "jha-controls", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
   enqueueIncidentNarrativeExtraction(payload: IncidentNarrativeJobInput): PublicLlmJob {
     const job = this.createJob<IncidentNarrativeJobInput>({ type: "incident-narrative", input: payload });
     this.enqueue(job);
     return this.toPublicJob(job);
   }
 
+  enqueueIncidentFacts(payload: IncidentFactsJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentFactsJobInput>({ type: "incident-facts", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
   enqueueIncidentWitnessExtraction(payload: IncidentWitnessJobInput): PublicLlmJob {
     const job = this.createJob<IncidentWitnessJobInput>({ type: "incident-witness", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentCauseCoaching(payload: IncidentCausesJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentCausesJobInput>({ type: "incident-causes", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentRootCauseCoaching(payload: IncidentRootCauseJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentRootCauseJobInput>({ type: "incident-root-causes", input: payload });
+    this.enqueue(job);
+    return this.toPublicJob(job);
+  }
+
+  enqueueIncidentActionCoaching(payload: IncidentActionsJobInput): PublicLlmJob {
+    const job = this.createJob<IncidentActionsJobInput>({ type: "incident-actions", input: payload });
     this.enqueue(job);
     return this.toPublicJob(job);
   }
@@ -202,11 +277,32 @@ export class LlmJobManager {
         case "jha-rows":
           await this.handleJhaRowsJob(job as LlmJob<JhaRowsJobInput>);
           break;
+        case "jha-steps":
+          await this.handleJhaStepsPatchJob(job as LlmJob<JhaStepsPatchJobInput>);
+          break;
+        case "jha-hazards":
+          await this.handleJhaHazardsPatchJob(job as LlmJob<JhaHazardsPatchJobInput>);
+          break;
+        case "jha-controls":
+          await this.handleJhaControlsSuggestionJob(job as LlmJob<JhaControlsSuggestionJobInput>);
+          break;
         case "incident-narrative":
           await this.handleIncidentNarrativeJob(job as LlmJob<IncidentNarrativeJobInput>);
           break;
+        case "incident-facts":
+          await this.handleIncidentFactsJob(job as LlmJob<IncidentFactsJobInput>);
+          break;
         case "incident-witness":
           await this.handleIncidentWitnessJob(job as LlmJob<IncidentWitnessJobInput>);
+          break;
+        case "incident-causes":
+          await this.handleIncidentCauseCoachingJob(job as LlmJob<IncidentCausesJobInput>);
+          break;
+        case "incident-root-causes":
+          await this.handleIncidentRootCauseCoachingJob(job as LlmJob<IncidentRootCauseJobInput>);
+          break;
+        case "incident-actions":
+          await this.handleIncidentActionCoachingJob(job as LlmJob<IncidentActionsJobInput>);
           break;
         case "incident-merge":
           await this.handleIncidentMergeJob(job as LlmJob<IncidentMergeJobInput>);
@@ -325,6 +421,132 @@ export class LlmJobManager {
     };
   }
 
+  private async handleJhaStepsPatchJob(job: LlmJob<JhaStepsPatchJobInput>) {
+    const { jhaService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const jhaCase = await jhaService.getCaseById(job.input.caseId);
+    if (!jhaCase) {
+      throw new Error("JHA case not found");
+    }
+
+    const parsed = await this.llmService.parseJhaPatch({
+      userInput: job.input.notes,
+      phase: "steps",
+      steps: jhaCase.steps.map((step) => ({ id: step.id, label: step.label })),
+      hazards: jhaCase.hazards.map((hazard) => ({
+        id: hazard.id,
+        stepId: hazard.stepId,
+        hazard: hazard.hazard,
+        consequence: hazard.consequence,
+        controls: hazard.controls
+      }))
+    });
+
+    if (parsed.needsClarification) {
+      job.result = {
+        needsClarification: true,
+        clarificationPrompt: parsed.clarificationPrompt,
+        commands: []
+      };
+      return;
+    }
+
+    const commands = parsed.commands.filter((cmd) => cmd.target === "step");
+    const apply = job.input.apply ?? true;
+    if (!commands.length) {
+      job.result = {
+        commandsApplied: 0,
+        summary: parsed.summary,
+        commands
+      };
+      return;
+    }
+
+    if (apply) {
+      await jhaService.applyPatchCommands(job.input.caseId, commands, { allowControlEdits: false });
+    }
+    job.result = {
+      commandsApplied: apply ? commands.length : 0,
+      summary: parsed.summary,
+      commands,
+      applied: apply
+    };
+  }
+
+  private async handleJhaHazardsPatchJob(job: LlmJob<JhaHazardsPatchJobInput>) {
+    const { jhaService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const jhaCase = await jhaService.getCaseById(job.input.caseId);
+    if (!jhaCase) {
+      throw new Error("JHA case not found");
+    }
+
+    const parsed = await this.llmService.parseJhaPatch({
+      userInput: job.input.notes,
+      phase: "hazards",
+      steps: jhaCase.steps.map((step) => ({ id: step.id, label: step.label })),
+      hazards: jhaCase.hazards.map((hazard) => ({
+        id: hazard.id,
+        stepId: hazard.stepId,
+        hazard: hazard.hazard,
+        consequence: hazard.consequence,
+        controls: hazard.controls
+      }))
+    });
+
+    if (parsed.needsClarification) {
+      job.result = {
+        needsClarification: true,
+        clarificationPrompt: parsed.clarificationPrompt,
+        commands: []
+      };
+      return;
+    }
+
+    const commands = parsed.commands.filter((cmd) => cmd.target === "hazard");
+    const apply = job.input.apply ?? true;
+    if (!commands.length) {
+      job.result = {
+        commandsApplied: 0,
+        summary: parsed.summary,
+        commands
+      };
+      return;
+    }
+
+    if (apply) {
+      await jhaService.applyPatchCommands(job.input.caseId, commands, { allowControlEdits: false });
+    }
+    job.result = {
+      commandsApplied: apply ? commands.length : 0,
+      summary: parsed.summary,
+      commands,
+      applied: apply
+    };
+  }
+
+  private async handleJhaControlsSuggestionJob(job: LlmJob<JhaControlsSuggestionJobInput>) {
+    const { jhaService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const jhaCase = await jhaService.getCaseById(job.input.caseId);
+    if (!jhaCase) {
+      throw new Error("JHA case not found");
+    }
+
+    const result = await this.llmService.suggestJhaControls({
+      steps: jhaCase.steps.map((step) => ({ id: step.id, label: step.label })),
+      hazards: jhaCase.hazards.map((hazard) => ({
+        id: hazard.id,
+        stepId: hazard.stepId,
+        hazard: hazard.hazard,
+        consequence: hazard.consequence,
+        controls: hazard.controls
+      }))
+    });
+
+    job.result = {
+      suggestions: result.suggestions,
+      suggestionsCount: result.suggestions.length
+    };
+  }
+
   private async handleIncidentNarrativeJob(job: LlmJob<IncidentNarrativeJobInput>) {
     const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
     const extraction = await this.llmService.extractIncidentNarrative(job.input.narrative);
@@ -348,6 +570,83 @@ export class LlmJobManager {
     };
   }
 
+  private async handleIncidentFactsJob(job: LlmJob<IncidentFactsJobInput>) {
+    await this.handleIncidentNarrativeJob(job as unknown as LlmJob<IncidentNarrativeJobInput>);
+  }
+
+  private async handleIncidentCauseCoachingJob(job: LlmJob<IncidentCausesJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const incidentCase = await incidentService.getCaseById(job.input.caseId);
+    if (!incidentCase) {
+      throw new Error("Incident case not found");
+    }
+
+    const timeline = incidentCase.timelineEvents.map((event) => ({
+      eventAt: event.eventAt ? event.eventAt.toISOString() : null,
+      timeLabel: event.timeLabel ?? null,
+      text: event.text
+    }));
+
+    const result = await this.llmService.coachIncidentCauses({ timeline });
+    job.result = result;
+  }
+
+  private async handleIncidentRootCauseCoachingJob(job: LlmJob<IncidentRootCauseJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const incidentCase = await incidentService.getCaseById(job.input.caseId);
+    if (!incidentCase) {
+      throw new Error("Incident case not found");
+    }
+
+    const filterIds = job.input.causeNodeIds ? new Set(job.input.causeNodeIds) : null;
+    const candidates = incidentCase.causeNodes.filter((node) =>
+      filterIds ? filterIds.has(node.id) : Boolean(node.timelineEventId)
+    );
+
+    if (!candidates.length) {
+      job.result = { questions: [] };
+      return;
+    }
+
+    const result = await this.llmService.coachIncidentRootCauses({
+      causes: candidates.map((node) => ({
+        causeNodeId: node.id,
+        statement: node.statement
+      }))
+    });
+    job.result = result;
+  }
+
+  private async handleIncidentActionCoachingJob(job: LlmJob<IncidentActionsJobInput>) {
+    const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
+    const incidentCase = await incidentService.getCaseById(job.input.caseId);
+    if (!incidentCase) {
+      throw new Error("Incident case not found");
+    }
+
+    const filterIds = job.input.causeNodeIds ? new Set(job.input.causeNodeIds) : null;
+    const candidates = incidentCase.causeNodes.filter((node) => (filterIds ? filterIds.has(node.id) : true));
+
+    if (!candidates.length) {
+      job.result = { suggestions: [] };
+      return;
+    }
+
+    const result = await this.llmService.suggestIncidentActions({
+      causes: candidates.map((node) => ({
+        causeNodeId: node.id,
+        statement: node.statement
+      })),
+      existingActions: candidates.flatMap((node) =>
+        node.actions.map((action) => ({
+          causeNodeId: node.id,
+          description: action.description
+        }))
+      )
+    });
+    job.result = result;
+  }
+
   private async handleIncidentWitnessJob(job: LlmJob<IncidentWitnessJobInput>) {
     const { incidentService } = this.tenantServiceFactory.getServices(job.input.tenantDbUrl);
     const extraction = await this.llmService.extractIncidentWitness(job.input.statement);
@@ -359,6 +658,7 @@ export class LlmJobManager {
     const events = extraction.personalTimeline.map((event, index) => ({
       accountId: job.input.accountId,
       orderIndex: index,
+      eventAt: event.eventAt ?? null,
       timeLabel: event.timeLabel ?? null,
       text: event.text
     }));
@@ -386,6 +686,7 @@ export class LlmJobManager {
       name: account.person?.name ?? null,
       facts: account.facts.map((fact) => ({ text: fact.text })),
       personalTimeline: account.personalEvents.map((event) => ({
+        eventAt: event.eventAt ? event.eventAt.toISOString() : null,
         timeLabel: event.timeLabel ?? null,
         text: event.text
       }))
@@ -412,6 +713,7 @@ export class LlmJobManager {
         .filter((item): item is TimelineSourceInput => item !== null);
 
       return {
+        eventAt: row.eventAt ?? null,
         timeLabel: row.timeLabel ?? null,
         text: row.text,
         confidence: row.confidence,
@@ -434,6 +736,7 @@ export class LlmJobManager {
       throw new Error("Incident case not found");
     }
     const timeline = incidentCase.timelineEvents.map((event) => ({
+      eventAt: event.eventAt ? event.eventAt.toISOString() : null,
       timeLabel: event.timeLabel ?? null,
       text: event.text
     }));

@@ -7,12 +7,18 @@ const normalizeOrigin = (origin: string) => origin.replace(/\/$/, "");
 
 const getRequestHost = (req: Request) => req.get("host");
 
-const getHostname = (value: string) => {
-  try {
-    return new URL(value).hostname;
-  } catch {
+const getRequestOrigin = (req: Request) => {
+  const host = getRequestHost(req);
+  if (!host) {
     return null;
   }
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  const protoValue = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const protocol = (protoValue ?? req.protocol).split(",")[0]?.trim();
+  if (!protocol) {
+    return null;
+  }
+  return `${protocol}://${host}`;
 };
 
 export const csrfProtection = (req: Request, res: Response, next: NextFunction) => {
@@ -27,13 +33,9 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
 
   const allowed = new Set(env.allowedOrigins.map(normalizeOrigin));
   if (allowed.size === 0) {
-    const requestHost = getRequestHost(req);
-    if (requestHost) {
-      const requestHostname = requestHost.split(":")[0];
-      const originHostname = getHostname(origin);
-      if (originHostname && originHostname === requestHostname) {
-        return next();
-      }
+    const requestOrigin = getRequestOrigin(req);
+    if (requestOrigin && normalizeOrigin(origin) === normalizeOrigin(requestOrigin)) {
+      return next();
     }
   }
 

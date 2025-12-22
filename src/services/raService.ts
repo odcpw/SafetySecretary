@@ -91,6 +91,36 @@ export type AttachmentDto = {
   storageKey: string;
 };
 
+type HazardSnapshotInput = {
+  id: string;
+  stepId: string;
+  orderIndex?: number;
+  label: string;
+  description?: string | null;
+  categoryCode?: string | null;
+  existingControls?: string[];
+  proposedControls?: { id: string; description: string; hierarchy?: string | null }[];
+  baseline?: HazardAssessmentSnapshot;
+  residual?: HazardAssessmentSnapshot;
+};
+
+type ActionSnapshotInput = {
+  id: string;
+  hazardId?: string | null;
+  controlId?: string | null;
+  orderIndex?: number;
+  description: string;
+  owner?: string | null;
+  dueDate?: string | Date | null;
+  status?: string;
+};
+
+type RiskAssessmentSnapshotInput = {
+  steps: ProcessStepInput[];
+  hazards: HazardSnapshotInput[];
+  actions: ActionSnapshotInput[];
+};
+
 export interface RiskAssessmentCaseSummary {
   id: string;
   activityName: string;
@@ -494,6 +524,194 @@ export class RiskAssessmentService {
     });
 
     return this.getCaseById(id);
+  }
+
+  async restoreCaseSnapshot(caseId: string, snapshot: RiskAssessmentSnapshotInput): Promise<RiskAssessmentCaseDto | null> {
+    const raCase = await this.db.riskAssessmentCase.findUnique({ where: { id: caseId } });
+    if (!raCase) {
+      return null;
+    }
+
+    const stepsPayload = snapshot.steps.map((step, index) => ({
+      id: step.id,
+      activity: step.activity,
+      equipment: step.equipment ?? [],
+      substances: step.substances ?? [],
+      description: step.description ?? null,
+      orderIndex: step.orderIndex ?? index
+    }));
+
+    await this.updateSteps(caseId, stepsPayload);
+
+    const stepIds = new Set(
+      stepsPayload.map((step) => step.id).filter((id): id is string => typeof id === "string" && id.length > 0)
+    );
+
+    const hazardsSnapshot = snapshot.hazards ?? [];
+    const hazardIds = hazardsSnapshot.map((hazard) => hazard.id).filter((id) => typeof id === "string" && id.length > 0);
+    if (hazardsSnapshot.length && hazardIds.length === 0) {
+      throw new Error("Invalid hazard snapshot: missing ids");
+    }
+
+    const controlIds = new Set<string>();
+    hazardsSnapshot.forEach((hazard) => {
+      (hazard.proposedControls ?? []).forEach((control) => {
+        if (control.id) {
+          controlIds.add(control.id);
+        }
+      });
+    });
+
+    const normalizeDueDate = (value: string | Date | null | undefined) => {
+      if (!value) return null;
+      const parsed = value instanceof Date ? value : new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    };
+
+    const actionStatuses = new Set(["OPEN", "IN_PROGRESS", "COMPLETE"]);
+
+    await this.db.$transaction(async (tx) => {
+      if (hazardIds.length) {
+        await tx.hazard.deleteMany({
+          where: { caseId, id: { notIn: hazardIds } }
+        });
+      } else {
+        await tx.hazard.deleteMany({ where: { caseId } });
+      }
+
+      for (const [index, hazard] of hazardsSnapshot.entries()) {
+        const stepId = stepIds.has(hazard.stepId) ? hazard.stepId : stepsPayload[0]?.id ?? hazard.stepId;
+        await tx.hazard.upsert({
+          where: { id: hazard.id },
+          update: {
+            stepId,
+            orderIndex: hazard.orderIndex ?? index,
+            label: hazard.label,
+            description: hazard.description ?? null,
+            categoryCode: hazard.categoryCode ?? null,
+            existingControls: hazard.existingControls ?? []
+          },
+          create: {
+            id: hazard.id,
+            caseId,
+            stepId,
+            orderIndex: hazard.orderIndex ?? index,
+            label: hazard.label,
+            description: hazard.description ?? null,
+            categoryCode: hazard.categoryCode ?? null,
+            existingControls: hazard.existingControls ?? []
+          }
+        });
+
+        const upsertAssessment = async (
+          type: HazardAssessmentType,
+          snapshotValue?: HazardAssessmentSnapshot
+        ) => {
+          if (!snapshotValue?.severity || !snapshotValue?.likelihood) {
+            await tx.hazardAssessment.deleteMany({ where: { hazardId: hazard.id, type } });
+            return;
+          }
+          const riskRating =
+            snapshotValue.riskRating ??
+            TEMPLATE_RISK_BAND_LABEL[getTemplateRiskBand(snapshotValue.severity, snapshotValue.likelihood)];
+          await tx.hazardAssessment.upsert({
+            where: { hazardId_type: { hazardId: hazard.id, type } },
+            update: {
+              severity: snapshotValue.severity,
+              likelihood: snapshotValue.likelihood,
+              riskRating
+            },
+            create: {
+              hazardId: hazard.id,
+              type,
+              severity: snapshotValue.severity,
+              likelihood: snapshotValue.likelihood,
+              riskRating
+            }
+          });
+        };
+
+        await upsertAssessment(HazardAssessmentType.BASELINE, hazard.baseline);
+        await upsertAssessment(HazardAssessmentType.RESIDUAL, hazard.residual);
+
+        const controlsSnapshot = hazard.proposedControls ?? [];
+        const controlIdsForHazard = controlsSnapshot
+          .map((control) => control.id)
+          .filter((id) => typeof id === "string" && id.length > 0);
+        if (controlIdsForHazard.length) {
+          await tx.hazardControl.deleteMany({
+            where: { hazardId: hazard.id, id: { notIn: controlIdsForHazard } }
+          });
+        } else {
+          await tx.hazardControl.deleteMany({ where: { hazardId: hazard.id } });
+        }
+
+        for (const control of controlsSnapshot) {
+          if (!control.id) continue;
+          await tx.hazardControl.upsert({
+            where: { id: control.id },
+            update: {
+              hazardId: hazard.id,
+              description: control.description,
+              hierarchy: control.hierarchy as PrismaControlHierarchy | null
+            },
+            create: {
+              id: control.id,
+              hazardId: hazard.id,
+              description: control.description,
+              hierarchy: control.hierarchy as PrismaControlHierarchy | null
+            }
+          });
+        }
+      }
+
+      const actionsSnapshot = snapshot.actions ?? [];
+      const actionIds = actionsSnapshot.map((action) => action.id).filter((id) => typeof id === "string" && id.length > 0);
+      if (actionsSnapshot.length && actionIds.length === 0) {
+        throw new Error("Invalid action snapshot: missing ids");
+      }
+
+      if (actionIds.length) {
+        await tx.correctiveAction.deleteMany({ where: { caseId, id: { notIn: actionIds } } });
+      } else {
+        await tx.correctiveAction.deleteMany({ where: { caseId } });
+      }
+
+      const hazardIdSet = new Set(hazardIds);
+      const controlIdSet = new Set(controlIds);
+
+      for (const [index, action] of actionsSnapshot.entries()) {
+        const hazardId = action.hazardId && hazardIdSet.has(action.hazardId) ? action.hazardId : null;
+        const controlId = action.controlId && controlIdSet.has(action.controlId) ? action.controlId : null;
+        const status = action.status && actionStatuses.has(action.status) ? action.status : "OPEN";
+        const dueDate = normalizeDueDate(action.dueDate);
+        await tx.correctiveAction.upsert({
+          where: { id: action.id },
+          update: {
+            hazardId,
+            controlId,
+            orderIndex: action.orderIndex ?? index,
+            description: action.description,
+            owner: action.owner ?? null,
+            dueDate,
+            status: status as any
+          },
+          create: {
+            id: action.id,
+            caseId,
+            hazardId,
+            controlId,
+            orderIndex: action.orderIndex ?? index,
+            description: action.description,
+            owner: action.owner ?? null,
+            dueDate,
+            status: status as any
+          }
+        });
+      }
+    });
+
+    return this.getCaseById(caseId);
   }
 
   // Merge extracted hazards with category and existing controls

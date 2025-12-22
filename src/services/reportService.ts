@@ -936,6 +936,7 @@ export class ReportService {
     const placeholder = i18n.t("common.placeholder");
     const headers =
       i18n.get<string[]>("xlsx.jhaHeaders") ?? ["Step #", "Job Step", "Hazard", "Consequence", "Controls"];
+    doc.addPage();
     const marginLeft = doc.page.margins.left;
     const marginRight = doc.page.margins.right;
     const pageWidth = doc.page.width - marginLeft - marginRight;
@@ -947,7 +948,8 @@ export class ReportService {
       if (Number.isNaN(parsed.getTime())) {
         return placeholder;
       }
-      return i18n.formatDate(parsed);
+      const hasTime = parsed.getHours() !== 0 || parsed.getMinutes() !== 0;
+      return hasTime ? i18n.formatDateTime(parsed) : i18n.formatDate(parsed);
     };
 
     const renderHeader = () => {
@@ -1062,7 +1064,6 @@ export class ReportService {
       });
     });
 
-    doc.addPage();
     renderHeader();
     renderMetaBlock();
     renderTableHeader();
@@ -1122,9 +1123,18 @@ export class ReportService {
     sheet.getCell("A3").value = `${i18n.t("jha.site")}: ${jhaCase.site ?? placeholder}`;
     sheet.getCell("A4").value = `${i18n.t("jha.supervisor")}: ${jhaCase.supervisor ?? placeholder}`;
     sheet.getCell("A5").value = `${i18n.t("jha.workersInvolved")}: ${jhaCase.workersInvolved ?? placeholder}`;
-    if (jhaCase.jobDate) {
-      const jobDate = jhaCase.jobDate instanceof Date ? jhaCase.jobDate : new Date(jhaCase.jobDate);
-      sheet.getCell("A6").value = `${i18n.t("jha.jobDate")}: ${i18n.formatDate(jobDate)}`;
+    const formatDateCell = (value: string | Date | null | undefined) => {
+      if (!value) return null;
+      const parsed = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return null;
+      }
+      const hasTime = parsed.getHours() !== 0 || parsed.getMinutes() !== 0;
+      return hasTime ? i18n.formatDateTime(parsed) : i18n.formatDate(parsed);
+    };
+    const jobDateLabel = formatDateCell(jhaCase.jobDate);
+    if (jobDateLabel) {
+      sheet.getCell("A6").value = `${i18n.t("jha.jobDate")}: ${jobDateLabel}`;
     }
 
     // Table headers
@@ -1193,10 +1203,10 @@ export class ReportService {
     sheet.getCell(signoffRow + 1, 2).value = jhaCase.reviewedBy ?? "";
     sheet.getCell(signoffRow + 2, 1).value = `${i18n.t("jha.approvedBy")}:`;
     sheet.getCell(signoffRow + 2, 2).value = jhaCase.approvedBy ?? "";
-    if (jhaCase.signoffDate) {
-      const signoffDate = jhaCase.signoffDate instanceof Date ? jhaCase.signoffDate : new Date(jhaCase.signoffDate);
+    const signoffLabel = formatDateCell(jhaCase.signoffDate);
+    if (signoffLabel) {
       sheet.getCell(signoffRow + 3, 1).value = `${i18n.t("jha.signoffDate")}:`;
-      sheet.getCell(signoffRow + 3, 2).value = i18n.formatDate(signoffDate);
+      sheet.getCell(signoffRow + 3, 2).value = signoffLabel;
     }
   }
 }

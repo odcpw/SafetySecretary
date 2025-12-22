@@ -13,6 +13,7 @@ export interface IncidentAssistantClarification {
 export interface IncidentAssistantDraft {
   facts: Array<{ text: string }>;
   timeline: Array<{
+    eventAt?: string | null;
     timeLabel?: string | null;
     text: string;
     confidence?: IncidentTimelineConfidence;
@@ -22,6 +23,7 @@ export interface IncidentAssistantDraft {
 
 export interface CreateIncidentCaseInput {
   title: string;
+  workflowStage?: string;
   incidentAt?: string;
   incidentTimeNote?: string;
   location?: string;
@@ -34,6 +36,7 @@ export interface CreateIncidentCaseInput {
 export interface IncidentPersonInput {
   role: string;
   name?: string;
+  otherInfo?: string;
 }
 
 export interface IncidentAccountInput {
@@ -52,6 +55,7 @@ export interface IncidentPersonalEventInput {
   id?: string;
   accountId: string;
   orderIndex?: number;
+  eventAt?: string | null;
   timeLabel?: string | null;
   text: string;
 }
@@ -59,6 +63,7 @@ export interface IncidentPersonalEventInput {
 export interface IncidentTimelineEventInput {
   id?: string;
   orderIndex?: number;
+  eventAt?: string | null;
   timeLabel?: string | null;
   text: string;
   confidence?: IncidentTimelineConfidence;
@@ -97,9 +102,30 @@ export interface IncidentActionInput {
   actionType?: IncidentActionType | null;
 }
 
+export interface IncidentCauseNodeInput {
+  id?: string;
+  parentId?: string | null;
+  timelineEventId?: string | null;
+  orderIndex?: number;
+  statement: string;
+  question?: string | null;
+  isRootCause?: boolean;
+}
+
+export interface IncidentCauseActionInput {
+  id?: string;
+  causeNodeId: string;
+  orderIndex?: number;
+  description: string;
+  ownerRole?: string | null;
+  dueDate?: string | null;
+  actionType?: IncidentActionType | null;
+}
+
 export interface IncidentCaseSummary {
   id: string;
   title: string;
+  workflowStage: string | null;
   incidentAt: Date | null;
   incidentTimeNote: string | null;
   location: string | null;

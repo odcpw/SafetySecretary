@@ -83,7 +83,8 @@ incidentCasesRouter.get("/", async (req: Request, res: Response) => {
 
 incidentCasesRouter.post("/", async (req: Request, res: Response) => {
   try {
-    const { title, incidentAt, incidentTimeNote, location, incidentType, coordinatorRole, coordinatorName } = req.body;
+    const { title, incidentAt, incidentTimeNote, location, incidentType, coordinatorRole, coordinatorName, workflowStage } =
+      req.body;
     if (!title || typeof title !== "string") {
       return res.status(400).json({ error: "title is required" });
     }
@@ -98,6 +99,7 @@ incidentCasesRouter.post("/", async (req: Request, res: Response) => {
     const { incidentService } = getTenantServices(req);
     const incidentCase = await incidentService.createCase({
       title,
+      workflowStage: typeof workflowStage === "string" ? workflowStage : undefined,
       incidentAt,
       incidentTimeNote,
       location,
@@ -163,6 +165,9 @@ incidentCasesRouter.patch("/:id", async (req: Request, res: Response) => {
     if (patch.coordinatorName !== undefined) {
       updateInput.coordinatorName = patch.coordinatorName;
     }
+    if (patch.workflowStage !== undefined) {
+      updateInput.workflowStage = patch.workflowStage;
+    }
     const updated = await incidentService.updateCaseMeta(caseId, updateInput);
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
@@ -196,13 +201,13 @@ incidentCasesRouter.post("/:id/persons", async (req: Request, res: Response) => 
     const caseId = requireParam(req, res, "id");
     if (!caseId) return;
 
-    const { role, name } = req.body ?? {};
+    const { role, name, otherInfo } = req.body ?? {};
     if (!role || typeof role !== "string") {
       return res.status(400).json({ error: "role is required" });
     }
 
     const { incidentService } = getTenantServices(req);
-    const created = await incidentService.addPerson(caseId, { role, name });
+    const created = await incidentService.addPerson(caseId, { role, name, otherInfo });
     if (!created) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -220,13 +225,13 @@ incidentCasesRouter.put("/:id/persons/:personId", async (req: Request, res: Resp
     const personId = requireParam(req, res, "personId");
     if (!personId) return;
 
-    const { role, name } = req.body ?? {};
+    const { role, name, otherInfo } = req.body ?? {};
     if (!role || typeof role !== "string") {
       return res.status(400).json({ error: "role is required" });
     }
 
     const { incidentService } = getTenantServices(req);
-    const updated = await incidentService.updatePerson(caseId, personId, { role, name });
+    const updated = await incidentService.updatePerson(caseId, personId, { role, name, otherInfo });
     if (!updated) {
       return res.status(404).json({ error: "Not found" });
     }
@@ -276,6 +281,52 @@ incidentCasesRouter.put("/:id/accounts/:accountId", async (req: Request, res: Re
     res.json(updated);
   } catch (error) {
     console.error("[incidentCasesRouter] updateAccount", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.put("/:id/accounts/:accountId/personal-events", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+    const accountId = requireParam(req, res, "accountId");
+    if (!accountId) return;
+
+    const { events } = req.body ?? {};
+    if (!Array.isArray(events)) {
+      return res.status(400).json({ error: "events must be an array" });
+    }
+
+    const normalized = events
+      .map((event: any, index: number) => {
+        if (typeof event?.text !== "string") return null;
+        return {
+          id: typeof event.id === "string" ? event.id : undefined,
+          accountId,
+          orderIndex: typeof event.orderIndex === "number" ? event.orderIndex : index,
+          eventAt: typeof event.eventAt === "string" ? event.eventAt : null,
+          timeLabel: typeof event.timeLabel === "string" ? event.timeLabel : null,
+          text: event.text
+        };
+      })
+      .filter(Boolean);
+
+    if (normalized.length !== events.length) {
+      return res.status(400).json({ error: "events contain invalid entries" });
+    }
+
+    const { incidentService } = getTenantServices(req);
+    const ok = await incidentService.replaceAccountPersonalEvents(caseId, accountId, normalized as any);
+    if (!ok) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    const updated = await incidentService.getCaseById(caseId);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("[incidentCasesRouter] update personal events", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -342,6 +393,121 @@ incidentCasesRouter.post("/:id/narrative/extract", async (req: Request, res: Res
     res.status(202).json(job);
   } catch (error) {
     console.error("[incidentCasesRouter] extract narrative", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.post("/:id/assistant/facts", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+
+    const { narrative } = req.body ?? {};
+    if (!narrative || typeof narrative !== "string") {
+      return res.status(400).json({ error: "narrative is required" });
+    }
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+
+    const job = llmJobManager.enqueueIncidentFacts({
+      caseId,
+      narrative,
+      tenantDbUrl
+    });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[incidentCasesRouter] assistant facts", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.post("/:id/assistant/causes", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+
+    const job = llmJobManager.enqueueIncidentCauseCoaching({ caseId, tenantDbUrl });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[incidentCasesRouter] assistant causes", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.post("/:id/assistant/root-causes", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+
+    const { causeNodeIds } = req.body ?? {};
+    if (causeNodeIds !== undefined && !Array.isArray(causeNodeIds)) {
+      return res.status(400).json({ error: "causeNodeIds must be an array" });
+    }
+    const normalizedIds = Array.isArray(causeNodeIds)
+      ? causeNodeIds.filter((id: unknown): id is string => typeof id === "string")
+      : undefined;
+    if (Array.isArray(causeNodeIds) && normalizedIds.length !== causeNodeIds.length) {
+      return res.status(400).json({ error: "causeNodeIds must contain strings" });
+    }
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+
+    const job = llmJobManager.enqueueIncidentRootCauseCoaching({
+      caseId,
+      tenantDbUrl,
+      ...(normalizedIds ? { causeNodeIds: normalizedIds } : {})
+    });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[incidentCasesRouter] assistant root causes", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.post("/:id/assistant/actions", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+
+    const { causeNodeIds } = req.body ?? {};
+    if (causeNodeIds !== undefined && !Array.isArray(causeNodeIds)) {
+      return res.status(400).json({ error: "causeNodeIds must be an array" });
+    }
+    const normalizedIds = Array.isArray(causeNodeIds)
+      ? causeNodeIds.filter((id: unknown): id is string => typeof id === "string")
+      : undefined;
+    if (Array.isArray(causeNodeIds) && normalizedIds.length !== causeNodeIds.length) {
+      return res.status(400).json({ error: "causeNodeIds must contain strings" });
+    }
+
+    const llmJobManager = getLlmJobManager(req);
+    const tenantDbUrl = requireTenantDbUrl(req, res);
+    if (!tenantDbUrl) {
+      return;
+    }
+
+    const job = llmJobManager.enqueueIncidentActionCoaching({
+      caseId,
+      tenantDbUrl,
+      ...(normalizedIds ? { causeNodeIds: normalizedIds } : {})
+    });
+    res.status(202).json(job);
+  } catch (error) {
+    console.error("[incidentCasesRouter] assistant actions", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -427,6 +593,7 @@ incidentCasesRouter.post("/:id/assistant-draft/apply", async (req: Request, res:
         }
         return {
           orderIndex: typeof event.orderIndex === "number" ? event.orderIndex : index,
+          eventAt: typeof event.eventAt === "string" ? event.eventAt : null,
           timeLabel: typeof event.timeLabel === "string" ? event.timeLabel : null,
           text: event.text,
           confidence: confidence ?? "LIKELY"
@@ -488,6 +655,7 @@ incidentCasesRouter.put("/:id/timeline", async (req: Request, res: Response) => 
         return {
           id: typeof event.id === "string" ? event.id : undefined,
           orderIndex: typeof event.orderIndex === "number" ? event.orderIndex : index,
+          eventAt: typeof event.eventAt === "string" ? event.eventAt : null,
           timeLabel: typeof event.timeLabel === "string" ? event.timeLabel : null,
           text: event.text,
           confidence: confidence
@@ -634,6 +802,92 @@ incidentCasesRouter.put("/:id/actions", async (req: Request, res: Response) => {
     res.json(updated);
   } catch (error) {
     console.error("[incidentCasesRouter] update actions", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.put("/:id/cause-nodes", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+
+    const { nodes } = req.body ?? {};
+    if (!Array.isArray(nodes)) {
+      return res.status(400).json({ error: "nodes must be an array" });
+    }
+
+    const normalized = nodes
+      .map((node: any, index: number) => {
+        if (typeof node?.statement !== "string") return null;
+        return {
+          id: typeof node.id === "string" ? node.id : undefined,
+          parentId: typeof node.parentId === "string" ? node.parentId : null,
+          timelineEventId: typeof node.timelineEventId === "string" ? node.timelineEventId : null,
+          orderIndex: typeof node.orderIndex === "number" ? node.orderIndex : index,
+          statement: node.statement,
+          question: typeof node.question === "string" ? node.question : null,
+          isRootCause: typeof node.isRootCause === "boolean" ? node.isRootCause : false
+        };
+      })
+      .filter(Boolean);
+
+    if (normalized.length !== nodes.length) {
+      return res.status(400).json({ error: "nodes contain invalid entries" });
+    }
+
+    const { incidentService } = getTenantServices(req);
+    const updated = await incidentService.updateCauseNodes(caseId, normalized as any);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("[incidentCasesRouter] update cause nodes", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+incidentCasesRouter.put("/:id/cause-actions", async (req: Request, res: Response) => {
+  try {
+    const caseId = requireParam(req, res, "id");
+    if (!caseId) return;
+
+    const { actions } = req.body ?? {};
+    if (!Array.isArray(actions)) {
+      return res.status(400).json({ error: "actions must be an array" });
+    }
+
+    const normalized = actions
+      .map((action: any, index: number) => {
+        if (typeof action?.description !== "string" || typeof action?.causeNodeId !== "string") return null;
+        const actionType = action.actionType ? normalizeActionType(action.actionType) : undefined;
+        if (action.actionType && !actionType) {
+          return null;
+        }
+        return {
+          id: typeof action.id === "string" ? action.id : undefined,
+          causeNodeId: action.causeNodeId,
+          orderIndex: typeof action.orderIndex === "number" ? action.orderIndex : index,
+          description: action.description,
+          ownerRole: typeof action.ownerRole === "string" ? action.ownerRole : null,
+          dueDate: typeof action.dueDate === "string" ? action.dueDate : null,
+          actionType: actionType ?? null
+        };
+      })
+      .filter(Boolean);
+
+    if (normalized.length !== actions.length) {
+      return res.status(400).json({ error: "actions contain invalid entries" });
+    }
+
+    const { incidentService } = getTenantServices(req);
+    const updated = await incidentService.updateCauseActions(caseId, normalized as any);
+    if (!updated) {
+      return res.status(404).json({ error: "Not found" });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("[incidentCasesRouter] update cause actions", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });

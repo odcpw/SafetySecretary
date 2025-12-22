@@ -42,3 +42,34 @@ export interface JhaCaseSummary {
   updatedAt: Date;
   createdBy: string | null;
 }
+
+export type JhaPatchIntent = "add" | "insert" | "modify" | "delete" | "move";
+export type JhaPatchTarget = "step" | "hazard" | "control";
+
+export interface JhaPatchLocation {
+  stepId?: string;
+  stepIndex?: number;
+  hazardId?: string;
+  hazardIndex?: number;
+  insertAfterStepIndex?: number;
+  insertBeforeStepIndex?: number;
+  insertAfterHazardIndex?: number;
+  insertBeforeHazardIndex?: number;
+  toStepIndex?: number;
+}
+
+export interface JhaPatchCommand {
+  intent: JhaPatchIntent;
+  target: JhaPatchTarget;
+  location?: JhaPatchLocation;
+  data?: Record<string, unknown>;
+  explanation?: string;
+}
+
+export interface JhaPatchParseResult {
+  commands: JhaPatchCommand[];
+  summary?: string;
+  needsClarification?: boolean;
+  clarificationPrompt?: string;
+  rawResponse?: string;
+}

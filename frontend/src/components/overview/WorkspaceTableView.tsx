@@ -58,7 +58,7 @@ const groupHazardsByStep = (raCase: RiskAssessmentCase) => {
 export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   const { saving, actions } = useRaContext();
   const { t } = useI18n();
-  const { confirm, dialog } = useConfirmDialog();
+  const { confirm: confirmDialog, dialog } = useConfirmDialog();
   const { status, show, showSuccess, showError } = useSaveStatus();
   const defaultLabels = useMemo(() => buildDefaultMatrixLabels(t), [t]);
   const [settings, setSettings] = useState(() => loadMatrixSettings(defaultLabels));
@@ -266,6 +266,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
               actions={actions}
               onSuccess={notifySuccess}
               onError={notifyError}
+              onConfirmDelete={confirmDialog}
               baselineDraft={baselineDraft}
               residualDraft={residualDraft}
               onBaselineChange={handleBaselineChange}
@@ -292,6 +293,13 @@ interface EditableStepRowsProps {
   actions: ReturnType<typeof useRaContext>["actions"];
   onSuccess: (message: string, duration?: number) => void;
   onError: (message: string, retry?: () => void) => void;
+  onConfirmDelete: (options: {
+    title: string;
+    description?: string;
+    confirmLabel: string;
+    cancelLabel: string;
+    tone?: "default" | "danger";
+  }) => Promise<boolean>;
   baselineDraft: Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>;
   residualDraft: Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>;
   onBaselineChange: (
@@ -314,6 +322,7 @@ const EditableStepRows = ({
   actions,
   onSuccess,
   onError,
+  onConfirmDelete,
   baselineDraft,
   residualDraft,
   onBaselineChange,
@@ -554,7 +563,7 @@ const EditableStepRows = ({
                     onDelete={actions.deleteAction}
                     onSuccess={onSuccess}
                     onError={onError}
-                    onConfirmDelete={confirm}
+                    onConfirmDelete={onConfirmDelete}
                   />
                 ))}
               </ul>

@@ -41,7 +41,7 @@ interface PhaseStepperProps {
 const HIDDEN_PHASES: Phase[] = [];
 
 const PhaseStepper = ({ currentPhase, viewPhase, saving, onSelectPhase, onAdvance, compact = false }: PhaseStepperProps) => {
-  const { t, formatDateTime } = useI18n();
+  const { t } = useI18n();
   const viewIndex = PHASES.findIndex((phase) => phase.id === viewPhase);
   const prevPhase = viewIndex > 0 ? PHASES[viewIndex - 1]?.id : null;
   const nextPhase = viewIndex < PHASES.length - 1 ? PHASES[viewIndex + 1]?.id : null;

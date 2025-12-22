@@ -16,7 +16,7 @@ interface ConfirmState extends ConfirmOptions {
 
 export const useConfirmDialog = () => {
   const [state, setState] = useState<ConfirmState | null>(null);
-  const resolverRef = useRef<(value: boolean) => void>();
+  const resolverRef = useRef<((value: boolean) => void) | null>(null);
 
   const confirm = (options: ConfirmOptions) =>
     new Promise<boolean>((resolve) => {
@@ -26,13 +26,13 @@ export const useConfirmDialog = () => {
 
   const handleClose = () => {
     resolverRef.current?.(false);
-    resolverRef.current = undefined;
+    resolverRef.current = null;
     setState(null);
   };
 
   const handleConfirm = () => {
     resolverRef.current?.(true);
-    resolverRef.current = undefined;
+    resolverRef.current = null;
     setState(null);
   };
 

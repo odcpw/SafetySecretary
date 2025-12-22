@@ -390,15 +390,21 @@ export const IncidentEditor = () => {
     setCauseNodeDrafts(nextCauseNodes);
 
     const nextActions = (incidentCase.causeNodes ?? []).flatMap((node) =>
-      node.actions.map((action) => ({
-        key: action.id,
-        id: action.id,
-        causeNodeId: node.id,
-        description: action.description,
-        ownerRole: action.ownerRole ?? "",
-        dueDate: action.dueDate ?? "",
-        actionType: action.actionType ?? ""
-      }))
+      node.actions.map((action) => {
+        const actionType: CauseActionDraft["actionType"] =
+          typeof action.actionType === "string" && ACTION_TYPES.includes(action.actionType as IncidentActionType)
+            ? (action.actionType as IncidentActionType)
+            : "";
+        return {
+          key: action.id,
+          id: action.id,
+          causeNodeId: node.id,
+          description: action.description,
+          ownerRole: action.ownerRole ?? "",
+          dueDate: action.dueDate ?? "",
+          actionType
+        };
+      })
     );
     setActionDrafts(nextActions);
 
@@ -868,6 +874,7 @@ export const IncidentEditor = () => {
         accountId,
         events.map((event, index) => ({
           id: event.id,
+          accountId,
           orderIndex: index,
           eventAt: event.eventAt ?? null,
           timeLabel: event.timeLabel || null,

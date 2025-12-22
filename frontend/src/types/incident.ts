@@ -44,6 +44,15 @@ export interface IncidentPersonalEvent {
   text: string;
 }
 
+export interface IncidentPersonalEventInput {
+  id?: string;
+  accountId: string;
+  orderIndex?: number;
+  eventAt?: string | null;
+  timeLabel?: string | null;
+  text: string;
+}
+
 export interface IncidentAccount {
   id: string;
   personId: string;

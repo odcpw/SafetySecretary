@@ -533,7 +533,7 @@ export class RiskAssessmentService {
     }
 
     const stepsPayload = snapshot.steps.map((step, index) => ({
-      id: step.id,
+      ...(typeof step.id === "string" && step.id.length > 0 ? { id: step.id } : {}),
       activity: step.activity,
       equipment: step.equipment ?? [],
       substances: step.substances ?? [],

@@ -5,7 +5,9 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { UserMenu } from "@/components/common/UserMenu";
+import { RecentCasesModal } from "@/components/common/RecentCasesModal";
 import { apiFetch } from "@/lib/api";
+import { isValidDateTimeInput } from "@/lib/dateInputs";
 import type { IncidentCaseSummary, IncidentType } from "@/types/incident";
 import { useI18n } from "@/i18n/I18nContext";
 
@@ -14,6 +16,7 @@ export const IncidentLanding = () => {
   const { t, formatDateTime } = useI18n();
   const [loadId, setLoadId] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadModalOpen, setLoadModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -25,7 +28,12 @@ export const IncidentLanding = () => {
     () =>
       z.object({
         title: z.string().min(1, t("landing.incident.errors.titleRequired")),
-        incidentAt: z.string().optional(),
+        incidentAt: z
+          .string()
+          .optional()
+          .refine((value) => !value || isValidDateTimeInput(value), {
+            message: t("common.invalidDateTime")
+          }),
         incidentTimeNote: z.string().optional(),
         location: z.string().optional(),
         incidentType: z.enum(["NEAR_MISS", "FIRST_AID", "LOST_TIME", "PROPERTY_DAMAGE"]),
@@ -131,6 +139,11 @@ export const IncidentLanding = () => {
     navigate(`/incidents/${encodeURIComponent(id)}`);
   };
 
+  const incidentAtHintId = "incident-at-hint";
+  const incidentAtErrorId = errors.incidentAt ? "incident-at-error" : undefined;
+  const incidentAtDescribedBy =
+    [incidentAtHintId, incidentAtErrorId].filter(Boolean).join(" ") || undefined;
+
   return (
     <div className="landing-shell">
       <section className="landing-hero">
@@ -138,6 +151,9 @@ export const IncidentLanding = () => {
           <div className="landing-hero__header">
             <p className="text-label">{t("common.appName")}</p>
             <div className="landing-hero__meta">
+              <button type="button" className="btn-outline" onClick={() => window.location.assign("/tui/incidents")}>
+                Switch to TUI
+              </button>
               <ThemeToggle />
               <UserMenu />
             </div>
@@ -155,17 +171,21 @@ export const IncidentLanding = () => {
         </div>
       </section>
 
-      <main className="landing-panels">
-        <form id="load-card" className="landing-card app-panel" onSubmit={handleLoad}>
+      <main className="landing-panels grid-auto-wide">
+        <form id="load-card" className="landing-card app-panel card" onSubmit={handleLoad}>
           <div className="landing-card__header">
             <p className="text-label">{t("landing.incident.load.label")}</p>
             <h2>{t("landing.incident.load.title")}</h2>
             <p>{t("landing.incident.load.subtitle")}</p>
           </div>
-          <div className="landing-card__body">
+          <div className="landing-card__body stack">
+            <button type="button" onClick={() => setLoadModalOpen(true)}>
+              {t("common.browseCases")}
+            </button>
             <label htmlFor="load-id">{t("landing.incident.load.inputLabel")}</label>
             <input
               id="load-id"
+              aria-invalid={Boolean(loadError)}
               value={loadId}
               onChange={(event) => {
                 setLoadId(event.target.value);
@@ -173,7 +193,7 @@ export const IncidentLanding = () => {
               }}
               placeholder={t("landing.incident.load.inputPlaceholder")}
             />
-            {loadError && <p className="text-error">{loadError}</p>}
+            {loadError && <p className="form-error">{loadError}</p>}
           </div>
           <div className="landing-card__actions">
             <button type="submit" className="btn-outline" disabled={!loadId.trim()}>
@@ -182,20 +202,21 @@ export const IncidentLanding = () => {
           </div>
         </form>
 
-        <form id="create-card" className="landing-card app-panel" onSubmit={onCreateIncident}>
+        <form id="create-card" className="landing-card app-panel card" onSubmit={onCreateIncident}>
           <div className="landing-card__header">
             <p className="text-label">{t("landing.incident.create.label")}</p>
             <h2>{t("landing.incident.create.title")}</h2>
             <p>{t("landing.incident.create.subtitle")}</p>
           </div>
-          <div className="landing-card__body">
+          <div className="landing-card__body stack">
             <label htmlFor="incident-title">{t("landing.incident.create.titleLabel")}</label>
             <input
               id="incident-title"
+              aria-invalid={Boolean(errors.title)}
               {...register("title")}
               placeholder={t("landing.incident.create.titlePlaceholder")}
             />
-            {errors.title && <p className="text-error">{errors.title.message}</p>}
+            {errors.title && <p className="form-error">{errors.title.message}</p>}
 
             <label htmlFor="incident-type">{t("landing.incident.create.typeLabel")}</label>
             <select id="incident-type" {...register("incidentType")}>
@@ -206,43 +227,60 @@ export const IncidentLanding = () => {
               ))}
             </select>
 
-            <label htmlFor="incident-at">{t("landing.incident.create.whenLabel")}</label>
-            <input
-              id="incident-at"
-              {...register("incidentAt")}
-              placeholder={t("landing.incident.create.whenPlaceholder")}
-            />
-
-            <label htmlFor="incident-note">{t("landing.incident.create.whenNotesLabel")}</label>
-            <input
-              id="incident-note"
-              {...register("incidentTimeNote")}
-              placeholder={t("landing.incident.create.whenNotesPlaceholder")}
-            />
-
-            <label htmlFor="incident-location">{t("landing.incident.create.locationLabel")}</label>
-            <input
-              id="incident-location"
-              {...register("location")}
-              placeholder={t("landing.incident.create.locationPlaceholder")}
-            />
-
             <label htmlFor="coordinator-role">{t("landing.incident.create.coordinatorRoleLabel")}</label>
             <input
               id="coordinator-role"
+              aria-invalid={Boolean(errors.coordinatorRole)}
               {...register("coordinatorRole")}
               placeholder={t("landing.incident.create.coordinatorRolePlaceholder")}
             />
-            {errors.coordinatorRole && <p className="text-error">{errors.coordinatorRole.message}</p>}
+            {errors.coordinatorRole && <p className="form-error">{errors.coordinatorRole.message}</p>}
 
-            <label htmlFor="coordinator-name">{t("landing.incident.create.coordinatorNameLabel")}</label>
-            <input
-              id="coordinator-name"
-              {...register("coordinatorName")}
-              placeholder={t("landing.incident.create.coordinatorNamePlaceholder")}
-            />
+            <details className="form-disclosure">
+              <summary>{t("common.optionalDetails")}</summary>
+              <div className="form-disclosure__body stack">
+                <label htmlFor="incident-at">{t("landing.incident.create.whenLabel")}</label>
+                <input
+                  id="incident-at"
+                  type="datetime-local"
+                  aria-invalid={Boolean(errors.incidentAt)}
+                  aria-describedby={incidentAtDescribedBy}
+                  {...register("incidentAt")}
+                  placeholder={t("landing.incident.create.whenPlaceholder")}
+                />
+                <p id={incidentAtHintId} className="form-helper">
+                  {t("common.dateTimeHint")}
+                </p>
+                {errors.incidentAt && (
+                  <p id={incidentAtErrorId} className="form-error">
+                    {errors.incidentAt.message}
+                  </p>
+                )}
 
-            {serverError && <p className="text-error">{serverError}</p>}
+                <label htmlFor="incident-note">{t("landing.incident.create.whenNotesLabel")}</label>
+                <input
+                  id="incident-note"
+                  {...register("incidentTimeNote")}
+                  placeholder={t("landing.incident.create.whenNotesPlaceholder")}
+                />
+
+                <label htmlFor="incident-location">{t("landing.incident.create.locationLabel")}</label>
+                <input
+                  id="incident-location"
+                  {...register("location")}
+                  placeholder={t("landing.incident.create.locationPlaceholder")}
+                />
+
+                <label htmlFor="coordinator-name">{t("landing.incident.create.coordinatorNameLabel")}</label>
+                <input
+                  id="coordinator-name"
+                  {...register("coordinatorName")}
+                  placeholder={t("landing.incident.create.coordinatorNamePlaceholder")}
+                />
+              </div>
+            </details>
+
+            {serverError && <p className="form-error">{serverError}</p>}
           </div>
           <div className="landing-card__actions">
             <button type="submit" disabled={creating}>
@@ -251,15 +289,15 @@ export const IncidentLanding = () => {
           </div>
         </form>
 
-        <section className="landing-card app-panel">
+        <section className="landing-card app-panel card">
           <div className="landing-card__header">
             <p className="text-label">{t("landing.incident.recent.label")}</p>
             <h2>{t("landing.incident.recent.title")}</h2>
             <p>{t("landing.incident.recent.subtitle")}</p>
           </div>
-          <div className="landing-card__body">
+          <div className="landing-card__body stack">
             {casesLoading && <p className="text-muted">{t("landing.incident.recent.loading")}</p>}
-            {casesError && <p className="text-error">{casesError}</p>}
+            {casesError && <p className="form-error">{casesError}</p>}
             {!casesLoading && recentCases.length === 0 && (
               <p className="text-muted">{t("landing.incident.recent.empty")}</p>
             )}
@@ -290,6 +328,30 @@ export const IncidentLanding = () => {
           </div>
         </section>
       </main>
+      <RecentCasesModal
+        open={loadModalOpen}
+        onClose={() => setLoadModalOpen(false)}
+        title={t("landing.incident.recent.title")}
+        subtitle={t("landing.incident.recent.subtitle")}
+        searchPlaceholder={t("common.searchPlaceholder")}
+        items={recentCases}
+        loading={casesLoading}
+        error={casesError}
+        emptyText={t("landing.incident.recent.empty")}
+        loadingText={t("landing.incident.recent.loading")}
+        loadLabel={t("landing.incident.recent.load")}
+        onSelect={(item) => handleLoadSaved(item.id)}
+        getTitle={(item) => item.title}
+        getMeta={(item) =>
+          `${item.location || t("workspace.locationPending")} · ${incidentTypeLabels[item.incidentType]}`
+        }
+        getSearchText={(item) =>
+          `${item.title} ${item.location ?? ""} ${incidentTypeLabels[item.incidentType]} ${item.id}`.trim()
+        }
+        getUpdatedLabel={(item) =>
+          t("landing.incident.recent.updated", { values: { date: formatDateTime(item.updatedAt) } })
+        }
+      />
     </div>
   );
 };

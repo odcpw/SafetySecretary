@@ -13,6 +13,29 @@ export interface JhaHazard {
   controls: string[];
 }
 
+export type JhaPatchIntent = "add" | "insert" | "modify" | "delete" | "move";
+export type JhaPatchTarget = "step" | "hazard" | "control";
+
+export interface JhaPatchLocation {
+  stepId?: string;
+  stepIndex?: number;
+  hazardId?: string;
+  hazardIndex?: number;
+  insertAfterStepIndex?: number;
+  insertBeforeStepIndex?: number;
+  insertAfterHazardIndex?: number;
+  insertBeforeHazardIndex?: number;
+  toStepIndex?: number;
+}
+
+export interface JhaPatchCommand {
+  intent: JhaPatchIntent;
+  target: JhaPatchTarget;
+  location?: JhaPatchLocation;
+  data?: Record<string, unknown>;
+  explanation?: string;
+}
+
 export type JhaWorkflowStage = "steps" | "hazards" | "controls" | "review";
 
 export interface JhaAttachment {

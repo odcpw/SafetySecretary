@@ -9,7 +9,12 @@ const mockActions = {
   updateCaseMeta: vi.fn(),
   saveSteps: vi.fn(),
   saveHazards: vi.fn(),
-  extractRows: vi.fn()
+  extractRows: vi.fn(),
+  assistSteps: vi.fn(),
+  assistHazards: vi.fn(),
+  suggestControls: vi.fn(),
+  applyStepCommands: vi.fn(),
+  applyHazardCommands: vi.fn()
 };
 
 const baseCase = {

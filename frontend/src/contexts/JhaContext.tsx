@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { JhaCase, JhaHazard, JhaStep } from "@/types/jha";
+import type { JhaCase, JhaHazard, JhaPatchCommand, JhaStep } from "@/types/jha";
 import { pollJobUntilDone } from "@/lib/jobs";
 import { apiFetch } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
@@ -14,6 +14,11 @@ interface JhaActions {
   saveSteps: (steps: JhaStep[]) => Promise<void>;
   saveHazards: (hazards: JhaHazard[]) => Promise<void>;
   extractRows: (jobDescription: string) => Promise<void>;
+  assistSteps: (notes: string) => Promise<JhaPatchJobResult>;
+  assistHazards: (notes: string) => Promise<JhaPatchJobResult>;
+  applyStepCommands: (commands: JhaPatchCommand[]) => Promise<void>;
+  applyHazardCommands: (commands: JhaPatchCommand[]) => Promise<void>;
+  suggestControls: () => Promise<JhaControlSuggestionResult>;
 }
 
 interface JhaContextValue {
@@ -24,6 +29,20 @@ interface JhaContextValue {
 }
 
 const JhaContext = createContext<JhaContextValue | null>(null);
+
+type JhaPatchJobResult = {
+  needsClarification?: boolean;
+  clarificationPrompt?: string;
+  commandsApplied?: number;
+  summary?: string;
+  commands?: JhaPatchCommand[];
+  applied?: boolean;
+};
+
+type JhaControlSuggestionResult = {
+  suggestions: Array<{ hazardId: string; control: string }>;
+  suggestionsCount?: number;
+};
 
 const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers ?? {});
@@ -64,15 +83,33 @@ export const JhaProvider = ({ caseId, children }: { caseId: string; children: Re
     void refreshCase();
   }, [refreshCase]);
 
-  const mutate = async (action: () => Promise<void>) => {
+  const mutate = async <T,>(action: () => Promise<T>): Promise<T> => {
     setSaving(true);
     try {
-      await action();
+      const result = await action();
       await refreshCase();
+      return result;
     } finally {
       setSaving(false);
     }
   };
+
+  const runAction = async <T,>(action: () => Promise<T>): Promise<T> => {
+    setSaving(true);
+    try {
+      return await action();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resolveJobResult = <T,>(jobId: string) =>
+    pollJobUntilDone(jobId).then((job) => {
+      if (job.status === "failed") {
+        throw new Error(job.error || "LLM job failed");
+      }
+      return job.result as T;
+    });
 
   const actions: JhaActions = {
     refreshCase,
@@ -103,8 +140,44 @@ export const JhaProvider = ({ caseId, children }: { caseId: string; children: Re
           method: "POST",
           body: JSON.stringify({ jobDescription })
         });
-        await pollJobUntilDone(job.id);
-      })
+        await resolveJobResult(job.id);
+      }),
+    assistSteps: (notes) =>
+      runAction(async () => {
+        const job = await jsonFetch<{ id: string }>(`/api/jha-cases/${caseId}/assistant/steps`, {
+          method: "POST",
+          body: JSON.stringify({ notes, apply: false })
+        });
+        return resolveJobResult<JhaPatchJobResult>(job.id);
+      }),
+    assistHazards: (notes) =>
+      runAction(async () => {
+        const job = await jsonFetch<{ id: string }>(`/api/jha-cases/${caseId}/assistant/hazards`, {
+          method: "POST",
+          body: JSON.stringify({ notes, apply: false })
+        });
+        return resolveJobResult<JhaPatchJobResult>(job.id);
+      }),
+    applyStepCommands: (commands) =>
+      mutate(async () => {
+        await jsonFetch(`/api/jha-cases/${caseId}/assistant/steps/apply`, {
+          method: "POST",
+          body: JSON.stringify({ commands })
+        });
+      }),
+    applyHazardCommands: (commands) =>
+      mutate(async () => {
+        await jsonFetch(`/api/jha-cases/${caseId}/assistant/hazards/apply`, {
+          method: "POST",
+          body: JSON.stringify({ commands })
+        });
+      }),
+    suggestControls: async () => {
+      const job = await jsonFetch<{ id: string }>(`/api/jha-cases/${caseId}/assistant/controls`, {
+        method: "POST"
+      });
+      return resolveJobResult<JhaControlSuggestionResult>(job.id);
+    }
   };
 
   if (!jhaCase) {
@@ -113,7 +186,7 @@ export const JhaProvider = ({ caseId, children }: { caseId: string; children: Re
         <div className="p-6">
           <p className="text-red-600">
             Failed to load case: {error}
-            <button type="button" className="ml-3 bg-slate-800" onClick={() => refreshCase()}>
+            <button type="button" className="ml-3 btn-outline btn-small" onClick={() => refreshCase()}>
               Retry
             </button>
           </p>

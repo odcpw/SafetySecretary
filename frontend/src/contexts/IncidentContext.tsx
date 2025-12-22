@@ -4,6 +4,9 @@ import type { ReactNode } from "react";
 import type {
   IncidentAssistantDraft,
   IncidentCase,
+  IncidentCauseActionInput,
+  IncidentCauseNodeInput,
+  IncidentPersonalEventInput,
   IncidentTimelineConfidence,
   IncidentTimelineEventInput,
   IncidentDeviationInput,
@@ -19,22 +22,34 @@ import { DemoCaseActions } from "@/components/common/DemoCaseActions";
 interface IncidentActions {
   refreshCase: () => Promise<void>;
   updateCaseMeta: (patch: Partial<IncidentCase>) => Promise<void>;
-  addPerson: (role: string, name?: string | null) => Promise<void>;
-  updatePerson: (personId: string, role: string, name?: string | null) => Promise<void>;
+  addPerson: (role: string, name?: string | null, otherInfo?: string | null) => Promise<void>;
+  updatePerson: (personId: string, role: string, name?: string | null, otherInfo?: string | null) => Promise<void>;
   addAccount: (personId: string, rawStatement?: string | null) => Promise<void>;
   updateAccount: (accountId: string, rawStatement?: string | null) => Promise<void>;
+  savePersonalEvents: (accountId: string, events: IncidentPersonalEventInput[]) => Promise<void>;
   extractAccount: (accountId: string, statement: string) => Promise<void>;
   extractNarrative: (narrative: string) => Promise<void>;
   updateAssistantDraft: (draft: IncidentAssistantDraft | null, narrative?: string | null) => Promise<void>;
   applyAssistantDraft: (
-    timeline?: Array<{ timeLabel?: string | null; text: string; confidence?: IncidentTimelineConfidence }>
+    timeline?: Array<{
+      eventAt?: string | null;
+      timeLabel?: string | null;
+      text: string;
+      confidence?: IncidentTimelineConfidence;
+    }>
   ) => Promise<void>;
+  assistFacts: (narrative: string) => Promise<unknown>;
+  assistCauses: () => Promise<unknown>;
+  assistRootCauses: (causeNodeIds?: string[]) => Promise<unknown>;
+  assistActions: (causeNodeIds?: string[]) => Promise<unknown>;
   mergeTimeline: () => Promise<void>;
   checkConsistency: () => Promise<unknown>;
   saveTimeline: (events: IncidentTimelineEventInput[]) => Promise<void>;
   saveDeviations: (deviations: IncidentDeviationInput[]) => Promise<void>;
   saveCauses: (causes: IncidentCauseInput[]) => Promise<void>;
   saveActions: (actions: IncidentActionInput[]) => Promise<void>;
+  saveCauseNodes: (nodes: IncidentCauseNodeInput[]) => Promise<void>;
+  saveCauseActions: (actions: IncidentCauseActionInput[]) => Promise<void>;
 }
 
 interface IncidentContextValue {
@@ -85,11 +100,12 @@ export const IncidentProvider = ({ caseId, children }: { caseId: string; childre
     void refreshCase();
   }, [refreshCase]);
 
-  const mutate = async (action: () => Promise<void>) => {
+  const mutate = async <T,>(action: () => Promise<T>): Promise<T> => {
     setSaving(true);
     try {
-      await action();
+      const result = await action();
       await refreshCase();
+      return result;
     } finally {
       setSaving(false);
     }
@@ -104,18 +120,18 @@ export const IncidentProvider = ({ caseId, children }: { caseId: string; childre
           body: JSON.stringify(patch)
         });
       }),
-    addPerson: (role, name) =>
+    addPerson: (role, name, otherInfo) =>
       mutate(async () => {
         await jsonFetch(`/api/incident-cases/${caseId}/persons`, {
           method: "POST",
-          body: JSON.stringify({ role, name })
+          body: JSON.stringify({ role, name, otherInfo })
         });
       }),
-    updatePerson: (personId, role, name) =>
+    updatePerson: (personId, role, name, otherInfo) =>
       mutate(async () => {
         await jsonFetch(`/api/incident-cases/${caseId}/persons/${personId}`, {
           method: "PUT",
-          body: JSON.stringify({ role, name })
+          body: JSON.stringify({ role, name, otherInfo })
         });
       }),
     addAccount: (personId, rawStatement) =>
@@ -130,6 +146,13 @@ export const IncidentProvider = ({ caseId, children }: { caseId: string; childre
         await jsonFetch(`/api/incident-cases/${caseId}/accounts/${accountId}`, {
           method: "PUT",
           body: JSON.stringify({ rawStatement })
+        });
+      }),
+    savePersonalEvents: (accountId, events) =>
+      mutate(async () => {
+        await jsonFetch(`/api/incident-cases/${caseId}/accounts/${accountId}/personal-events`, {
+          method: "PUT",
+          body: JSON.stringify({ events })
         });
       }),
     extractAccount: (accountId, statement) =>
@@ -161,6 +184,37 @@ export const IncidentProvider = ({ caseId, children }: { caseId: string; childre
           method: "POST",
           body: JSON.stringify({ timeline })
         });
+      }),
+    assistFacts: (narrative) =>
+      mutate(async () => {
+        const job = await jsonFetch<{ id: string }>(`/api/incident-cases/${caseId}/assistant/facts`, {
+          method: "POST",
+          body: JSON.stringify({ narrative })
+        });
+        return (await pollJobUntilDone(job.id)).result;
+      }),
+    assistCauses: () =>
+      mutate(async () => {
+        const job = await jsonFetch<{ id: string }>(`/api/incident-cases/${caseId}/assistant/causes`, {
+          method: "POST"
+        });
+        return (await pollJobUntilDone(job.id)).result;
+      }),
+    assistRootCauses: (causeNodeIds) =>
+      mutate(async () => {
+        const job = await jsonFetch<{ id: string }>(`/api/incident-cases/${caseId}/assistant/root-causes`, {
+          method: "POST",
+          body: JSON.stringify({ causeNodeIds })
+        });
+        return (await pollJobUntilDone(job.id)).result;
+      }),
+    assistActions: (causeNodeIds) =>
+      mutate(async () => {
+        const job = await jsonFetch<{ id: string }>(`/api/incident-cases/${caseId}/assistant/actions`, {
+          method: "POST",
+          body: JSON.stringify({ causeNodeIds })
+        });
+        return (await pollJobUntilDone(job.id)).result;
       }),
     mergeTimeline: () =>
       mutate(async () => {
@@ -203,6 +257,20 @@ export const IncidentProvider = ({ caseId, children }: { caseId: string; childre
           method: "PUT",
           body: JSON.stringify({ actions })
         });
+      }),
+    saveCauseNodes: (nodes) =>
+      mutate(async () => {
+        await jsonFetch(`/api/incident-cases/${caseId}/cause-nodes`, {
+          method: "PUT",
+          body: JSON.stringify({ nodes })
+        });
+      }),
+    saveCauseActions: (actions) =>
+      mutate(async () => {
+        await jsonFetch(`/api/incident-cases/${caseId}/cause-actions`, {
+          method: "PUT",
+          body: JSON.stringify({ actions })
+        });
       })
   };
 
@@ -212,7 +280,7 @@ export const IncidentProvider = ({ caseId, children }: { caseId: string; childre
         <div className="p-6">
           <p className="text-red-600">
             Failed to load incident: {error}
-            <button type="button" className="ml-3 bg-slate-800" onClick={() => refreshCase()}>
+            <button type="button" className="ml-3 btn-outline btn-small" onClick={() => refreshCase()}>
               Retry
             </button>
           </p>

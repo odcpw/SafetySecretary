@@ -5,6 +5,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { UserMenu } from "@/components/common/UserMenu";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { RecentCasesModal } from "@/components/common/RecentCasesModal";
 import { apiFetch } from "@/lib/api";
 import type { RiskAssessmentCaseSummary } from "@/types/riskAssessment";
 import { useI18n } from "@/i18n/I18nContext";
@@ -14,8 +16,10 @@ export const CaseLanding = () => {
   const { t, formatDateTime } = useI18n();
   const [loadId, setLoadId] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadModalOpen, setLoadModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<RiskAssessmentCaseSummary | null>(null);
 
   const [recentCases, setRecentCases] = useState<RiskAssessmentCaseSummary[]>([]);
   const [casesError, setCasesError] = useState<string | null>(null);
@@ -112,15 +116,19 @@ export const CaseLanding = () => {
     void fetchRecentCases();
   }, [fetchRecentCases]);
 
-  const handleRemoveSaved = async (id: string) => {
-    if (!window.confirm(t("landing.hira.confirmDelete"))) {
-      return;
-    }
-    const response = await apiFetch(`/api/ra-cases/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const handleRemoveSaved = (entry: RiskAssessmentCaseSummary) => {
+    setDeleteCandidate(entry);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteCandidate) return;
+    const response = await apiFetch(`/api/ra-cases/${encodeURIComponent(deleteCandidate.id)}`, { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
       setCasesError(t("landing.hira.errors.deleteFailed"));
+      setDeleteCandidate(null);
       return;
     }
+    setDeleteCandidate(null);
     void fetchRecentCases();
   };
 
@@ -135,6 +143,9 @@ export const CaseLanding = () => {
           <div className="landing-hero__header">
             <p className="text-label">{t("common.appName")}</p>
             <div className="landing-hero__meta">
+              <button type="button" className="btn-outline" onClick={() => window.location.assign("/tui/hira")}>
+                Switch to TUI
+              </button>
               <ThemeToggle />
               <UserMenu />
             </div>
@@ -152,17 +163,21 @@ export const CaseLanding = () => {
         </div>
       </section>
 
-      <main className="landing-panels">
-        <form id="load-card" className="landing-card app-panel" onSubmit={handleLoad}>
+      <main className="landing-panels grid-auto-wide">
+        <form id="load-card" className="landing-card app-panel card" onSubmit={handleLoad}>
           <div className="landing-card__header">
             <p className="text-label">{t("landing.hira.load.label")}</p>
             <h2>{t("landing.hira.load.title")}</h2>
             <p>{t("landing.hira.load.subtitle")}</p>
           </div>
-          <div className="landing-card__body">
+          <div className="landing-card__body stack">
+            <button type="button" onClick={() => setLoadModalOpen(true)}>
+              {t("common.browseCases")}
+            </button>
             <label htmlFor="load-id">{t("landing.hira.load.inputLabel")}</label>
             <input
               id="load-id"
+              aria-invalid={Boolean(loadError)}
               value={loadId}
               onChange={(event) => {
                 setLoadId(event.target.value);
@@ -170,7 +185,7 @@ export const CaseLanding = () => {
               }}
               placeholder={t("landing.hira.load.inputPlaceholder")}
             />
-            {loadError && <p className="text-error">{loadError}</p>}
+            {loadError && <p className="form-error">{loadError}</p>}
           </div>
           <div className="landing-card__actions">
             <button type="submit" className="btn-outline" disabled={!loadId.trim()}>
@@ -179,27 +194,28 @@ export const CaseLanding = () => {
           </div>
         </form>
 
-        <form id="create-card" className="landing-card app-panel" onSubmit={onCreateCase}>
+        <form id="create-card" className="landing-card app-panel card" onSubmit={onCreateCase}>
           <div className="landing-card__header">
             <p className="text-label">{t("landing.hira.create.label")}</p>
             <h2>{t("landing.hira.create.title")}</h2>
             <p>{t("landing.hira.create.subtitle")}</p>
           </div>
-          <div className="landing-card__body">
+          <div className="landing-card__body stack">
             <label htmlFor="activity-name">{t("landing.hira.create.activityLabel")}</label>
             <input
               id="activity-name"
+              aria-invalid={Boolean(errors.activityName)}
               {...register("activityName")}
               placeholder={t("landing.hira.create.activityPlaceholder")}
             />
-            {errors.activityName && <p className="text-error">{errors.activityName.message}</p>}
+            {errors.activityName && <p className="form-error">{errors.activityName.message}</p>}
 
             <label htmlFor="location">{t("landing.hira.create.locationLabel")}</label>
             <input id="location" {...register("location")} placeholder={t("landing.hira.create.locationPlaceholder")} />
 
             <label htmlFor="team">{t("landing.hira.create.teamLabel")}</label>
             <input id="team" {...register("team")} placeholder={t("landing.hira.create.teamPlaceholder")} />
-            {serverError && <p className="text-error">{serverError}</p>}
+            {serverError && <p className="form-error">{serverError}</p>}
           </div>
           <div className="landing-card__actions">
             <button type="submit" disabled={creating}>
@@ -208,15 +224,15 @@ export const CaseLanding = () => {
           </div>
         </form>
 
-        <section className="landing-card app-panel">
+        <section className="landing-card app-panel card">
           <div className="landing-card__header">
             <p className="text-label">{t("landing.hira.recent.label")}</p>
             <h2>{t("landing.hira.recent.title")}</h2>
             <p>{t("landing.hira.recent.subtitle")}</p>
           </div>
-          <div className="landing-card__body">
+          <div className="landing-card__body stack">
             {casesLoading && <p className="text-muted">{t("landing.hira.recent.loading")}</p>}
-            {casesError && <p className="text-error">{casesError}</p>}
+            {casesError && <p className="form-error">{casesError}</p>}
             {!casesLoading && recentCases.length === 0 && (
               <p className="text-muted">{t("landing.hira.recent.empty")}</p>
             )}
@@ -239,7 +255,7 @@ export const CaseLanding = () => {
                       <button type="button" className="btn-outline" onClick={() => handleLoadSaved(entry.id)}>
                         {t("landing.hira.recent.load")}
                       </button>
-                      <button type="button" className="btn-danger" onClick={() => handleRemoveSaved(entry.id)}>
+                      <button type="button" className="btn-danger" onClick={() => handleRemoveSaved(entry)}>
                         {t("landing.hira.recent.delete")}
                       </button>
                     </div>
@@ -249,7 +265,46 @@ export const CaseLanding = () => {
             )}
           </div>
         </section>
+
+        <ConfirmDialog
+          open={Boolean(deleteCandidate)}
+          title={t("common.delete")}
+          description={
+            deleteCandidate
+              ? t("landing.hira.confirmDelete", { values: { name: deleteCandidate.activityName } })
+              : undefined
+          }
+          confirmLabel={t("common.delete")}
+          cancelLabel={t("common.cancel")}
+          tone="danger"
+          onConfirm={() => void handleConfirmDelete()}
+          onClose={() => setDeleteCandidate(null)}
+        />
       </main>
+      <RecentCasesModal
+        open={loadModalOpen}
+        onClose={() => setLoadModalOpen(false)}
+        title={t("landing.hira.recent.title")}
+        subtitle={t("landing.hira.recent.subtitle")}
+        searchPlaceholder={t("common.searchPlaceholder")}
+        items={recentCases}
+        loading={casesLoading}
+        error={casesError}
+        emptyText={t("landing.hira.recent.empty")}
+        loadingText={t("landing.hira.recent.loading")}
+        loadLabel={t("landing.hira.recent.load")}
+        onSelect={(item) => handleLoadSaved(item.id)}
+        getTitle={(item) => item.activityName}
+        getMeta={(item) =>
+          `${item.location || t("workspace.locationPending")} · ${item.team || t("workspace.teamPending")}`
+        }
+        getSearchText={(item) =>
+          `${item.activityName} ${item.location ?? ""} ${item.team ?? ""} ${item.id}`.trim()
+        }
+        getUpdatedLabel={(item) =>
+          t("landing.hira.recent.updated", { values: { date: formatDateTime(item.updatedAt) } })
+        }
+      />
     </div>
   );
 };

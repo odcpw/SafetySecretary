@@ -3,6 +3,8 @@ import type { IncidentTimelineEvent } from "@/types/incident";
 import type { IncidentAttachment } from "@/types/incident";
 import { useIncidentAttachments } from "@/hooks/useIncidentAttachments";
 import { useI18n } from "@/i18n/I18nContext";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { AttachmentPreviewDialog } from "@/components/common/AttachmentPreviewDialog";
 
 type DragPayload = { attachmentId: string; fromEventId: string | null };
 
@@ -26,6 +28,10 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
   const { attachments, loading, error, uploadToTimeline, moveToTimeline, reorderTimelineAttachments, deleteAttachment } =
     useIncidentAttachments(caseId);
   const [status, setStatus] = useState<string | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<IncidentAttachment | null>(null);
+  const [activeDropEventId, setActiveDropEventId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const { confirm, dialog } = useConfirmDialog();
 
   const timelineAttachments = useMemo(() => {
     const grouped = new Map<string, IncidentAttachment[]>();
@@ -70,6 +76,8 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
       console.error(err);
       setStatus(err instanceof Error ? err.message : t("incident.attachments.status.moveFailed"));
       setTimeout(() => setStatus(null), 4000);
+    } finally {
+      setActiveDropEventId(null);
     }
   };
 
@@ -93,14 +101,23 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
       console.error(err);
       setStatus(err instanceof Error ? err.message : t("incident.attachments.status.reorderFailed"));
       setTimeout(() => setStatus(null), 4000);
+    } finally {
+      setActiveDropEventId(null);
     }
   };
 
-  const handleDelete = async (attachmentId: string) => {
-    if (!confirm(t("incident.attachments.confirmDelete"))) return;
+  const handleDelete = async (attachment: IncidentAttachment) => {
+    const ok = await confirm({
+      title: t("common.delete"),
+      description: t("incident.attachments.confirmDelete", { values: { name: attachment.originalName } }),
+      confirmLabel: t("common.delete"),
+      cancelLabel: t("common.cancel"),
+      tone: "danger"
+    });
+    if (!ok) return;
     setStatus(t("incident.attachments.status.deleting"));
     try {
-      await deleteAttachment(attachmentId);
+      await deleteAttachment(attachment.id);
       setStatus(null);
     } catch (err) {
       console.error(err);
@@ -132,10 +149,18 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
           return (
             <div
               key={event.id}
-              className="rounded border border-slate-200 p-3"
+              className={`attachment-zone${activeDropEventId === event.id ? " attachment-zone--active" : ""}`}
+              onDragEnter={() => setActiveDropEventId(event.id)}
+              onDragLeave={(dragEvent) => {
+                if (dragEvent.currentTarget.contains(dragEvent.relatedTarget as Node | null)) {
+                  return;
+                }
+                setActiveDropEventId((prev) => (prev === event.id ? null : prev));
+              }}
               onDragOver={(dragEvent) => {
                 dragEvent.preventDefault();
                 dragEvent.dataTransfer.dropEffect = "move";
+                setActiveDropEventId(event.id);
               }}
               onDrop={(dragEvent) => {
                 dragEvent.preventDefault();
@@ -148,7 +173,7 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
                 <div className="text-sm font-medium text-slate-900">
                   {t("incident.attachments.eventHeading", { values: { index: index + 1, text: event.text } })}
                 </div>
-                <label className="text-sm px-3 py-1 rounded bg-slate-900 text-white cursor-pointer">
+                <label className="btn-outline btn-small">
                   {t("common.upload")}
                   <input
                     type="file"
@@ -162,21 +187,23 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
               {items.length === 0 ? (
                 <div className="text-sm text-slate-500">{t("incident.attachments.empty")}</div>
               ) : (
-                <div className="flex flex-wrap gap-3">
+                <div className="attachment-grid">
                   {items.map((item) => {
                     const isImage = item.mimeType?.startsWith("image/");
                     return (
                       <div
                         key={item.id}
-                        className="w-32"
+                        className={`attachment-card${draggingId === item.id ? " attachment-card--dragging" : ""}`}
                         draggable
                         onDragStart={(dragEvent) => {
+                          setDraggingId(item.id);
                           dragEvent.dataTransfer.setData(
                             DRAG_MIME,
                             JSON.stringify({ attachmentId: item.id, fromEventId: event.id } satisfies DragPayload)
                           );
                           dragEvent.dataTransfer.effectAllowed = "move";
                         }}
+                        onDragEnd={() => setDraggingId(null)}
                         onDragOver={(dragEvent) => {
                           dragEvent.preventDefault();
                           dragEvent.dataTransfer.dropEffect = "move";
@@ -189,24 +216,24 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
                           void handleDropBefore(event.id, item.id, payload);
                         }}
                       >
-                        <div className="relative rounded border border-slate-200 overflow-hidden bg-slate-50">
+                        <div className="attachment-card__preview">
                           {isImage ? (
-                            <img src={item.url} alt={item.originalName} className="h-20 w-full object-cover" />
+                            <button type="button" onClick={() => setPreviewAttachment(item)}>
+                              <img src={item.url} alt={item.originalName} />
+                            </button>
                           ) : (
-                            <div className="h-20 w-full flex items-center justify-center text-slate-500 text-sm">
-                              {t("common.file")}
-                            </div>
+                            <div className="attachment-card__file">{t("common.file")}</div>
                           )}
                           <button
                             type="button"
-                            className="absolute top-1 right-1 bg-white/90 hover:bg-white text-slate-700 rounded px-1.5 py-0.5 text-xs"
-                            onClick={() => void handleDelete(item.id)}
+                            className="attachment-card__delete btn-icon"
+                            onClick={() => void handleDelete(item)}
                             aria-label={t("common.delete")}
                           >
                             ✕
                           </button>
                         </div>
-                        <div className="text-xs text-slate-500 mt-1 truncate" title={item.originalName}>
+                        <div className="attachment-card__name" title={item.originalName}>
                           {item.originalName}
                         </div>
                       </div>
@@ -218,6 +245,14 @@ export const TimelineAttachmentsPanel = ({ caseId, timeline }: { caseId: string;
           );
         })}
       </div>
+
+      <AttachmentPreviewDialog
+        open={Boolean(previewAttachment)}
+        title={previewAttachment?.originalName ?? ""}
+        src={previewAttachment?.url ?? ""}
+        onClose={() => setPreviewAttachment(null)}
+      />
+      {dialog}
     </section>
   );
 };

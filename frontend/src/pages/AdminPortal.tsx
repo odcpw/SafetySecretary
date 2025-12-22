@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
+import { PromptDialog } from "@/components/common/PromptDialog";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { useI18n } from "@/i18n/I18nContext";
 
@@ -62,11 +64,19 @@ export const AdminPortal = () => {
     role: "ADMIN"
   });
   const [userStatus, setUserStatus] = useState<string | null>(null);
+  const [resetTarget, setResetTarget] = useState<{ id: string; label: string } | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<
+    | { kind: "user"; id: string; label: string }
+    | { kind: "org"; id: string; label: string }
+    | null
+  >(null);
 
   const selectedOrg = useMemo(
     () => orgs.find((org) => org.id === selectedOrgId) ?? null,
     [orgs, selectedOrgId]
   );
+  const orgCountLabel = orgsLoading ? t("common.loading") : `${orgs.length}`;
+  const userCountLabel = usersLoading ? t("common.loading") : `${users.length}`;
 
   const loadOrgs = async () => {
     setOrgsLoading(true);
@@ -195,13 +205,17 @@ export const AdminPortal = () => {
     }
   };
 
-  const handleResetPassword = async (userId: string) => {
+  const handleResetPassword = (userId: string) => {
     if (!selectedOrgId) return;
-    const nextPassword = window.prompt(t("admin.prompts.resetPassword"));
-    if (!nextPassword) return;
+    const user = users.find((entry) => entry.id === userId);
+    setResetTarget({ id: userId, label: user?.username ?? userId });
+  };
+
+  const handleConfirmResetPassword = async (nextPassword: string) => {
+    if (!selectedOrgId || !resetTarget) return;
     setUserStatus(t("admin.status.resettingPassword"));
     try {
-      const response = await fetch(`/api/admin/orgs/${selectedOrgId}/users/${userId}/password`, {
+      const response = await fetch(`/api/admin/orgs/${selectedOrgId}/users/${resetTarget.id}/password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -214,6 +228,8 @@ export const AdminPortal = () => {
       setUserStatus(t("admin.status.passwordReset"));
     } catch (err) {
       setUserStatus(err instanceof Error ? err.message : t("admin.errors.resetPassword"));
+    } finally {
+      setResetTarget(null);
     }
   };
 
@@ -236,50 +252,58 @@ export const AdminPortal = () => {
     }
   };
 
-  const handleRevokeUserSessions = async (userId: string) => {
+  const handleRevokeUserSessions = (userId: string) => {
     if (!selectedOrgId) return;
-    if (!window.confirm(t("admin.prompts.revokeUserSessions"))) {
-      return;
-    }
+    const user = users.find((entry) => entry.id === userId);
+    setRevokeTarget({ kind: "user", id: userId, label: user?.username ?? userId });
+  };
+
+  const handleConfirmRevokeSessions = async () => {
+    if (!selectedOrgId || !revokeTarget) return;
     setUserStatus(t("admin.status.revokingSessions"));
     try {
-      const response = await fetch(`/api/admin/orgs/${selectedOrgId}/users/${userId}/revoke-sessions`, {
-        method: "POST",
-        credentials: "include"
-      });
+      const response =
+        revokeTarget.kind === "user"
+          ? await fetch(`/api/admin/orgs/${selectedOrgId}/users/${revokeTarget.id}/revoke-sessions`, {
+              method: "POST",
+              credentials: "include"
+            })
+          : await fetch(`/api/admin/orgs/${selectedOrgId}/revoke-sessions`, {
+              method: "POST",
+              credentials: "include"
+            });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(payload?.error || t("admin.errors.revokeSessions"));
+        throw new Error(
+          payload?.error ||
+            (revokeTarget.kind === "user" ? t("admin.errors.revokeSessions") : t("admin.errors.revokeOrgSessions"))
+        );
       }
-      setUserStatus(
-        t("admin.status.sessionsRevoked", { values: { count: payload.revoked ?? 0 } })
-      );
+      if (revokeTarget.kind === "user") {
+        setUserStatus(t("admin.status.sessionsRevoked", { values: { count: payload.revoked ?? 0 } }));
+      } else {
+        setUserStatus(t("admin.status.orgSessionsRevoked", { values: { count: payload.revoked ?? 0 } }));
+      }
     } catch (err) {
-      setUserStatus(err instanceof Error ? err.message : t("admin.errors.revokeSessions"));
+      setUserStatus(
+        err instanceof Error
+          ? err.message
+          : revokeTarget.kind === "user"
+            ? t("admin.errors.revokeSessions")
+            : t("admin.errors.revokeOrgSessions")
+      );
+    } finally {
+      setRevokeTarget(null);
     }
   };
 
-  const handleRevokeOrgSessions = async () => {
+  const handleRevokeOrgSessions = () => {
     if (!selectedOrgId) return;
-    if (!window.confirm(t("admin.prompts.revokeOrgSessions"))) {
-      return;
-    }
-    setUserStatus(t("admin.status.revokingOrgSessions"));
-    try {
-      const response = await fetch(`/api/admin/orgs/${selectedOrgId}/revoke-sessions`, {
-        method: "POST",
-        credentials: "include"
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload?.error || t("admin.errors.revokeOrgSessions"));
-      }
-      setUserStatus(
-        t("admin.status.orgSessionsRevoked", { values: { count: payload.revoked ?? 0 } })
-      );
-    } catch (err) {
-      setUserStatus(err instanceof Error ? err.message : t("admin.errors.revokeOrgSessions"));
-    }
+    setRevokeTarget({
+      kind: "org",
+      id: selectedOrgId,
+      label: selectedOrg?.name ?? selectedOrgId
+    });
   };
 
   const handleLogout = async () => {
@@ -289,13 +313,23 @@ export const AdminPortal = () => {
 
   return (
     <div className="workspace-shell">
-      <header className="workspace-topbar">
-        <div className="workspace-topbar__summary">
+      <header className="workspace-topbar admin-topbar">
+        <div className="workspace-topbar__summary admin-topbar__summary">
           <p className="text-label">{t("admin.platformLabel")}</p>
           <h1>{t("admin.title")}</h1>
           <p>{t("admin.subtitle")}</p>
         </div>
-        <div className="workspace-topbar__actions">
+        <div className="admin-topbar__stats">
+          <div className="admin-stat">
+            <span>{t("admin.organizations")}</span>
+            <strong>{orgCountLabel}</strong>
+          </div>
+          <div className="admin-stat">
+            <span>{t("admin.users")}</span>
+            <strong>{userCountLabel}</strong>
+          </div>
+        </div>
+        <div className="workspace-topbar__actions admin-topbar__actions">
           <ThemeToggle />
           <button type="button" className="btn-outline" onClick={handleLogout}>
             {t("common.signOut")}
@@ -305,10 +339,10 @@ export const AdminPortal = () => {
 
       <main className="workspace-main">
         <div className="workspace-main__inner admin-grid">
-          <section className="app-panel admin-panel">
+          <section className="app-panel admin-panel card">
             <h2>{t("admin.organizations")}</h2>
             {orgsLoading && <p className="text-muted">{t("admin.loadingOrgs")}</p>}
-            {orgsError && <p className="text-error">{orgsError}</p>}
+            {orgsError && <p className="form-error">{orgsError}</p>}
             {!orgsLoading && orgs.length === 0 && (
               <p className="text-muted">{t("admin.emptyOrgs")}</p>
             )}
@@ -388,15 +422,19 @@ export const AdminPortal = () => {
                   placeholder={t("admin.placeholders.dbConnection")}
                 />
               </label>
-              {orgStatus && <p className="text-muted">{orgStatus}</p>}
+              {orgStatus && (
+                <p className="admin-status" role="status">
+                  {orgStatus}
+                </p>
+              )}
               <button type="submit">{t("admin.createOrg")}</button>
             </form>
           </section>
 
-          <section className="app-panel admin-panel">
+          <section className="app-panel admin-panel card">
             <h2>{t("admin.users")}</h2>
             {usersLoading && <p className="text-muted">{t("admin.loadingUsers")}</p>}
-            {usersError && <p className="text-error">{usersError}</p>}
+            {usersError && <p className="form-error">{usersError}</p>}
 
             {selectedOrgId && users.length > 0 && (
               <div className="admin-table-wrapper">
@@ -534,12 +572,53 @@ export const AdminPortal = () => {
                   required
                 />
               </label>
-              {userStatus && <p className="text-muted">{userStatus}</p>}
+              {userStatus && (
+                <p className="admin-status" role="status">
+                  {userStatus}
+                </p>
+              )}
               <button type="submit">{t("admin.createUser")}</button>
             </form>
           </section>
         </div>
       </main>
+
+      <PromptDialog
+        open={Boolean(resetTarget)}
+        title={t("admin.resetPassword")}
+        description={
+          resetTarget
+            ? t("admin.prompts.resetPassword", { values: { name: resetTarget.label } })
+            : undefined
+        }
+        confirmLabel={t("admin.resetPassword")}
+        cancelLabel={t("common.cancel")}
+        placeholder={t("admin.userForm.password")}
+        inputType="password"
+        onConfirm={(value) => void handleConfirmResetPassword(value)}
+        onClose={() => setResetTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(revokeTarget)}
+        title={
+          revokeTarget?.kind === "org" ? t("admin.revokeOrgSessions") : t("admin.revokeSessions")
+        }
+        description={
+          revokeTarget
+            ? revokeTarget.kind === "org"
+              ? t("admin.prompts.revokeOrgSessions", { values: { name: revokeTarget.label } })
+              : t("admin.prompts.revokeUserSessions", { values: { name: revokeTarget.label } })
+            : undefined
+        }
+        confirmLabel={
+          revokeTarget?.kind === "org" ? t("admin.revokeOrgSessions") : t("admin.revokeSessions")
+        }
+        cancelLabel={t("common.cancel")}
+        tone="danger"
+        onConfirm={() => void handleConfirmRevokeSessions()}
+        onClose={() => setRevokeTarget(null)}
+      />
     </div>
   );
 };

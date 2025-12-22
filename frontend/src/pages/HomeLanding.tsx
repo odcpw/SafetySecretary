@@ -59,6 +59,9 @@ export const HomeLanding = () => {
           <div className="landing-hero__header">
             <p className="text-label">{t("common.appName")}</p>
             <div className="landing-hero__meta">
+              <button type="button" className="btn-outline" onClick={() => window.location.assign("/tui")}>
+                Switch to TUI
+              </button>
               <ThemeToggle />
               <UserMenu />
             </div>
@@ -68,9 +71,9 @@ export const HomeLanding = () => {
         </div>
       </section>
 
-      <main className="home-tiles">
+      <main className="home-tiles grid-auto">
         {tiles.map((tile) => (
-          <section key={tile.key} className={`home-tile home-tile--${tile.key} app-panel`}>
+          <section key={tile.key} className={`home-tile home-tile--${tile.key} app-panel card`}>
             <div>
               <span className="home-tile__badge">{tile.badge}</span>
               <h2>{tile.title}</h2>

@@ -13,6 +13,7 @@ export interface IncidentAssistantClarification {
 export interface IncidentAssistantDraft {
   facts: Array<{ text: string }>;
   timeline: Array<{
+    eventAt?: string | null;
     timeLabel?: string | null;
     text: string;
     confidence?: IncidentTimelineConfidence;
@@ -24,6 +25,7 @@ export interface IncidentPerson {
   id: string;
   role: string;
   name: string | null;
+  otherInfo?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -37,6 +39,7 @@ export interface IncidentFact {
 export interface IncidentPersonalEvent {
   id: string;
   orderIndex: number;
+  eventAt?: string | null;
   timeLabel: string | null;
   text: string;
 }
@@ -63,6 +66,7 @@ export interface IncidentTimelineSource {
 export interface IncidentTimelineEvent {
   id: string;
   orderIndex: number;
+  eventAt?: string | null;
   timeLabel: string | null;
   text: string;
   confidence: IncidentTimelineConfidence;
@@ -72,6 +76,7 @@ export interface IncidentTimelineEvent {
 export interface IncidentTimelineEventInput {
   id?: string;
   orderIndex?: number;
+  eventAt?: string | null;
   timeLabel?: string | null;
   text: string;
   confidence?: IncidentTimelineConfidence;
@@ -131,6 +136,48 @@ export interface IncidentActionInput {
   actionType?: IncidentActionType | null;
 }
 
+export interface IncidentCauseNode {
+  id: string;
+  caseId: string;
+  parentId: string | null;
+  timelineEventId: string | null;
+  orderIndex: number;
+  statement: string;
+  question: string | null;
+  isRootCause: boolean;
+  actions: IncidentCauseAction[];
+}
+
+export interface IncidentCauseNodeInput {
+  id?: string;
+  parentId?: string | null;
+  timelineEventId?: string | null;
+  orderIndex?: number;
+  statement: string;
+  question?: string | null;
+  isRootCause?: boolean;
+}
+
+export interface IncidentCauseAction {
+  id: string;
+  causeNodeId: string;
+  orderIndex: number;
+  description: string;
+  ownerRole: string | null;
+  dueDate: string | null;
+  actionType: IncidentActionType | null;
+}
+
+export interface IncidentCauseActionInput {
+  id?: string;
+  causeNodeId: string;
+  orderIndex?: number;
+  description: string;
+  ownerRole?: string | null;
+  dueDate?: string | null;
+  actionType?: IncidentActionType | null;
+}
+
 export interface IncidentAttachment {
   id: string;
   createdAt: string;
@@ -150,6 +197,7 @@ export interface IncidentCase {
   createdAt: string;
   updatedAt: string;
   title: string;
+  workflowStage?: string | null;
   incidentAt: string | null;
   incidentTimeNote: string | null;
   location: string | null;
@@ -163,12 +211,14 @@ export interface IncidentCase {
   accounts: IncidentAccount[];
   timelineEvents: IncidentTimelineEvent[];
   deviations: IncidentDeviation[];
+  causeNodes?: IncidentCauseNode[];
   attachments: IncidentAttachment[];
 }
 
 export interface IncidentCaseSummary {
   id: string;
   title: string;
+  workflowStage?: string | null;
   incidentAt: string | null;
   incidentTimeNote: string | null;
   location: string | null;

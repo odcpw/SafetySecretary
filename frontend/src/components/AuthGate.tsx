@@ -4,10 +4,12 @@ import { onSessionExpired } from "@/lib/sessionEvents";
 import { onTenantUnavailable } from "@/lib/tenantEvents";
 import { apiFetch } from "@/lib/api";
 import { useI18n } from "@/i18n/I18nContext";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { TuiBanner } from "@/tui/components/TuiBanner";
 
 type AuthState = "loading" | "authed" | "unauth";
 
-export const AuthGate = ({ children }: { children: React.ReactNode }) => {
+export const AuthGate = ({ children, variant = "gui" }: { children: React.ReactNode; variant?: "gui" | "tui" }) => {
   const [state, setState] = useState<AuthState>("loading");
   const [expiredMessage, setExpiredMessage] = useState<string | null>(null);
   const [tenantMessage, setTenantMessage] = useState<string | null>(null);
@@ -17,6 +19,7 @@ export const AuthGate = ({ children }: { children: React.ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { t, setLocale, localeLabels } = useI18n();
+  const { confirm, dialog } = useConfirmDialog();
 
   useEffect(() => {
     let active = true;
@@ -87,9 +90,14 @@ export const AuthGate = ({ children }: { children: React.ReactNode }) => {
   }, [t]);
 
   const handleDemoReset = async () => {
-    if (!confirm(t("banners.demoResetConfirm"))) {
-      return;
-    }
+    const ok = await confirm({
+      title: t("banners.demoReset"),
+      description: t("banners.demoResetConfirm"),
+      confirmLabel: t("banners.demoReset"),
+      cancelLabel: t("common.cancel"),
+      tone: "danger"
+    });
+    if (!ok) return;
     setDemoResetting(true);
     setDemoResetStatus(t("banners.demoResetting"));
     try {
@@ -107,14 +115,16 @@ export const AuthGate = ({ children }: { children: React.ReactNode }) => {
   };
 
   if (state === "loading") {
-    return <div className="app-loading">{t("common.loading")}</div>;
+    return variant === "tui"
+      ? <div className="tui-loading">{t("common.loading")}</div>
+      : <div className="app-loading">{t("common.loading")}</div>;
   }
   if (state === "unauth") {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
   return (
     <>
-      {expiredMessage && (
+      {variant === "gui" && expiredMessage && (
         <div className="session-expired-banner">
           <span>{expiredMessage}</span>
           <button
@@ -126,13 +136,13 @@ export const AuthGate = ({ children }: { children: React.ReactNode }) => {
           </button>
         </div>
       )}
-      {tenantMessage && (
+      {variant === "gui" && tenantMessage && (
         <div className="tenant-unavailable-banner">
           <span>{tenantMessage}</span>
           <span className="text-muted">{t("banners.tenantContactAdmin")}</span>
         </div>
       )}
-      {demoSession && (
+      {variant === "gui" && demoSession && (
         <div className="demo-mode-banner">
           <span>{t("banners.demoMode")}</span>
           <div className="demo-mode-actions">
@@ -143,7 +153,47 @@ export const AuthGate = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
       )}
+      {variant === "tui" && expiredMessage && (
+        <div className="tui-auth-banner">
+          <TuiBanner
+            variant="warning"
+            actions={(
+              <button
+                type="button"
+                onClick={() => navigate("/login", { replace: true, state: { from: location.pathname, reason: "expired" } })}
+              >
+                {t("common.signInAgain")}
+              </button>
+            )}
+          >
+            {expiredMessage}
+          </TuiBanner>
+        </div>
+      )}
+      {variant === "tui" && tenantMessage && (
+        <div className="tui-auth-banner">
+          <TuiBanner variant="warning">
+            <div>{tenantMessage}</div>
+            <div className="tui-muted">{t("banners.tenantContactAdmin")}</div>
+          </TuiBanner>
+        </div>
+      )}
+      {variant === "tui" && demoSession && (
+        <div className="tui-auth-banner">
+          <TuiBanner
+            actions={(
+              <button type="button" onClick={handleDemoReset} disabled={demoResetting}>
+                {demoResetting ? t("banners.demoResetting") : t("banners.demoReset")}
+              </button>
+            )}
+          >
+            <div>{t("banners.demoMode")}</div>
+            {demoResetStatus && <div className="tui-muted">{demoResetStatus}</div>}
+          </TuiBanner>
+        </div>
+      )}
       {children}
+      {dialog}
     </>
   );
 };

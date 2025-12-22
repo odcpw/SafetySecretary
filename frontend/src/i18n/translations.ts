@@ -9,6 +9,12 @@ export const translations = {
       remove: "Remove",
       duplicate: "Duplicate",
       save: "Save",
+      invalidDate: "Enter a valid date (YYYY-MM-DD).",
+      invalidDateTime: "Enter a valid date/time (YYYY-MM-DDTHH:MM).",
+      invalidTime: "Enter a valid time (HH:MM).",
+      dateHint: "Format: YYYY-MM-DD",
+      timeHint: "Format: HH:MM",
+      dateTimeHint: "Format: YYYY-MM-DDTHH:MM",
       update: "Update",
       loading: "Loading...",
       clear: "Clear",
@@ -26,6 +32,14 @@ export const translations = {
       load: "Load",
       exportPdf: "Export PDF",
       exportXlsx: "Export XLSX",
+      exportPreparing: "Preparing {label}...",
+      exportReady: "{label} opened in new tab.",
+      exportBlocked: "Pop-up blocked. Allow pop-ups to download.",
+      more: "More",
+      optionalDetails: "Optional details",
+      browseCases: "Browse recent cases",
+      loadById: "Load by ID",
+      searchPlaceholder: "Search by title, location, or date",
       noData: "N/A"
     },
     status: {
@@ -142,7 +156,7 @@ export const translations = {
           loadFailed: "Unable to load cases",
           deleteFailed: "Unable to delete case"
         },
-        confirmDelete: "Delete this case? This permanently removes it for your organization."
+        confirmDelete: "Delete \"{name}\"? This permanently removes it for your organization."
       },
       jha: {
         hero: {
@@ -174,6 +188,8 @@ export const translations = {
           workersPlaceholder: "Operator, spotter",
           jobDateLabel: "Job date",
           jobDatePlaceholder: "2025-03-21",
+          jobTimeLabel: "Job time",
+          jobTimePlaceholder: "08:00",
           revisionLabel: "Revision",
           revisionPlaceholder: "1.0",
           preparedByLabel: "Prepared by",
@@ -184,6 +200,8 @@ export const translations = {
           approvedByPlaceholder: "Name",
           signoffLabel: "Sign-off date",
           signoffPlaceholder: "2025-03-21",
+          signoffTimeLabel: "Sign-off time",
+          signoffTimePlaceholder: "16:30",
           action: "Create JHA",
           creating: "Creating..."
         },
@@ -227,7 +245,7 @@ export const translations = {
           titlePlaceholder: "Forklift near miss",
           typeLabel: "Incident type",
           whenLabel: "Date/time (approx ok)",
-          whenPlaceholder: "2025-03-21 10:15",
+          whenPlaceholder: "2025-03-21T10:15",
           whenNotesLabel: "Date/time notes",
           whenNotesPlaceholder: "About 10am, after break",
           locationLabel: "Location",
@@ -266,6 +284,14 @@ export const translations = {
       teamPending: "Team pending",
       sitePending: "Site pending",
       supervisorPending: "Supervisor pending"
+    },
+    navigation: {
+      primary: "Primary navigation",
+      breadcrumbs: "Breadcrumbs",
+      home: "Home",
+      hira: "HIRA",
+      jha: "JHA",
+      incidents: "Incidents"
     },
     menu: {
       signedIn: "Signed in",
@@ -342,7 +368,13 @@ export const translations = {
       applyFailed: "Unable to apply changes",
       applySingleFailed: "Unable to apply change",
       applyAll: "Apply All",
-      proposedChanges: "Proposed changes"
+      proposedChanges: "Proposed changes",
+      undo: "Undo",
+      undoAvailable: "Undo available for the last apply.",
+      undoSuccess: "Changes reverted.",
+      undoFailed: "Unable to undo changes.",
+      lastApplied: "Last applied changes",
+      affectedFields: "Fields: {fields}"
     },
     photos: {
       title: "Step photos",
@@ -353,7 +385,7 @@ export const translations = {
       moveFailed: "Move failed",
       reordering: "Reordering photos...",
       reorderFailed: "Reorder failed",
-      confirmDelete: "Delete this photo?",
+      confirmDelete: "Delete \"{name}\"? This removes the file from this step.",
       deleting: "Deleting...",
       deleteFailed: "Delete failed",
       errorLabel: "Photos",
@@ -364,9 +396,15 @@ export const translations = {
     tui: {
       title: "Live workspace",
       statusLabel: "Status",
+      status: "Row {row}/{total} · {column}{hazard}",
       ready: "Ready",
       saving: "Saving",
       editing: "Editing",
+      refreshing: "Refreshing latest data...",
+      refreshFailed: "Refresh failed.",
+      loadFailed: "Unable to load case.",
+      phasePlaceholderTitle: "Phase UI coming next",
+      phasePlaceholderDescription: "This shell is wired to live data; editors are next on the build list.",
       instructions: "Use arrow keys or Enter to edit cells. Esc to stop editing.",
       instructionsShort: "Enter to edit, Esc to stop.",
       empty: "No hazards yet. Add hazards to populate the grid.",
@@ -755,22 +793,51 @@ export const translations = {
           supervisor: "Supervisor",
           workers: "Workers involved",
           jobDate: "Job date",
+          jobTime: "Job time",
           revision: "Revision",
           preparedBy: "Prepared by",
           reviewedBy: "Reviewed by",
           approvedBy: "Approved by",
-          signoffDate: "Sign-off date"
+          signoffDate: "Sign-off date",
+          signoffTime: "Sign-off time"
         }
       },
       assistant: {
-        title: "Draft the JHA rows with the assistant",
-        description: "Describe the job and context. The assistant will propose steps, hazards, consequences, and controls.",
-        placeholder: "Concrete delivery with truck mixer and pump...",
-        action: "Generate rows",
+        clarificationLabel: "Clarification needed:",
+        responsibility: "You remain responsible for the final JHA. Review each suggestion before applying.",
+        steps: {
+          title: "Update job steps with the assistant",
+          description: "Describe new steps or edits. The assistant updates steps without overwriting your table.",
+          placeholder: "Insert a step to move the ladder before Step 3.",
+          action: "Update steps"
+        },
+        hazards: {
+          title: "Update hazards with the assistant",
+          description: "Add or amend hazards for specific steps. Hazards only change when you submit notes.",
+          placeholder: "For Step 2: pinch points at the guard rail.",
+          action: "Update hazards"
+        },
         status: {
-          extracting: "Extracting rows...",
-          updated: "Rows updated.",
-          failed: "Unable to extract rows"
+          updatingSteps: "Updating steps...",
+          updatingHazards: "Updating hazards...",
+          updatedSteps: "Steps updated.",
+          updatedHazards: "Hazards updated.",
+          needsClarification: "Clarification needed.",
+          clarificationFallback: "Which step should this change apply to?",
+          reviewReady: "{count} changes ready for review.",
+          noChanges: "No changes suggested.",
+          noSelection: "Select at least one change to apply.",
+          applying: "Applying changes...",
+          applied: "Changes applied.",
+          discarded: "Suggestions discarded.",
+          failed: "Unable to update via assistant."
+        },
+        review: {
+          title: "Review suggested changes",
+          count: "{count} suggestions",
+          apply: "Apply selected",
+          discard: "Discard",
+          itemFallback: "Suggested change"
         }
       },
       flow: {
@@ -816,7 +883,7 @@ export const translations = {
         addRow: "Add row",
         addRowAction: "+ Add hazard row",
         saveTable: "Save table",
-        empty: "No hazards yet. Add a row or use the assistant to draft the table.",
+        empty: "No hazards yet. Add a row or ask the assistant to amend hazards.",
         untitledStep: "Untitled step",
         unassignedStep: "Unassigned step",
         table: {
@@ -846,6 +913,18 @@ export const translations = {
         },
         placeholders: {
           controls: "Add controls, one per line"
+        },
+        suggestions: {
+          action: "Suggest additional controls",
+          hint: "Suggestions use the saved steps + hazards. Review and add the controls you agree with.",
+          title: "Suggested controls",
+          add: "Add",
+          status: {
+            thinking: "Generating suggestions...",
+            ready: "{count} suggestions ready.",
+            empty: "No additional controls suggested.",
+            failed: "Unable to suggest controls."
+          }
         }
       },
       review: {
@@ -863,7 +942,7 @@ export const translations = {
         title: "Attachments",
         subtitle: "Upload photos or sketches to support each step or hazard.",
         errorLabel: "Attachments: {error}",
-        confirmDelete: "Delete this attachment?",
+        confirmDelete: "Delete \"{name}\"? This removes the attachment.",
         status: {
           uploading: "Uploading attachment...",
           uploadFailed: "Upload failed",
@@ -893,6 +972,28 @@ export const translations = {
         lostTime: "Lost time",
         propertyDamage: "Property damage"
       },
+      flow: {
+        title: "Investigation phases",
+        subtitle: "Move through facts, causes, and actions with clear checkpoints.",
+        stages: {
+          facts: "Facts",
+          causes: "Causes",
+          rootCauses: "Root causes",
+          actions: "Actions",
+          review: "Review"
+        },
+        errors: {
+          factsIncomplete: "Add at least one timeline entry before moving on.",
+          causesIncomplete: "Select at least one proximate cause to continue.",
+          rootCausesIncomplete: "Mark at least one root cause to continue.",
+          actionsIncomplete: "Add at least one action to continue."
+        },
+        actions: {
+          saveFacts: "Save facts",
+          back: "Back",
+          next: "Next"
+        }
+      },
       assistant: {
         title: "Incident assistant",
         subtitle: "Describe the incident in natural language. The assistant drafts facts, timeline events, and clarifications.",
@@ -900,6 +1001,10 @@ export const translations = {
         extract: "Extract draft",
         confirmApply: "Apply the assistant timeline to the case timeline? This will replace current entries.",
         draftUpdated: "Draft updated {date}.",
+        draftStatusTitle: "Draft status",
+        draftStatusEmpty: "No draft generated yet.",
+        draftSummary: "{facts} facts · {timeline} timeline events · {clarifications} clarifications",
+        applyHint: "Review the draft and apply when you are ready.",
         status: {
           extracting: "Extracting draft...",
           extracted: "Draft updated.",
@@ -953,7 +1058,10 @@ export const translations = {
         rolePlaceholder: "Supervisor",
         nameLabel: "Name (optional)",
         namePlaceholder: "Jamie Lee",
+        otherInfoLabel: "Other info",
+        otherInfoPlaceholder: "Shift lead, forklift certified",
         addPerson: "Add person",
+        savePerson: "Save person",
         addAccount: "Add account",
         emptyAccount: "No account yet.",
         statementLabel: "Witness statement",
@@ -968,14 +1076,23 @@ export const translations = {
         }
       },
       timeline: {
-        title: "Merged timeline",
-        subtitle: "Review and edit the shared timeline.",
+        title: "Timeline",
+        subtitle: "Review and edit witness timelines and the merged facts.",
+        views: {
+          merged: "Merged timeline",
+          witness: "Witness {index}"
+        },
         merge: "Merge timeline",
+        sort: "Sort by time",
         checkConsistency: "Run consistency check",
         status: {
           merging: "Merging timeline...",
+          merged: "Timeline merged.",
+          mergeFailed: "Unable to merge timeline.",
           saving: "Saving timeline...",
-          checking: "Running consistency check..."
+          checking: "Running consistency check...",
+          checked: "Consistency check complete.",
+          checkFailed: "Consistency check failed."
         },
         table: {
           time: "Time",
@@ -987,7 +1104,9 @@ export const translations = {
         timePlaceholder: "~10:20",
         eventPlaceholder: "Describe the event",
         addRow: "Add timeline row",
+        addPersonal: "Add personal event",
         save: "Save timeline",
+        savePersonal: "Save personal timeline",
         consistency: {
           title: "Consistency checks"
         },
@@ -996,8 +1115,28 @@ export const translations = {
           likely: "Likely",
           unclear: "Unclear"
         },
+        previewPlaceholder: "Add date and time",
+        noWitnessSelected: "Select a witness timeline to review.",
+        witnessHeading: "Timeline for {name}",
+        witnessFallback: "Witness",
         untimedLabel: "# {index}",
         optionLabel: "{time} {text}"
+      },
+      coaching: {
+        status: {
+          generating: "Generating coaching questions...",
+          ready: "Coaching questions ready.",
+          failed: "Unable to generate coaching questions."
+        },
+        causes: {
+          action: "Generate coaching questions"
+        },
+        rootCauses: {
+          action: "Generate root cause questions"
+        },
+        actions: {
+          action: "Propose actions"
+        }
       },
       deviations: {
         title: "Deviations",
@@ -1017,28 +1156,42 @@ export const translations = {
         save: "Save deviations"
       },
       causes: {
-        title: "Causes",
+        title: "Proximate causes",
+        subtitle: "Select the facts that directly contributed to the incident.",
         table: {
-          deviation: "Deviation",
+          event: "Timeline event",
           statement: "Cause statement",
           actions: "Actions"
         },
         placeholders: {
-          statement: "Cause statement"
+          statement: "Describe the cause"
         },
-        add: "Add cause",
-        save: "Save causes"
+        select: "Select cause",
+        remove: "Remove",
+        save: "Save causes",
+        status: {
+          saving: "Saving causes...",
+          saved: "Causes saved."
+        },
+        proximateLabel: "From timeline #{index} ({time})"
+      },
+      rootCauses: {
+        title: "Root cause analysis",
+        subtitle: "Expand proximate causes into deeper causes and mark root causes.",
+        markRoot: "Root cause",
+        questionLabel: "Guiding question",
+        questionPlaceholder: "Add the question you asked",
+        addChild: "Add child cause",
+        useQuestion: "Use question",
+        save: "Save root causes"
       },
       actions: {
-        title: "Actions",
-        table: {
-          cause: "Cause",
-          action: "Action",
-          type: "Type",
-          ownerRole: "Owner role",
-          dueDate: "Due date",
-          actions: "Actions"
-        },
+        title: "Action plan",
+        subtitle: "Add corrective actions tied to each cause.",
+        aidNotice: "Suggestions are optional; review before adding.",
+        linkedTitle: "Linked actions",
+        empty: "No actions linked yet.",
+        addSuggested: "Add action",
         selectType: "Select",
         placeholders: {
           action: "Action",
@@ -1046,18 +1199,38 @@ export const translations = {
         },
         add: "Add action",
         save: "Save actions",
+        status: {
+          saving: "Saving actions...",
+          saved: "Actions saved."
+        },
         types: {
           engineering: "Engineering",
           organizational: "Organizational",
           ppe: "PPE",
           training: "Training"
+        },
+        stopCategories: {
+          substitution: "Substitution",
+          technical: "Technical",
+          organizational: "Organizational",
+          ppe: "PPE"
         }
+      },
+      review: {
+        title: "Review and finalize",
+        subtitle: "Confirm the timeline, causes, and actions before export.",
+        timelineTitle: "Timeline",
+        emptyTimeline: "No timeline entries yet.",
+        causesTitle: "Causes",
+        emptyCauses: "No causes selected yet.",
+        actionsTitle: "Actions",
+        emptyActions: "No actions yet."
       },
       attachments: {
         title: "Attachments by timeline",
         subtitle: "Upload, reorder, or drag attachments between timeline events.",
         errorLabel: "Attachments: {error}",
-        confirmDelete: "Delete this attachment?",
+        confirmDelete: "Delete \"{name}\"? This removes the attachment.",
         status: {
           uploading: "Uploading attachment...",
           uploadFailed: "Upload failed",
@@ -1142,9 +1315,9 @@ export const translations = {
         email: "user@company.com"
       },
       prompts: {
-        resetPassword: "Enter a new password for this user",
-        revokeUserSessions: "Revoke all active sessions for this user?",
-        revokeOrgSessions: "Revoke all active sessions for this organization?"
+        resetPassword: "Enter a new password for {name}.",
+        revokeUserSessions: "Revoke all active sessions for {name}?",
+        revokeOrgSessions: "Revoke all active sessions for {name}?"
       },
       status: {
         provisioningOrg: "Provisioning org...",
@@ -1242,6 +1415,12 @@ export const translations = {
       remove: "Retirer",
       duplicate: "Dupliquer",
       save: "Enregistrer",
+      invalidDate: "Entrez une date valide (AAAA-MM-JJ).",
+      invalidDateTime: "Entrez une date/heure valide (AAAA-MM-JJTHH:MM).",
+      invalidTime: "Entrez une heure valide (HH:MM).",
+      dateHint: "Format : AAAA-MM-JJ",
+      timeHint: "Format : HH:MM",
+      dateTimeHint: "Format : AAAA-MM-JJTHH:MM",
       update: "Mettre a jour",
       loading: "Chargement...",
       clear: "Effacer",
@@ -1259,6 +1438,14 @@ export const translations = {
       load: "Charger",
       exportPdf: "Exporter PDF",
       exportXlsx: "Exporter XLSX",
+      exportPreparing: "Preparation de {label}...",
+      exportReady: "{label} ouvert dans un nouvel onglet.",
+      exportBlocked: "Fenetre bloquee. Autorisez les pop-ups pour telecharger.",
+      more: "Plus",
+      optionalDetails: "Details optionnels",
+      browseCases: "Parcourir les dossiers recents",
+      loadById: "Charger par ID",
+      searchPlaceholder: "Rechercher par titre, lieu ou date",
       noData: "N/A"
     },
     status: {
@@ -1375,7 +1562,7 @@ export const translations = {
           loadFailed: "Impossible de charger les dossiers",
           deleteFailed: "Impossible de supprimer le dossier"
         },
-        confirmDelete: "Supprimer ce dossier ? Cela le supprime definitivement pour votre organisation."
+        confirmDelete: "Supprimer \"{name}\" ? Cela le supprime definitivement pour votre organisation."
       },
       jha: {
         hero: {
@@ -1407,6 +1594,8 @@ export const translations = {
           workersPlaceholder: "Operateur, signaleur",
           jobDateLabel: "Date du travail",
           jobDatePlaceholder: "2025-03-21",
+          jobTimeLabel: "Heure du travail",
+          jobTimePlaceholder: "08:00",
           revisionLabel: "Revision",
           revisionPlaceholder: "1.0",
           preparedByLabel: "Prepare par",
@@ -1417,6 +1606,8 @@ export const translations = {
           approvedByPlaceholder: "Nom",
           signoffLabel: "Date de signature",
           signoffPlaceholder: "2025-03-21",
+          signoffTimeLabel: "Heure de signature",
+          signoffTimePlaceholder: "16:30",
           action: "Creer JHA",
           creating: "Creation..."
         },
@@ -1460,7 +1651,7 @@ export const translations = {
           titlePlaceholder: "Presque accident chariot",
           typeLabel: "Type d'incident",
           whenLabel: "Date/heure (approx ok)",
-          whenPlaceholder: "2025-03-21 10:15",
+          whenPlaceholder: "2025-03-21T10:15",
           whenNotesLabel: "Notes date/heure",
           whenNotesPlaceholder: "Vers 10h, apres la pause",
           locationLabel: "Lieu",
@@ -1499,6 +1690,14 @@ export const translations = {
       teamPending: "Equipe a definir",
       sitePending: "Site a definir",
       supervisorPending: "Superviseur a definir"
+    },
+    navigation: {
+      primary: "Navigation principale",
+      breadcrumbs: "Fil d'Ariane",
+      home: "Accueil",
+      hira: "HIRA",
+      jha: "JHA",
+      incidents: "Incidents"
     },
     menu: {
       signedIn: "Connecte",
@@ -1575,7 +1774,13 @@ export const translations = {
       applyFailed: "Impossible d'appliquer les changements",
       applySingleFailed: "Impossible d'appliquer le changement",
       applyAll: "Appliquer tout",
-      proposedChanges: "Changements proposes"
+      proposedChanges: "Changements proposes",
+      undo: "Annuler",
+      undoAvailable: "Annulation disponible pour la derniere application.",
+      undoSuccess: "Modifications annulees.",
+      undoFailed: "Impossible d'annuler les modifications.",
+      lastApplied: "Dernieres modifications appliquees",
+      affectedFields: "Champs : {fields}"
     },
     photos: {
       title: "Photos des etapes",
@@ -1586,7 +1791,7 @@ export const translations = {
       moveFailed: "Echec du deplacement",
       reordering: "Reorganisation des photos...",
       reorderFailed: "Echec de reorganisation",
-      confirmDelete: "Supprimer cette photo ?",
+      confirmDelete: "Supprimer \"{name}\" ? Cela retire le fichier de cette etape.",
       deleting: "Suppression...",
       deleteFailed: "Echec de suppression",
       errorLabel: "Photos",
@@ -1597,9 +1802,15 @@ export const translations = {
     tui: {
       title: "Espace en direct",
       statusLabel: "Statut",
+      status: "Ligne {row}/{total} · {column}{hazard}",
       ready: "Pret",
       saving: "Enregistrement",
       editing: "Edition",
+      refreshing: "Actualisation des donnees...",
+      refreshFailed: "Echec de l'actualisation.",
+      loadFailed: "Impossible de charger le dossier.",
+      phasePlaceholderTitle: "Interface de phase bientot disponible",
+      phasePlaceholderDescription: "Cette structure est connectee aux donnees; les editeurs arrivent ensuite.",
       instructions: "Utilisez les fleches ou Entree pour modifier. Esc pour arreter.",
       instructionsShort: "Entree pour modifier, Esc pour arreter.",
       empty: "Aucun danger. Ajoutez des dangers pour remplir la grille.",
@@ -1988,22 +2199,51 @@ export const translations = {
           supervisor: "Superviseur",
           workers: "Travailleurs impliques",
           jobDate: "Date du travail",
+          jobTime: "Heure du travail",
           revision: "Revision",
           preparedBy: "Prepare par",
           reviewedBy: "Revise par",
           approvedBy: "Approuve par",
-          signoffDate: "Date de signature"
+          signoffDate: "Date de signature",
+          signoffTime: "Heure de signature"
         }
       },
       assistant: {
-        title: "Rediger les lignes JHA avec l'assistant",
-        description: "Decrivez le travail et le contexte. L'assistant proposera etapes, dangers, consequences et controles.",
-        placeholder: "Livraison beton avec camion malaxeur...",
-        action: "Generer les lignes",
+        clarificationLabel: "Clarification requise :",
+        responsibility: "Vous restez responsable de la JHA finale. Revoyez chaque suggestion avant application.",
+        steps: {
+          title: "Mettre a jour les etapes avec l'assistant",
+          description: "Decrivez les nouvelles etapes ou modifications. L'assistant met a jour sans ecraser le tableau.",
+          placeholder: "Inserer une etape pour deplacer l'echelle avant l'etape 3.",
+          action: "Mettre a jour les etapes"
+        },
+        hazards: {
+          title: "Mettre a jour les dangers avec l'assistant",
+          description: "Ajoutez ou modifiez les dangers par etape. Rien ne change sans votre envoi.",
+          placeholder: "Pour l'etape 2 : points de pincement au garde-corps.",
+          action: "Mettre a jour les dangers"
+        },
         status: {
-          extracting: "Extraction des lignes...",
-          updated: "Lignes mises a jour.",
-          failed: "Impossible d'extraire les lignes"
+          updatingSteps: "Mise a jour des etapes...",
+          updatingHazards: "Mise a jour des dangers...",
+          updatedSteps: "Etapes mises a jour.",
+          updatedHazards: "Dangers mis a jour.",
+          needsClarification: "Clarification requise.",
+          clarificationFallback: "A quelle etape appliquer ce changement ?",
+          reviewReady: "{count} changements a revoir.",
+          noChanges: "Aucun changement suggere.",
+          noSelection: "Selectionnez au moins un changement a appliquer.",
+          applying: "Application des changements...",
+          applied: "Changements appliques.",
+          discarded: "Suggestions ignorees.",
+          failed: "Impossible de mettre a jour via l'assistant."
+        },
+        review: {
+          title: "Revoir les changements suggeres",
+          count: "{count} suggestions",
+          apply: "Appliquer la selection",
+          discard: "Ignorer",
+          itemFallback: "Changement suggere"
         }
       },
       flow: {
@@ -2049,7 +2289,7 @@ export const translations = {
         addRow: "Ajouter ligne",
         addRowAction: "+ Ajouter une ligne de danger",
         saveTable: "Enregistrer le tableau",
-        empty: "Aucun danger. Ajoutez une ligne ou utilisez l'assistant.",
+        empty: "Aucun danger. Ajoutez une ligne ou demandez a l'assistant.",
         untitledStep: "Etape sans titre",
         unassignedStep: "Etape non assignee",
         table: {
@@ -2079,6 +2319,18 @@ export const translations = {
         },
         placeholders: {
           controls: "Ajoutez des controles, un par ligne"
+        },
+        suggestions: {
+          action: "Suggérer des controles supplementaires",
+          hint: "Les suggestions utilisent les etapes + dangers enregistres. Ajoutez celles que vous validez.",
+          title: "Controles suggeres",
+          add: "Ajouter",
+          status: {
+            thinking: "Generation des suggestions...",
+            ready: "{count} suggestions pretes.",
+            empty: "Aucun controle supplementaire suggere.",
+            failed: "Impossible de suggerer des controles."
+          }
         }
       },
       review: {
@@ -2096,7 +2348,7 @@ export const translations = {
         title: "Pieces jointes",
         subtitle: "Televersez des photos ou croquis pour chaque etape ou danger.",
         errorLabel: "Pieces jointes : {error}",
-        confirmDelete: "Supprimer cette piece jointe ?",
+        confirmDelete: "Supprimer \"{name}\" ? Cela retire la piece jointe.",
         status: {
           uploading: "Televersement...",
           uploadFailed: "Echec du televersement",
@@ -2126,6 +2378,28 @@ export const translations = {
         lostTime: "Arret de travail",
         propertyDamage: "Degats materiels"
       },
+      flow: {
+        title: "Phases d'enquete",
+        subtitle: "Passez par faits, causes et actions avec des points de controle.",
+        stages: {
+          facts: "Faits",
+          causes: "Causes",
+          rootCauses: "Causes racines",
+          actions: "Actions",
+          review: "Revue"
+        },
+        errors: {
+          factsIncomplete: "Ajoutez au moins une entree de chronologie avant de continuer.",
+          causesIncomplete: "Selectionnez au moins une cause proximale pour continuer.",
+          rootCausesIncomplete: "Marquez au moins une cause racine pour continuer.",
+          actionsIncomplete: "Ajoutez au moins une action pour continuer."
+        },
+        actions: {
+          saveFacts: "Enregistrer les faits",
+          back: "Retour",
+          next: "Suivant"
+        }
+      },
       assistant: {
         title: "Assistant d'incident",
         subtitle: "Decrivez l'incident en langage naturel. L'assistant propose faits, chronologie et clarifications.",
@@ -2133,6 +2407,10 @@ export const translations = {
         extract: "Extraire le brouillon",
         confirmApply: "Appliquer la chronologie proposee ? Cela remplacera les entrees actuelles.",
         draftUpdated: "Brouillon mis a jour {date}.",
+        draftStatusTitle: "Statut du brouillon",
+        draftStatusEmpty: "Aucun brouillon genere pour l'instant.",
+        draftSummary: "{facts} faits · {timeline} evenements · {clarifications} clarifications",
+        applyHint: "Revoyez le brouillon puis appliquez-le.",
         status: {
           extracting: "Extraction du brouillon...",
           extracted: "Brouillon mis a jour.",
@@ -2188,7 +2466,10 @@ export const translations = {
         rolePlaceholder: "Superviseur",
         nameLabel: "Nom (optionnel)",
         namePlaceholder: "Jamie Lee",
+        otherInfoLabel: "Autres infos",
+        otherInfoPlaceholder: "Chef d'equipe, chariot elevateur",
         addPerson: "Ajouter personne",
+        savePerson: "Enregistrer la personne",
         addAccount: "Ajouter compte",
         emptyAccount: "Aucun compte.",
         statementLabel: "Declaration du temoin",
@@ -2203,14 +2484,23 @@ export const translations = {
         }
       },
       timeline: {
-        title: "Chronologie fusionnee",
-        subtitle: "Revoyez et editez la chronologie partagee.",
+        title: "Chronologie",
+        subtitle: "Revoyez les chronologies des temoins et la version fusionnee.",
+        views: {
+          merged: "Chronologie fusionnee",
+          witness: "Temoin {index}"
+        },
         merge: "Fusionner la chronologie",
+        sort: "Trier par heure",
         checkConsistency: "Verifier la coherence",
         status: {
           merging: "Fusion de la chronologie...",
+          merged: "Chronologie fusionnee.",
+          mergeFailed: "Impossible de fusionner la chronologie.",
           saving: "Enregistrement de la chronologie...",
-          checking: "Verification de coherence..."
+          checking: "Verification de coherence...",
+          checked: "Verification terminee.",
+          checkFailed: "Verification echouee."
         },
         table: {
           time: "Heure",
@@ -2222,7 +2512,9 @@ export const translations = {
         timePlaceholder: "~10:20",
         eventPlaceholder: "Decrire l'evenement",
         addRow: "Ajouter une ligne",
+        addPersonal: "Ajouter evenement personnel",
         save: "Enregistrer la chronologie",
+        savePersonal: "Enregistrer chronologie personnelle",
         consistency: {
           title: "Verifications de coherence"
         },
@@ -2231,8 +2523,28 @@ export const translations = {
           likely: "Probable",
           unclear: "Incertain"
         },
+        previewPlaceholder: "Ajouter date et heure",
+        noWitnessSelected: "Selectionnez un temoin pour afficher sa chronologie.",
+        witnessHeading: "Chronologie de {name}",
+        witnessFallback: "Temoin",
         untimedLabel: "# {index}",
         optionLabel: "{time} {text}"
+      },
+      coaching: {
+        status: {
+          generating: "Generation des questions...",
+          ready: "Questions pretes.",
+          failed: "Impossible de generer les questions."
+        },
+        causes: {
+          action: "Generer des questions"
+        },
+        rootCauses: {
+          action: "Generer des questions racines"
+        },
+        actions: {
+          action: "Proposer des actions"
+        }
       },
       deviations: {
         title: "Deviations",
@@ -2252,28 +2564,42 @@ export const translations = {
         save: "Enregistrer deviations"
       },
       causes: {
-        title: "Causes",
+        title: "Causes proximales",
+        subtitle: "Selectionnez les faits qui ont directement conduit a l'incident.",
         table: {
-          deviation: "Deviation",
+          event: "Evenement de la chronologie",
           statement: "Declaration de cause",
           actions: "Actions"
         },
         placeholders: {
-          statement: "Declaration de cause"
+          statement: "Decrire la cause"
         },
-        add: "Ajouter cause",
-        save: "Enregistrer causes"
+        select: "Selectionner",
+        remove: "Retirer",
+        save: "Enregistrer causes",
+        status: {
+          saving: "Enregistrement des causes...",
+          saved: "Causes enregistrees."
+        },
+        proximateLabel: "Depuis la chronologie #{index} ({time})"
+      },
+      rootCauses: {
+        title: "Analyse des causes racines",
+        subtitle: "Developpez les causes proximales et marquez les causes racines.",
+        markRoot: "Cause racine",
+        questionLabel: "Question guide",
+        questionPlaceholder: "Ajouter la question posee",
+        addChild: "Ajouter cause enfant",
+        useQuestion: "Utiliser la question",
+        save: "Enregistrer causes racines"
       },
       actions: {
-        title: "Actions",
-        table: {
-          cause: "Cause",
-          action: "Action",
-          type: "Type",
-          ownerRole: "Role du responsable",
-          dueDate: "Echeance",
-          actions: "Actions"
-        },
+        title: "Plan d'action",
+        subtitle: "Ajoutez des actions correctives liees aux causes.",
+        aidNotice: "Les suggestions sont optionnelles; verifiez avant d'ajouter.",
+        linkedTitle: "Actions liees",
+        empty: "Aucune action liee.",
+        addSuggested: "Ajouter action",
         selectType: "Selectionner",
         placeholders: {
           action: "Action",
@@ -2281,18 +2607,38 @@ export const translations = {
         },
         add: "Ajouter action",
         save: "Enregistrer actions",
+        status: {
+          saving: "Enregistrement des actions...",
+          saved: "Actions enregistrees."
+        },
         types: {
           engineering: "Technique",
           organizational: "Organisationnel",
           ppe: "EPI",
           training: "Formation"
+        },
+        stopCategories: {
+          substitution: "Substitution",
+          technical: "Technique",
+          organizational: "Organisationnel",
+          ppe: "EPI"
         }
+      },
+      review: {
+        title: "Revue finale",
+        subtitle: "Confirmez chronologie, causes et actions avant export.",
+        timelineTitle: "Chronologie",
+        emptyTimeline: "Aucune entree de chronologie.",
+        causesTitle: "Causes",
+        emptyCauses: "Aucune cause selectionnee.",
+        actionsTitle: "Actions",
+        emptyActions: "Aucune action."
       },
       attachments: {
         title: "Pieces jointes par chronologie",
         subtitle: "Televersez, reordonnez ou glissez les pieces entre evenements.",
         errorLabel: "Pieces jointes : {error}",
-        confirmDelete: "Supprimer cette piece jointe ?",
+        confirmDelete: "Supprimer \"{name}\" ? Cela retire la piece jointe.",
         status: {
           uploading: "Televersement...",
           uploadFailed: "Echec du televersement",
@@ -2377,9 +2723,9 @@ export const translations = {
         email: "user@company.com"
       },
       prompts: {
-        resetPassword: "Entrez un nouveau mot de passe pour cet utilisateur",
-        revokeUserSessions: "Revoquer toutes les sessions actives pour cet utilisateur ?",
-        revokeOrgSessions: "Revoquer toutes les sessions actives pour cette organisation ?"
+        resetPassword: "Entrez un nouveau mot de passe pour {name}.",
+        revokeUserSessions: "Revoquer toutes les sessions actives pour {name} ?",
+        revokeOrgSessions: "Revoquer toutes les sessions actives pour {name} ?"
       },
       status: {
         provisioningOrg: "Provisionnement de l'organisation...",
@@ -2477,6 +2823,12 @@ export const translations = {
       remove: "Entfernen",
       duplicate: "Duplizieren",
       save: "Speichern",
+      invalidDate: "Geben Sie ein gueltiges Datum ein (JJJJ-MM-TT).",
+      invalidDateTime: "Geben Sie ein gueltiges Datum/Zeit ein (JJJJ-MM-TTTHH:MM).",
+      invalidTime: "Geben Sie eine gueltige Uhrzeit ein (HH:MM).",
+      dateHint: "Format: JJJJ-MM-TT",
+      timeHint: "Format: HH:MM",
+      dateTimeHint: "Format: JJJJ-MM-TTTHH:MM",
       update: "Aktualisieren",
       loading: "Laden...",
       clear: "Leeren",
@@ -2494,6 +2846,14 @@ export const translations = {
       load: "Laden",
       exportPdf: "PDF exportieren",
       exportXlsx: "XLSX exportieren",
+      exportPreparing: "{label} wird vorbereitet...",
+      exportReady: "{label} im neuen Tab geoffnet.",
+      exportBlocked: "Pop-up blockiert. Erlauben Sie Pop-ups zum Download.",
+      more: "Mehr",
+      optionalDetails: "Optionale Details",
+      browseCases: "Zuletzt verwendete Falle durchsuchen",
+      loadById: "Nach ID laden",
+      searchPlaceholder: "Nach Titel, Ort oder Datum suchen",
       noData: "k.A."
     },
     status: {
@@ -2610,7 +2970,7 @@ export const translations = {
           loadFailed: "Falle konnten nicht geladen werden",
           deleteFailed: "Fall konnte nicht geloscht werden"
         },
-        confirmDelete: "Diesen Fall loschen? Dies entfernt ihn dauerhaft fur Ihre Organisation."
+        confirmDelete: "\"{name}\" loschen? Dies entfernt ihn dauerhaft fur Ihre Organisation."
       },
       jha: {
         hero: {
@@ -2642,6 +3002,8 @@ export const translations = {
           workersPlaceholder: "Operator, Einweiser",
           jobDateLabel: "Arbeitsdatum",
           jobDatePlaceholder: "2025-03-21",
+          jobTimeLabel: "Arbeitszeit",
+          jobTimePlaceholder: "08:00",
           revisionLabel: "Revision",
           revisionPlaceholder: "1.0",
           preparedByLabel: "Erstellt von",
@@ -2652,6 +3014,8 @@ export const translations = {
           approvedByPlaceholder: "Name",
           signoffLabel: "Freigabedatum",
           signoffPlaceholder: "2025-03-21",
+          signoffTimeLabel: "Freigabezeit",
+          signoffTimePlaceholder: "16:30",
           action: "JHA erstellen",
           creating: "Erstellen..."
         },
@@ -2695,7 +3059,7 @@ export const translations = {
           titlePlaceholder: "Gabelstapler Beinaheunfall",
           typeLabel: "Incident Typ",
           whenLabel: "Datum/Uhrzeit (ca ok)",
-          whenPlaceholder: "2025-03-21 10:15",
+          whenPlaceholder: "2025-03-21T10:15",
           whenNotesLabel: "Zeitnotizen",
           whenNotesPlaceholder: "Ca 10 Uhr, nach Pause",
           locationLabel: "Ort",
@@ -2734,6 +3098,14 @@ export const translations = {
       teamPending: "Team ausstehend",
       sitePending: "Standort ausstehend",
       supervisorPending: "Supervisor ausstehend"
+    },
+    navigation: {
+      primary: "Hauptnavigation",
+      breadcrumbs: "Brotkrumen",
+      home: "Startseite",
+      hira: "HIRA",
+      jha: "JHA",
+      incidents: "Incidents"
     },
     menu: {
       signedIn: "Angemeldet",
@@ -2810,7 +3182,13 @@ export const translations = {
       applyFailed: "Anderungen konnten nicht angewendet werden",
       applySingleFailed: "Anderung konnte nicht angewendet werden",
       applyAll: "Alles anwenden",
-      proposedChanges: "Vorgeschlagene Anderungen"
+      proposedChanges: "Vorgeschlagene Anderungen",
+      undo: "Ruckgangig",
+      undoAvailable: "Letzte Anwendung kann ruckgangig gemacht werden.",
+      undoSuccess: "Anderungen ruckgangig gemacht.",
+      undoFailed: "Anderungen konnten nicht ruckgangig gemacht werden.",
+      lastApplied: "Zuletzt angewendet",
+      affectedFields: "Felder: {fields}"
     },
     photos: {
       title: "Schrittfotos",
@@ -2821,7 +3199,7 @@ export const translations = {
       moveFailed: "Verschieben fehlgeschlagen",
       reordering: "Fotos werden sortiert...",
       reorderFailed: "Sortieren fehlgeschlagen",
-      confirmDelete: "Dieses Foto loschen?",
+      confirmDelete: "\"{name}\" loschen? Dies entfernt die Datei aus diesem Schritt.",
       deleting: "Wird geloscht...",
       deleteFailed: "Loschen fehlgeschlagen",
       errorLabel: "Fotos",
@@ -2832,9 +3210,15 @@ export const translations = {
     tui: {
       title: "Live-Workspace",
       statusLabel: "Status",
+      status: "Zeile {row}/{total} · {column}{hazard}",
       ready: "Bereit",
       saving: "Speichern",
       editing: "Bearbeiten",
+      refreshing: "Daten werden aktualisiert...",
+      refreshFailed: "Aktualisierung fehlgeschlagen.",
+      loadFailed: "Fall konnte nicht geladen werden.",
+      phasePlaceholderTitle: "Phasen-UI folgt als naechstes",
+      phasePlaceholderDescription: "Diese Huelle ist mit Daten verbunden; Editoren folgen danach.",
       instructions: "Pfeiltasten oder Enter zum Bearbeiten. Esc zum Beenden.",
       instructionsShort: "Enter bearbeiten, Esc beenden.",
       empty: "Noch keine Gefahren. Fugen Sie Gefahren hinzu.",
@@ -3223,22 +3607,51 @@ export const translations = {
           supervisor: "Supervisor",
           workers: "Beteiligte",
           jobDate: "Arbeitsdatum",
+          jobTime: "Arbeitszeit",
           revision: "Revision",
           preparedBy: "Erstellt von",
           reviewedBy: "Gepruft von",
           approvedBy: "Freigegeben von",
-          signoffDate: "Freigabedatum"
+          signoffDate: "Freigabedatum",
+          signoffTime: "Freigabezeit"
         }
       },
       assistant: {
-        title: "JHA-Zeilen mit Assistent",
-        description: "Job und Kontext beschreiben. Assistent schlagt Schritte, Gefahren, Konsequenzen und Kontrollen vor.",
-        placeholder: "Betonlieferung mit Fahrmischer...",
-        action: "Zeilen generieren",
+        clarificationLabel: "Klarstellung erforderlich:",
+        responsibility: "Sie bleiben fur die finale JHA verantwortlich. Bitte jede Empfehlung prufen.",
+        steps: {
+          title: "Jobschritte mit Assistent aktualisieren",
+          description: "Neue Schritte oder Anpassungen beschreiben. Der Assistent aktualisiert ohne zu uberschreiben.",
+          placeholder: "Einen Schritt einfugen, um die Leiter vor Schritt 3 zu bewegen.",
+          action: "Schritte aktualisieren"
+        },
+        hazards: {
+          title: "Gefahren mit Assistent aktualisieren",
+          description: "Gefahren pro Schritt erganzen oder andern. Nichts andert sich ohne Ihre Eingabe.",
+          placeholder: "Fur Schritt 2: Quetschstellen am Gelander.",
+          action: "Gefahren aktualisieren"
+        },
         status: {
-          extracting: "Zeilen werden extrahiert...",
-          updated: "Zeilen aktualisiert.",
-          failed: "Zeilen konnten nicht extrahiert werden"
+          updatingSteps: "Schritte werden aktualisiert...",
+          updatingHazards: "Gefahren werden aktualisiert...",
+          updatedSteps: "Schritte aktualisiert.",
+          updatedHazards: "Gefahren aktualisiert.",
+          needsClarification: "Klarstellung erforderlich.",
+          clarificationFallback: "Auf welchen Schritt soll die Anderung angewendet werden?",
+          reviewReady: "{count} Anderungen zur Prufung bereit.",
+          noChanges: "Keine Anderungen vorgeschlagen.",
+          noSelection: "Bitte mindestens eine Anderung auswahlen.",
+          applying: "Anderungen werden angewendet...",
+          applied: "Anderungen angewendet.",
+          discarded: "Vorschlage verworfen.",
+          failed: "Aktualisierung per Assistent fehlgeschlagen."
+        },
+        review: {
+          title: "Vorschlage prufen",
+          count: "{count} Vorschlage",
+          apply: "Auswahl anwenden",
+          discard: "Verwerfen",
+          itemFallback: "Vorgeschlagene Anderung"
         }
       },
       flow: {
@@ -3284,7 +3697,7 @@ export const translations = {
         addRow: "Zeile hinzufugen",
         addRowAction: "+ Gefahrenzeile hinzufugen",
         saveTable: "Tabelle speichern",
-        empty: "Noch keine Gefahren. Zeile hinzufugen oder Assistent nutzen.",
+        empty: "Noch keine Gefahren. Zeile hinzufugen oder den Assistenten fragen.",
         untitledStep: "Unbenannter Schritt",
         unassignedStep: "Nicht zugewiesener Schritt",
         table: {
@@ -3314,6 +3727,18 @@ export const translations = {
         },
         placeholders: {
           controls: "Kontrollen einfugen, eine pro Zeile"
+        },
+        suggestions: {
+          action: "Zusatzliche Kontrollen vorschlagen",
+          hint: "Vorschlage nutzen gespeicherte Schritte und Gefahren. Prufen und hinzufugen.",
+          title: "Vorgeschlagene Kontrollen",
+          add: "Hinzufugen",
+          status: {
+            thinking: "Vorschlage werden erstellt...",
+            ready: "{count} Vorschlage bereit.",
+            empty: "Keine zusatzlichen Kontrollen vorgeschlagen.",
+            failed: "Kontrollen konnten nicht vorgeschlagen werden."
+          }
         }
       },
       review: {
@@ -3331,7 +3756,7 @@ export const translations = {
         title: "Anhange",
         subtitle: "Fotos oder Skizzen fur Schritte oder Gefahren hochladen.",
         errorLabel: "Anhange: {error}",
-        confirmDelete: "Anhang loschen?",
+        confirmDelete: "\"{name}\" loschen? Dies entfernt den Anhang.",
         status: {
           uploading: "Anhang wird hochgeladen...",
           uploadFailed: "Upload fehlgeschlagen",
@@ -3361,6 +3786,28 @@ export const translations = {
         lostTime: "Ausfallzeit",
         propertyDamage: "Sachschaden"
       },
+      flow: {
+        title: "Untersuchungsphasen",
+        subtitle: "Durch Fakten, Ursachen und Aktionen mit klaren Checkpoints.",
+        stages: {
+          facts: "Fakten",
+          causes: "Ursachen",
+          rootCauses: "Wurzelursachen",
+          actions: "Aktionen",
+          review: "Review"
+        },
+        errors: {
+          factsIncomplete: "Fugen Sie mindestens einen Timeline-Eintrag hinzu, bevor Sie fortfahren.",
+          causesIncomplete: "Wahlen Sie mindestens eine direkte Ursache, um fortzufahren.",
+          rootCausesIncomplete: "Markieren Sie mindestens eine Wurzelursache, um fortzufahren.",
+          actionsIncomplete: "Fugen Sie mindestens eine Aktion hinzu, um fortzufahren."
+        },
+        actions: {
+          saveFacts: "Fakten speichern",
+          back: "Zuruck",
+          next: "Weiter"
+        }
+      },
       assistant: {
         title: "Incident-Assistent",
         subtitle: "Beschreiben Sie den Vorfall in Klartext. Der Assistent erstellt Fakten, Timeline und Klarstellungen.",
@@ -3368,6 +3815,10 @@ export const translations = {
         extract: "Entwurf extrahieren",
         confirmApply: "Assistenten-Timeline auf den Fall anwenden? Dies ersetzt die aktuellen Eintraege.",
         draftUpdated: "Entwurf aktualisiert {date}.",
+        draftStatusTitle: "Entwurfsstatus",
+        draftStatusEmpty: "Noch kein Entwurf erstellt.",
+        draftSummary: "{facts} Fakten · {timeline} Ereignisse · {clarifications} Klarstellungen",
+        applyHint: "Entwurf prufen und bei Bedarf anwenden.",
         status: {
           extracting: "Entwurf wird extrahiert...",
           extracted: "Entwurf aktualisiert.",
@@ -3422,7 +3873,10 @@ export const translations = {
         rolePlaceholder: "Supervisor",
         nameLabel: "Name (optional)",
         namePlaceholder: "Jamie Lee",
+        otherInfoLabel: "Weitere Infos",
+        otherInfoPlaceholder: "Schichtleiter, Staplerschein",
         addPerson: "Person hinzufugen",
+        savePerson: "Person speichern",
         addAccount: "Konto hinzufugen",
         emptyAccount: "Noch kein Konto.",
         statementLabel: "Zeugenaussage",
@@ -3437,14 +3891,23 @@ export const translations = {
         }
       },
       timeline: {
-        title: "Zusammengefuhrte Timeline",
-        subtitle: "Gemeinsame Timeline bearbeiten.",
+        title: "Timeline",
+        subtitle: "Zeugen-Timelines und die zusammengefuhrte Timeline bearbeiten.",
+        views: {
+          merged: "Zusammengefuhrte Timeline",
+          witness: "Zeuge {index}"
+        },
         merge: "Timeline zusammenfuhren",
+        sort: "Nach Zeit sortieren",
         checkConsistency: "Konsistenz prufen",
         status: {
           merging: "Timeline wird zusammengefuhrt...",
+          merged: "Timeline zusammengefuhrt.",
+          mergeFailed: "Timeline konnte nicht zusammengefuhrt werden.",
           saving: "Timeline wird gespeichert...",
-          checking: "Konsistenzprufung..."
+          checking: "Konsistenzprufung...",
+          checked: "Konsistenzprufung abgeschlossen.",
+          checkFailed: "Konsistenzprufung fehlgeschlagen."
         },
         table: {
           time: "Zeit",
@@ -3456,7 +3919,9 @@ export const translations = {
         timePlaceholder: "~10:20",
         eventPlaceholder: "Ereignis beschreiben",
         addRow: "Timeline-Zeile hinzufugen",
+        addPersonal: "Personliches Ereignis hinzufugen",
         save: "Timeline speichern",
+        savePersonal: "Personliche Timeline speichern",
         consistency: {
           title: "Konsistenzprufungen"
         },
@@ -3465,8 +3930,28 @@ export const translations = {
           likely: "Wahrscheinlich",
           unclear: "Unklar"
         },
+        previewPlaceholder: "Datum und Zeit hinzufugen",
+        noWitnessSelected: "Wahlen Sie eine Zeugentimeline aus.",
+        witnessHeading: "Timeline fur {name}",
+        witnessFallback: "Zeuge",
         untimedLabel: "# {index}",
         optionLabel: "{time} {text}"
+      },
+      coaching: {
+        status: {
+          generating: "Coaching-Fragen werden erstellt...",
+          ready: "Coaching-Fragen bereit.",
+          failed: "Coaching-Fragen konnten nicht erstellt werden."
+        },
+        causes: {
+          action: "Coaching-Fragen erzeugen"
+        },
+        rootCauses: {
+          action: "Wurzelursachen-Fragen erzeugen"
+        },
+        actions: {
+          action: "Aktionen vorschlagen"
+        }
       },
       deviations: {
         title: "Abweichungen",
@@ -3486,28 +3971,42 @@ export const translations = {
         save: "Abweichungen speichern"
       },
       causes: {
-        title: "Ursachen",
+        title: "Direkte Ursachen",
+        subtitle: "Wahlen Sie die Fakten, die direkt zum Vorfall beigetragen haben.",
         table: {
-          deviation: "Abweichung",
+          event: "Timeline-Ereignis",
           statement: "Ursachenstatement",
           actions: "Aktionen"
         },
         placeholders: {
-          statement: "Ursachenstatement"
+          statement: "Ursache beschreiben"
         },
-        add: "Ursache hinzufugen",
-        save: "Ursachen speichern"
+        select: "Auswahlen",
+        remove: "Entfernen",
+        save: "Ursachen speichern",
+        status: {
+          saving: "Ursachen werden gespeichert...",
+          saved: "Ursachen gespeichert."
+        },
+        proximateLabel: "Aus Timeline #{index} ({time})"
+      },
+      rootCauses: {
+        title: "Wurzelursachen-Analyse",
+        subtitle: "Direkte Ursachen erweitern und Wurzelursachen markieren.",
+        markRoot: "Wurzelursache",
+        questionLabel: "Leitfrage",
+        questionPlaceholder: "Frage eintragen",
+        addChild: "Unterursache hinzufugen",
+        useQuestion: "Frage verwenden",
+        save: "Wurzelursachen speichern"
       },
       actions: {
-        title: "Aktionen",
-        table: {
-          cause: "Ursache",
-          action: "Aktion",
-          type: "Typ",
-          ownerRole: "Rolle",
-          dueDate: "Termin",
-          actions: "Aktionen"
-        },
+        title: "Aktionsplan",
+        subtitle: "Korrekturaktionen je Ursache hinzufugen.",
+        aidNotice: "Vorschlage sind optional; vor dem Hinzufugen prufen.",
+        linkedTitle: "Verknupfte Aktionen",
+        empty: "Noch keine Aktionen verknupft.",
+        addSuggested: "Aktion hinzufugen",
         selectType: "Auswahlen",
         placeholders: {
           action: "Aktion",
@@ -3515,18 +4014,38 @@ export const translations = {
         },
         add: "Aktion hinzufugen",
         save: "Aktionen speichern",
+        status: {
+          saving: "Aktionen werden gespeichert...",
+          saved: "Aktionen gespeichert."
+        },
         types: {
           engineering: "Technisch",
           organizational: "Organisatorisch",
           ppe: "PSA",
           training: "Training"
+        },
+        stopCategories: {
+          substitution: "Substitution",
+          technical: "Technisch",
+          organizational: "Organisatorisch",
+          ppe: "PSA"
         }
+      },
+      review: {
+        title: "Review und Abschluss",
+        subtitle: "Timeline, Ursachen und Aktionen vor Export prufen.",
+        timelineTitle: "Timeline",
+        emptyTimeline: "Noch keine Timeline-Eintrage.",
+        causesTitle: "Ursachen",
+        emptyCauses: "Noch keine Ursachen ausgewahlt.",
+        actionsTitle: "Aktionen",
+        emptyActions: "Noch keine Aktionen."
       },
       attachments: {
         title: "Anhange nach Timeline",
         subtitle: "Anhange hochladen, sortieren oder ziehen.",
         errorLabel: "Anhange: {error}",
-        confirmDelete: "Anhang loschen?",
+        confirmDelete: "\"{name}\" loschen? Dies entfernt den Anhang.",
         status: {
           uploading: "Anhang wird hochgeladen...",
           uploadFailed: "Upload fehlgeschlagen",
@@ -3611,9 +4130,9 @@ export const translations = {
         email: "user@company.com"
       },
       prompts: {
-        resetPassword: "Neues Passwort fur diesen Benutzer eingeben",
-        revokeUserSessions: "Alle aktiven Sitzungen fur diesen Benutzer widerrufen?",
-        revokeOrgSessions: "Alle aktiven Sitzungen fur diese Organisation widerrufen?"
+        resetPassword: "Neues Passwort fur {name} eingeben.",
+        revokeUserSessions: "Alle aktiven Sitzungen fur {name} widerrufen?",
+        revokeOrgSessions: "Alle aktiven Sitzungen fur {name} widerrufen?"
       },
       status: {
         provisioningOrg: "Organisation wird bereitgestellt...",

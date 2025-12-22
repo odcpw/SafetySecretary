@@ -22,6 +22,9 @@ export const LoginPage = () => {
   const [demoSubmitting, setDemoSubmitting] = useState(false);
   const [demoError, setDemoError] = useState<string | null>(null);
   const sessionExpired = (location.state as any)?.reason === "expired";
+  const redirectParam = new URLSearchParams(location.search).get("from");
+  const safeRedirectParam = redirectParam && redirectParam.startsWith("/") ? redirectParam : null;
+  const fallbackTarget = (location.state as any)?.from ?? safeRedirectParam ?? "/";
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -51,8 +54,7 @@ export const LoginPage = () => {
       if (payload?.user?.locale && payload.user.locale in localeLabels) {
         setLocale(payload.user.locale as keyof typeof localeLabels);
       }
-      const target = (location.state as any)?.from ?? "/";
-      navigate(target, { replace: true });
+      navigate(fallbackTarget, { replace: true });
     } catch (err) {
       setError({ message: err instanceof Error ? err.message : t("auth.loginFailed") });
     } finally {
@@ -77,8 +79,7 @@ export const LoginPage = () => {
       if (payload?.user?.locale && payload.user.locale in localeLabels) {
         setLocale(payload.user.locale as keyof typeof localeLabels);
       }
-      const target = (location.state as any)?.from ?? "/";
-      navigate(target, { replace: true });
+      navigate(fallbackTarget, { replace: true });
     } catch (err) {
       setDemoError(err instanceof Error ? err.message : t("auth.demoLoginFailed"));
     } finally {

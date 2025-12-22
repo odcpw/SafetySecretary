@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { apiFetch } from "@/lib/api";
 import { useI18n } from "@/i18n/I18nContext";
@@ -23,6 +23,7 @@ export const UserMenu = () => {
   const [error, setError] = useState<string | null>(null);
   const [localeError, setLocaleError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const panelId = useId();
 
   useEffect(() => {
     let active = true;
@@ -108,12 +109,19 @@ export const UserMenu = () => {
 
   return (
     <div className="user-menu" ref={panelRef}>
-      <button type="button" className="user-menu__button" onClick={() => setOpen((prev) => !prev)}>
+      <button
+        type="button"
+        className="user-menu__button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((prev) => !prev)}
+      >
         <span className="user-menu__avatar">{initials}</span>
         <span className="user-menu__label">{displayName}</span>
       </button>
       {open && (
-        <div className="user-menu__panel">
+        <div className="user-menu__panel" role="dialog" aria-modal="false" aria-label={t("menu.account")} id={panelId}>
           <header>
             <p className="text-label">{t("menu.signedIn")}</p>
             {loading ? (

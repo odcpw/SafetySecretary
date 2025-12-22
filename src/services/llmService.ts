@@ -1623,11 +1623,11 @@ Respond as JSON:
     }
 
     if (phase === "hazards") {
-      const stepIndex = steps.length ? 1 : undefined;
+      const stepIndex = steps.length ? 1 : null;
       return lines.map((line) => ({
         intent: "add",
         target: "hazard",
-        location: stepIndex ? { stepIndex } : undefined,
+        ...(stepIndex ? { location: { stepIndex } } : {}),
         data: { hazard: line },
         explanation: "Add hazard"
       }));

@@ -342,7 +342,7 @@ export class JhaService {
 
     if (stepCommands.length) {
       const errors: string[] = [];
-      const nextSteps = workingCase.steps.map((step) => ({
+      const nextSteps: JhaStepInput[] = workingCase.steps.map((step) => ({
         id: step.id,
         label: step.label,
         orderIndex: step.orderIndex
@@ -448,7 +448,7 @@ export class JhaService {
       const updated = await this.updateSteps(
         caseId,
         nextSteps.map((step, index) => ({
-          id: step.id,
+          ...(typeof step.id === "string" ? { id: step.id } : {}),
           label: step.label,
           orderIndex: index
         }))
@@ -578,11 +578,13 @@ export class JhaService {
               const list = hazardsByStep.get(ref.stepId) ?? [];
               const current = list[ref.index];
               if (!current) return;
+              const nextConsequence = consequence !== null ? consequence : current.consequence ?? null;
+              const nextControls = controlsInput.length ? controlsInput : normalizeControls(current.controls);
               list[ref.index] = {
                 ...current,
                 hazard: hazardLabel ?? current.hazard,
-                consequence: consequence ?? current.consequence,
-                controls: controlsInput.length ? controlsInput : current.controls
+                consequence: nextConsequence,
+                controls: nextControls
               };
               hazardsByStep.set(ref.stepId, list);
               break;
@@ -657,14 +659,17 @@ export class JhaService {
       steps.forEach((step) => {
         const list = hazardsByStep.get(step.id) ?? [];
         list.forEach((hazard, index) => {
-          nextHazards.push({
-            id: hazard.id,
+          const nextHazard: JhaHazardInput = {
             stepId: step.id,
             hazard: hazard.hazard,
             consequence: hazard.consequence ?? null,
             controls: normalizeControls(hazard.controls),
             orderIndex: index
-          });
+          };
+          if (typeof hazard.id === "string") {
+            nextHazard.id = hazard.id;
+          }
+          nextHazards.push(nextHazard);
         });
       });
 

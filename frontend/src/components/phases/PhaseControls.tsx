@@ -24,6 +24,7 @@ import { TEMPLATE_LIKELIHOOD_OPTIONS, TEMPLATE_SEVERITY_OPTIONS } from "@/lib/te
 import { useSaveStatus } from "@/hooks/useSaveStatus";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
+import { buildHazardNumberMap } from "@/lib/hazardNumbering";
 
 interface PhaseControlsProps {
   raCase: RiskAssessmentCase;
@@ -150,7 +151,10 @@ export const PhaseControls = ({
   }, [defaultLabels]);
 
   const grouped = groupHazardsByStep(raCase);
-  const stepNumberMap = useMemo(() => new Map(raCase.steps.map((step, index) => [step.id, index + 1])), [raCase.steps]);
+  const hazardNumberMap = useMemo(
+    () => buildHazardNumberMap(raCase.steps, raCase.hazards),
+    [raCase.steps, raCase.hazards]
+  );
 
   const saveResidualDraft = async (
     hazardIds?: string[],
@@ -365,16 +369,13 @@ export const PhaseControls = ({
                 </SheetRow>
               </SheetHead>
               <SheetBody>
-                {hazards.map((hazard, hazardIndex) => {
+                {hazards.map((hazard) => {
                   const residual = residualDraft[hazard.id] ?? { severity: "", likelihood: "" };
                   const residualPreview =
                     residual.severity && residual.likelihood
                       ? `${residual.severity} × ${residual.likelihood}`
                       : t("ra.controls.pending");
-                  const numbering =
-                    stepNumberMap.get(step.id) !== undefined
-                      ? `${stepNumberMap.get(step.id)}.${hazardIndex + 1}`
-                      : "";
+                  const numbering = hazardNumberMap.get(hazard.id)?.display ?? "";
                   const cellColor = getRiskColorForAssessment(
                     residual.severity,
                     residual.likelihood,

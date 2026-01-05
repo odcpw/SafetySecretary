@@ -135,6 +135,11 @@ export interface RiskAssessmentCaseSummary {
 export class RiskAssessmentService {
   constructor(private readonly db = prisma) {}
 
+  /**
+   * Normalize phase values from the database.
+   * RESIDUAL_RISK is a legacy phase that was merged into ACTIONS.
+   * Residual risk rating now happens during the ACTIONS phase.
+   */
   private normalizePhase(phase: string): RiskAssessmentPhase {
     if (phase === RiskAssessmentPhase.RESIDUAL_RISK) {
       return RiskAssessmentPhase.ACTIONS;
@@ -158,6 +163,14 @@ export class RiskAssessmentService {
     return count;
   }
 
+  /**
+   * Ensures every HazardControl has a corresponding CorrectiveAction.
+   *
+   * Called on every getCaseById to maintain data consistency. This handles
+   * legacy data and edge cases where controls exist without actions (e.g.,
+   * from snapshot restores or direct DB edits). Creates missing actions
+   * silently without user interaction.
+   */
   private async ensureActionsForControls(caseId: string): Promise<void> {
     const dbAny = this.db as any;
     if (!dbAny?.hazardControl || !dbAny?.correctiveAction) {
@@ -379,6 +392,14 @@ export class RiskAssessmentService {
     return this.mapCase(created);
   }
 
+  /**
+   * Retrieves a risk assessment case by ID.
+   *
+   * Note: Runs ensureActionsForControls before fetching to guarantee that
+   * all proposed controls have corresponding corrective actions. This
+   * self-healing behavior ensures consistent data even if controls were
+   * created through other code paths or DB migrations.
+   */
   async getCaseById(id: string): Promise<RiskAssessmentCaseDto | null> {
     try {
       await this.ensureActionsForControls(id);
@@ -552,6 +573,11 @@ export class RiskAssessmentService {
     if (hazardsSnapshot.length && hazardIds.length === 0) {
       throw new Error("Invalid hazard snapshot: missing ids");
     }
+    if (hazardsSnapshot.length !== hazardIds.length) {
+      console.warn(
+        `[restoreCaseSnapshot] Skipping ${hazardsSnapshot.length - hazardIds.length} hazards with empty/invalid IDs`
+      );
+    }
 
     const controlIds = new Set<string>();
     hazardsSnapshot.forEach((hazard) => {
@@ -579,8 +605,28 @@ export class RiskAssessmentService {
         await tx.hazard.deleteMany({ where: { caseId } });
       }
 
+      const validSeverities = new Set(["A", "B", "C", "D", "E"]);
+      const validLikelihoods = new Set(["1", "2", "3", "4", "5"]);
+
       for (const [index, hazard] of hazardsSnapshot.entries()) {
-        const stepId = stepIds.has(hazard.stepId) ? hazard.stepId : stepsPayload[0]?.id ?? hazard.stepId;
+        // Skip hazards with empty IDs (already filtered into hazardIds but double-check)
+        if (!hazard.id || typeof hazard.id !== "string" || hazard.id.length === 0) {
+          continue;
+        }
+
+        // Validate stepId - skip hazard if invalid and no fallback available
+        let stepId: string;
+        if (stepIds.has(hazard.stepId)) {
+          stepId = hazard.stepId;
+        } else if (stepsPayload.length > 0 && stepsPayload[0]?.id) {
+          stepId = stepsPayload[0].id;
+        } else {
+          console.warn(
+            `[restoreCaseSnapshot] Skipping hazard "${hazard.id}" - stepId "${hazard.stepId}" is invalid and no fallback step available`
+          );
+          continue;
+        }
+
         await tx.hazard.upsert({
           where: { id: hazard.id },
           update: {
@@ -608,6 +654,14 @@ export class RiskAssessmentService {
           snapshotValue?: HazardAssessmentSnapshot
         ) => {
           if (!snapshotValue?.severity || !snapshotValue?.likelihood) {
+            await tx.hazardAssessment.deleteMany({ where: { hazardId: hazard.id, type } });
+            return;
+          }
+          // Validate severity (A-E) and likelihood (1-5)
+          if (!validSeverities.has(snapshotValue.severity) || !validLikelihoods.has(snapshotValue.likelihood)) {
+            console.warn(
+              `[restoreCaseSnapshot] Skipping ${type} assessment for hazard "${hazard.id}" - invalid severity "${snapshotValue.severity}" or likelihood "${snapshotValue.likelihood}"`
+            );
             await tx.hazardAssessment.deleteMany({ where: { hazardId: hazard.id, type } });
             return;
           }
@@ -669,6 +723,11 @@ export class RiskAssessmentService {
       const actionIds = actionsSnapshot.map((action) => action.id).filter((id) => typeof id === "string" && id.length > 0);
       if (actionsSnapshot.length && actionIds.length === 0) {
         throw new Error("Invalid action snapshot: missing ids");
+      }
+      if (actionsSnapshot.length !== actionIds.length) {
+        console.warn(
+          `[restoreCaseSnapshot] Skipping ${actionsSnapshot.length - actionIds.length} actions with empty/invalid IDs`
+        );
       }
 
       if (actionIds.length) {
@@ -770,13 +829,23 @@ export class RiskAssessmentService {
   async addManualHazard(
     id: string,
     hazard: HazardInput & { stepId: string }
-  ): Promise<HazardDto | null> {
+  ): Promise<{ hazard: HazardDto; warning?: string } | null> {
     const step = await this.db.processStep.findFirst({
       where: { id: hazard.stepId, caseId: id }
     });
     if (!step) {
       return null;
     }
+
+    // Check for duplicate label (case-insensitive) within the same step
+    const existingHazards = await this.db.hazard.findMany({
+      where: { stepId: hazard.stepId },
+      select: { label: true }
+    });
+    const labelLower = hazard.label.toLowerCase();
+    const hasDuplicate = existingHazards.some(
+      (h) => h.label.toLowerCase() === labelLower
+    );
 
     const withSteps = await this.db.$transaction(async (tx) => {
       const orderIndex = await tx.hazard.count({ where: { stepId: hazard.stepId } });
@@ -798,7 +867,17 @@ export class RiskAssessmentService {
       });
     });
 
-    return withSteps ? this.mapHazard(withSteps) : null;
+    if (!withSteps) {
+      return null;
+    }
+
+    const result: { hazard: HazardDto; warning?: string } = {
+      hazard: this.mapHazard(withSteps)
+    };
+    if (hasDuplicate) {
+      result.warning = `A hazard with the label "${hazard.label}" already exists in this step`;
+    }
+    return result;
   }
 
   // Update hazard with category and existing controls
@@ -927,7 +1006,13 @@ export class RiskAssessmentService {
     return true;
   }
 
-  // Add proposed controls (from control discussion phase)
+  /**
+   * Adds a proposed control to a hazard.
+   *
+   * Automatically creates a corresponding CorrectiveAction linked to the
+   * new control. This ensures controls are immediately actionable in the
+   * ACTIONS phase without requiring separate action creation by the user.
+   */
   async addProposedControl(
     caseId: string,
     input: ProposedControlInput
@@ -966,7 +1051,13 @@ export class RiskAssessmentService {
     return { id: control.id, description: control.description, hierarchy: control.hierarchy };
   }
 
-  // Add multiple proposed controls
+  /**
+   * Adds multiple proposed controls to hazards in a single transaction.
+   *
+   * Automatically creates a corresponding CorrectiveAction for each control.
+   * This ensures controls are immediately actionable in the ACTIONS phase
+   * without requiring separate action creation by the user.
+   */
   async addProposedControls(
     caseId: string,
     inputs: ProposedControlInput[]

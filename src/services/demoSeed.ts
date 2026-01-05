@@ -68,21 +68,21 @@ const seedRiskAssessmentCase = async (
   if (!stepOne || !stepTwo || !stepThree) {
     throw new Error("Demo seed failed: missing risk assessment steps.");
   }
-  const hazardOne = await raService.addManualHazard(raCase.id, {
+  const hazardOneResult = await raService.addManualHazard(raCase.id, {
     stepId: stepOne.id,
     label: "Unexpected movement",
     description: "Forklift shifts while technician is working.",
     categoryCode: "MECHANICAL",
     existingControls: ["Lockout/tagout", "Wheel chocks"]
   });
-  const hazardTwo = await raService.addManualHazard(raCase.id, {
+  const hazardTwoResult = await raService.addManualHazard(raCase.id, {
     stepId: stepTwo.id,
     label: "Hydraulic spill",
     description: "Oil leaks create slip and skin-contact risk.",
     categoryCode: "CHEMICAL",
     existingControls: ["Drain pan", "Spill kit"]
   });
-  const hazardThree = await raService.addManualHazard(raCase.id, {
+  const hazardThreeResult = await raService.addManualHazard(raCase.id, {
     stepId: stepThree.id,
     label: "High-pressure leak",
     description: "Hose failure during testing can spray fluid.",
@@ -90,9 +90,13 @@ const seedRiskAssessmentCase = async (
     existingControls: ["Stand clear during test", "Use pressure relief valve"]
   });
 
-  if (!hazardOne || !hazardTwo || !hazardThree) {
+  if (!hazardOneResult || !hazardTwoResult || !hazardThreeResult) {
     throw new Error("Demo seed failed: unable to create hazards.");
   }
+
+  const hazardOne = hazardOneResult.hazard;
+  const hazardTwo = hazardTwoResult.hazard;
+  const hazardThree = hazardThreeResult.hazard;
 
   await raService.setHazardRiskRatings(raCase.id, [
     { hazardId: hazardOne.id, severity: "C", likelihood: "3" },

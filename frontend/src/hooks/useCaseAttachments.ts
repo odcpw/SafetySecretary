@@ -2,6 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import type { CaseAttachment } from "@/types/attachments";
 
+const parseErrorText = (text: string): string => {
+  if (!text) return "";
+  try {
+    const parsed = JSON.parse(text) as { error?: string; message?: string };
+    return parsed.error ?? parsed.message ?? text;
+  } catch {
+    return text;
+  }
+};
+
 const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers ?? {});
   if (init?.body && !(init?.body instanceof FormData) && !headers.has("Content-Type")) {
@@ -10,7 +20,7 @@ const jsonFetch = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(parseErrorText(text) || response.statusText);
   }
   return (await response.json()) as T;
 };
@@ -23,7 +33,7 @@ const voidFetch = async (path: string, init?: RequestInit): Promise<void> => {
   const response = await apiFetch(path, { ...init, headers });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new Error(parseErrorText(text) || response.statusText);
   }
 };
 

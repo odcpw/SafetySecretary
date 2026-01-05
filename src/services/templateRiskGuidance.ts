@@ -9,32 +9,20 @@ export type TemplateRiskGuidance = {
 };
 
 export const TEMPLATE_RISK_GUIDANCE: Record<TemplateRiskBand, TemplateRiskGuidance> = {
-  EXTREME: {
-    label: TEMPLATE_RISK_BAND_LABEL.EXTREME,
-    decision: "Treat (stop immediately until mitigated)",
-    approver: "Station Manager",
-    timescale: "Mitigate now"
-  },
   HIGH: {
     label: TEMPLATE_RISK_BAND_LABEL.HIGH,
     decision: "Treat",
     approver: "Unit/Dpt Head / BL leader",
     timescale: "Mitigate within 1–3 weeks"
   },
-  MODERATE: {
-    label: TEMPLATE_RISK_BAND_LABEL.MODERATE,
-    decision: "Treat or tolerate (ALARP review)",
-    approver: "Unit/Dpt Head / BL leader",
-    timescale: "Mitigate within 1–3 months"
-  },
-  MINOR: {
-    label: TEMPLATE_RISK_BAND_LABEL.MINOR,
-    decision: "Tolerate",
+  MEDIUM: {
+    label: TEMPLATE_RISK_BAND_LABEL.MEDIUM,
+    decision: "Tolerate with monitoring",
     approver: "Supervisor",
-    timescale: "Monitor controls"
+    timescale: "Review controls quarterly"
   },
-  NEGLIGIBLE: {
-    label: TEMPLATE_RISK_BAND_LABEL.NEGLIGIBLE,
+  LOW: {
+    label: TEMPLATE_RISK_BAND_LABEL.LOW,
     decision: "Tolerate",
     approver: "Supervisor",
     timescale: "Monitor controls"

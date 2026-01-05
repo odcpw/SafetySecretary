@@ -41,9 +41,9 @@
   --space-7: 2.5rem;
   --space-8: 3.5rem;
   --space-9: 4rem;
-  --radius-panel: 28px;
-  --radius-card: 20px;
-  --radius-soft: 14px;
+  --radius-panel: 8px;
+  --radius-card: 6px;
+  --radius-soft: 4px;
   font-family: var(--font-family-base);
   color: var(--text-primary);
   background-color: var(--bg-main);
@@ -116,16 +116,16 @@ button:disabled {
   cursor: not-allowed;
 }
 
-button:not(.sheet-button):not(:disabled):hover {
+button:not(.sheet-button):not(.risk-cell):not(:disabled):hover {
   background-color: var(--brand-primary-dark);
   transform: translateY(-1px);
 }
 
-button:not(.sheet-button):not(:disabled):active {
+button:not(.sheet-button):not(.risk-cell):not(:disabled):active {
   transform: translateY(0);
 }
 
-button:not(.sheet-button):focus-visible {
+button:not(.sheet-button):not(.risk-cell):focus-visible {
   outline: 2px solid rgba(31, 122, 224, 0.45);
   outline-offset: 2px;
 }
@@ -2185,13 +2185,14 @@ td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 110px;
-  padding: 0.35rem 0.75rem;
-  border-radius: 16px;
+  min-width: 100px;
+  padding: 0.25rem 0.5rem;
+  border-radius: 2px;
   color: #fff;
   font-weight: 600;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
 .risk-pill.muted {
@@ -2214,8 +2215,8 @@ td {
 
 .monitoring-list li {
   border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  padding: 0.5rem 0.65rem;
+  border-radius: 2px;
+  padding: 0.4rem 0.5rem;
 }
 
 .monitoring-list strong {
@@ -2228,11 +2229,11 @@ td {
 }
 
 .sheet-table-wrapper {
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 2px;
   background-color: var(--surface-primary);
   overflow-x: auto;
-  box-shadow: inset 0 1px 0 var(--border-soft);
+  box-shadow: none;
 }
 
 .sheet-table {
@@ -2245,11 +2246,12 @@ td {
 
 .sheet-table--grid thead th {
   background-color: var(--surface-muted);
-  border-bottom: 1px solid var(--border-soft);
-  font-size: 0.68rem;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  padding: 0.55rem;
+  border-bottom: 2px solid var(--border-strong);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+  padding: 0.4rem 0.5rem;
+  font-weight: 600;
 }
 
 .sheet-table--grid th,
@@ -2258,7 +2260,7 @@ td {
 }
 
 .sheet-table--grid td {
-  padding: 0.55rem;
+  padding: 0.4rem 0.5rem;
   border-top: 1px solid var(--border-soft);
   vertical-align: top;
   background-color: var(--surface-primary);
@@ -2356,10 +2358,10 @@ td {
 .sheet-input,
 .sheet-textarea,
 .sheet-select {
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1px solid var(--border-soft);
-  padding: 0.4rem 0.55rem;
-  font-size: 0.88rem;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.85rem;
   background-color: var(--surface-primary);
   color: var(--text-primary);
   box-shadow: none;
@@ -2386,15 +2388,15 @@ td {
 }
 
 .sheet-button {
-  border-radius: 4px;
+  border-radius: 2px;
   border: 1px solid var(--border-soft);
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8rem;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
   font-weight: 600;
   background-color: var(--surface-primary);
   color: var(--text-primary);
   box-shadow: none;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .sheet-button:hover:not(:disabled) {
@@ -2521,12 +2523,13 @@ td {
 }
 
 .sheet-risk-cell {
-  border-radius: 10px;
-  padding: 0.5rem;
+  border-radius: 2px;
+  padding: 0.4rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  gap: 0.3rem;
+  box-shadow: none;
+  border: 1px solid var(--border-soft);
 }
 
 .sheet-risk-cell label {
@@ -2661,17 +2664,17 @@ td {
 }
 
 .risk-matrix-settings {
-  border: 1px solid var(--border-soft);
-  border-radius: 24px;
-  padding: 1.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 1rem;
   background-color: var(--surface-primary);
   display: grid;
-  gap: 1.25rem;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  gap: 1rem;
+  box-shadow: none;
 }
 
 :root[data-theme="dark"] .risk-matrix-settings {
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.1);
+  box-shadow: none;
 }
 
 .settings-group {
@@ -2702,6 +2705,32 @@ td {
   border: none;
   padding: 0;
   background: none;
+  flex-shrink: 0;
+}
+
+.risk-color-item input[type="text"] {
+  min-width: 140px;
+  width: 140px;
+}
+
+/* Dual matrix layout for SUVA-style before/after display */
+.risk-matrix-dual,
+.risk-matrix-dual-container {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.risk-matrix-single {
+  flex: 1;
+  min-width: 300px;
+}
+
+.risk-matrix-single h3 {
+  text-align: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .risk-matrix-grid-wrapper {
@@ -2710,55 +2739,100 @@ td {
 
 .risk-matrix-grid {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 6px;
-  font-size: 0.92rem;
+  border-collapse: collapse;
+  border-spacing: 0;
+  font-size: 0.85rem;
+  table-layout: fixed;
 }
 
 .risk-matrix-grid th,
 .risk-matrix-grid td {
   text-align: center;
-  padding: 0.45rem;
+  padding: 0.35rem;
   font-weight: 600;
+  border: 1px solid var(--border-soft);
 }
 
 .risk-matrix-grid th:first-child,
 .risk-matrix-grid td:first-child {
   text-align: left;
+  width: 80px;  /* Narrower for compact dual layout */
 }
 
 .risk-cell {
   width: 100%;
-  min-width: 68px;
-  border: none;
-  border-radius: 16px;
-  padding: 1.25rem 0;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.12);
-  color: #fff;
-  font-size: 1.1rem;
-  font-weight: 700;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  aspect-ratio: 1;
+  min-width: 48px;
+  border: 3px solid #cbd5f5;
+  border-radius: 0;
+  padding: 0.35rem;
+  background-color: transparent;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: box-shadow 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.risk-cell:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.15);
 }
 
 .risk-cell.selected {
-  transform: scale(1.03);
-  box-shadow: 0 8px 25px -12px rgba(15, 23, 42, 0.5);
+  box-shadow: inset 0 0 0 2px var(--brand-primary);
 }
 
 .risk-cell-count {
   display: inline-block;
 }
 
+/* Hazard labels inside risk matrix cells */
+.risk-cell-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  justify-content: center;
+  align-items: center;
+}
+
+.risk-cell-hazard-label,
+.risk-cell-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: rgba(0,0,0,0.08);
+  padding: 1px 3px;
+  border-radius: 1px;
+  white-space: nowrap;
+}
+
+:root[data-theme="dark"] .risk-cell-hazard-label,
+:root[data-theme="dark"] .risk-cell-label {
+  background: rgba(255,255,255,0.12);
+}
+
+/* Matrix title styling */
+.risk-matrix-title {
+  text-align: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .risk-matrix-details {
-  border: 1px solid var(--border-soft);
-  border-radius: 24px;
-  padding: 1.25rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  padding: 0.75rem;
   background-color: var(--surface-primary);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+  box-shadow: none;
 }
 
 :root[data-theme="dark"] .risk-matrix-details {
-  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.1);
+  box-shadow: none;
 }
 
 .risk-matrix-details h4 {
@@ -2778,9 +2852,9 @@ td {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-soft);
-  border-radius: 16px;
-  padding: 0.75rem;
-  gap: 0.35rem;
+  border-radius: 2px;
+  padding: 0.5rem;
+  gap: 0.25rem;
   background-color: var(--surface-muted);
 }
 
@@ -3056,10 +3130,10 @@ td {
 }
 
 .workspace-table .monitoring-list li {
-  padding: 0.4rem 0.5rem;
-  margin-bottom: 0.35rem;
+  padding: 0.35rem 0.4rem;
+  margin-bottom: 0.25rem;
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: 2px;
   background-color: var(--surface-primary);
 }
 
@@ -3074,10 +3148,10 @@ td {
 .workspace-table .action-item-editing {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.5rem;
+  gap: 0.3rem;
+  padding: 0.4rem;
   border: 1px solid var(--brand-primary);
-  border-radius: 8px;
+  border-radius: 2px;
   background-color: rgba(31, 122, 224, 0.04);
 }
 

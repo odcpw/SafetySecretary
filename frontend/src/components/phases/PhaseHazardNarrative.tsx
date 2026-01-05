@@ -19,6 +19,7 @@ import { useHazardDrafts } from "@/hooks/useHazardDrafts";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
+import { buildHazardNumberMap } from "@/lib/hazardNumbering";
 
 interface PhaseHazardNarrativeProps {
   raCase: RiskAssessmentCase;
@@ -69,6 +70,11 @@ export const PhaseHazardNarrative = ({
   const stepNumberMap = useMemo(
     () => new Map(raCase.steps.map((step, index) => [step.id, index + 1])),
     [raCase.steps]
+  );
+
+  const hazardNumberMap = useMemo(
+    () => buildHazardNumberMap(raCase.steps, raCase.hazards),
+    [raCase.steps, raCase.hazards]
   );
 
   const hazardsByStep = useMemo(
@@ -403,8 +409,7 @@ export const PhaseHazardNarrative = ({
               const stepNumber = stepNumberMap.get(step.id);
               const visibleHazards = hazards.length ? hazards : [null];
               return visibleHazards.map((hazard, index) => {
-                const hazardNumber =
-                  hazard && stepNumber ? `${stepNumber}.${index + 1}` : hazard ? `${index + 1}` : "";
+                const hazardNumber = hazard ? (hazardNumberMap.get(hazard.id)?.display ?? "") : "";
                 const draft = hazard
                   ? drafts[hazard.id] ?? { label: hazard.label, description: hazard.description ?? "", existingControls: (hazard.existingControls ?? []).join("\n") }
                   : null;

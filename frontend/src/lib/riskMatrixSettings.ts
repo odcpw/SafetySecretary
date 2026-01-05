@@ -26,19 +26,17 @@ const STORAGE_KEY = "safetysecretary:riskMatrixSettings";
 
 const DEFAULT_LABELS: RiskMatrixLabels = {
   rowLabels: [
-    "1 Certain to occur",
-    "2 Likely to occur",
-    "3 Possible to occur",
-    "4 Unlikely to occur",
-    "5 Extremely unlikely"
+    "1 Frequent",
+    "2 Likely",
+    "3 Possible",
+    "4 Unlikely",
+    "5 Rare"
   ],
-  columnLabels: ["E Negligible", "D Minor", "C Major", "B Hazardous", "A Catastrophic"],
+  columnLabels: ["E First Aid", "D Medical Treatment", "C Lost Time Injury", "B Irreversible Injury", "A Death"],
   riskBuckets: [
-    { label: "Negligible Risk", color: "#0f9d58" },
-    { label: "Minor Risk", color: "#8bc34a" },
-    { label: "Moderate Risk", color: "#f4c20d" },
-    { label: "High Risk", color: "#f57c00" },
-    { label: "Extreme Risk", color: "#d93025" }
+    { label: "Low Risk", color: "#4A90D9" },
+    { label: "Medium Risk", color: "#F4C20D" },
+    { label: "High Risk", color: "#D93025" }
   ]
 };
 
@@ -70,11 +68,9 @@ export const buildDefaultMatrixLabels = (
       label("domain.severity.A", DEFAULT_LABELS.columnLabels[4])
     ],
     riskBuckets: [
-      { label: label("domain.riskBuckets.negligible", DEFAULT_LABELS.riskBuckets[0].label), color: DEFAULT_LABELS.riskBuckets[0].color },
-      { label: label("domain.riskBuckets.minor", DEFAULT_LABELS.riskBuckets[1].label), color: DEFAULT_LABELS.riskBuckets[1].color },
-      { label: label("domain.riskBuckets.moderate", DEFAULT_LABELS.riskBuckets[2].label), color: DEFAULT_LABELS.riskBuckets[2].color },
-      { label: label("domain.riskBuckets.high", DEFAULT_LABELS.riskBuckets[3].label), color: DEFAULT_LABELS.riskBuckets[3].color },
-      { label: label("domain.riskBuckets.extreme", DEFAULT_LABELS.riskBuckets[4].label), color: DEFAULT_LABELS.riskBuckets[4].color }
+      { label: label("domain.riskBuckets.low", DEFAULT_LABELS.riskBuckets[0].label), color: DEFAULT_LABELS.riskBuckets[0].color },
+      { label: label("domain.riskBuckets.medium", DEFAULT_LABELS.riskBuckets[1].label), color: DEFAULT_LABELS.riskBuckets[1].color },
+      { label: label("domain.riskBuckets.high", DEFAULT_LABELS.riskBuckets[2].label), color: DEFAULT_LABELS.riskBuckets[2].color }
     ]
   };
 };
@@ -107,6 +103,11 @@ export const loadMatrixSettings = (labels?: RiskMatrixLabels): RiskMatrixSetting
     let rowLabels = parsed.rowLabels ?? localizedDefaults.rowLabels;
     let columnLabels = parsed.columnLabels ?? localizedDefaults.columnLabels;
     let riskBuckets = parsed.riskBuckets ?? localizedDefaults.riskBuckets;
+
+    // If bucket count changed (e.g., from 4 to 3), reset to defaults
+    if (riskBuckets.length !== localizedDefaults.riskBuckets.length) {
+      riskBuckets = localizedDefaults.riskBuckets;
+    }
 
     if (labels) {
       if (parsed.rowLabels && arraysEqual(parsed.rowLabels, englishDefaults.rowLabels)) {
@@ -216,14 +217,15 @@ export const getRiskColorForAssessment = (
   }
 
   // Exact template mapping when using the default 5x5 setup.
-  if (settings.rows === 5 && settings.columns === 5 && bucketCount >= 5) {
+  if (settings.rows === 5 && settings.columns === 5 && bucketCount >= 3) {
     const templateBucketByCell: number[][] = [
       // Likelihood 1..5 rows (0..4), Severity E..A columns (0..4)
-      [1, 2, 3, 4, 4],
-      [0, 1, 2, 3, 4],
-      [0, 1, 2, 2, 3],
-      [0, 0, 1, 2, 2],
-      [0, 0, 0, 1, 1]
+      // 0=Low, 1=Medium, 2=High
+      [1, 1, 2, 2, 2],
+      [0, 1, 1, 2, 2],
+      [0, 0, 1, 1, 2],
+      [0, 0, 0, 1, 1],
+      [0, 0, 0, 0, 1]
     ];
     const bucketIndex = templateBucketByCell[cell.row]?.[cell.column];
     if (typeof bucketIndex === "number") {
@@ -258,13 +260,14 @@ export const getRiskLabelForAssessment = (
     return null;
   }
 
-  if (settings.rows === 5 && settings.columns === 5 && bucketCount >= 5) {
+  if (settings.rows === 5 && settings.columns === 5 && bucketCount >= 3) {
     const templateBucketByCell: number[][] = [
-      [1, 2, 3, 4, 4],
-      [0, 1, 2, 3, 4],
-      [0, 1, 2, 2, 3],
-      [0, 0, 1, 2, 2],
-      [0, 0, 0, 1, 1]
+      // 0=Low, 1=Medium, 2=High
+      [1, 1, 2, 2, 2],
+      [0, 1, 1, 2, 2],
+      [0, 0, 1, 1, 2],
+      [0, 0, 0, 1, 1],
+      [0, 0, 0, 0, 1]
     ];
     const bucketIndex = templateBucketByCell[cell.row]?.[cell.column];
     if (typeof bucketIndex === "number") {

@@ -1,23 +1,22 @@
 import type { TemplateLikelihoodLevel, TemplateSeverityLevel } from "../types/templateRisk";
 
-export type TemplateRiskBand = "EXTREME" | "HIGH" | "MODERATE" | "MINOR" | "NEGLIGIBLE";
+export type TemplateRiskBand = "HIGH" | "MEDIUM" | "LOW";
 
 export const TEMPLATE_RISK_BAND_LABEL: Record<TemplateRiskBand, string> = {
-  EXTREME: "Extreme Risk",
   HIGH: "High Risk",
-  MODERATE: "Moderate Risk",
-  MINOR: "Minor Risk",
-  NEGLIGIBLE: "Negligible Risk"
+  MEDIUM: "Medium Risk",
+  LOW: "Low Risk"
 };
 
-// Source: "Liste" worksheet risk matrix in `HIRA Template SWP.xlsm` (sheet7.xml, range F11:J15).
+// Industry-standard 5x5 risk matrix with 3-level distribution
+// LOW: scores 1-8, MEDIUM: scores 9-16, HIGH: scores 17-25
 export const TEMPLATE_RISK_MATRIX: Record<TemplateLikelihoodLevel, Record<TemplateSeverityLevel, TemplateRiskBand>> =
   {
-    "1": { E: "MINOR", D: "MODERATE", C: "HIGH", B: "EXTREME", A: "EXTREME" },
-    "2": { E: "NEGLIGIBLE", D: "MINOR", C: "MODERATE", B: "HIGH", A: "EXTREME" },
-    "3": { E: "NEGLIGIBLE", D: "MINOR", C: "MODERATE", B: "MODERATE", A: "HIGH" },
-    "4": { E: "NEGLIGIBLE", D: "NEGLIGIBLE", C: "MINOR", B: "MODERATE", A: "MODERATE" },
-    "5": { E: "NEGLIGIBLE", D: "NEGLIGIBLE", C: "NEGLIGIBLE", B: "MINOR", A: "MINOR" }
+    "1": { E: "LOW", D: "MEDIUM", C: "MEDIUM", B: "HIGH", A: "HIGH" },
+    "2": { E: "LOW", D: "LOW", C: "MEDIUM", B: "HIGH", A: "HIGH" },
+    "3": { E: "LOW", D: "LOW", C: "MEDIUM", B: "MEDIUM", A: "HIGH" },
+    "4": { E: "LOW", D: "LOW", C: "LOW", B: "LOW", A: "MEDIUM" },
+    "5": { E: "LOW", D: "LOW", C: "LOW", B: "LOW", A: "LOW" }
   };
 
 export const getTemplateRiskBand = (

@@ -24,14 +24,7 @@ const App = () => (
         </AdminAuthGate>
       }
     />
-    <Route
-      path="/"
-      element={
-        <AuthGate>
-          <HomeLanding />
-        </AuthGate>
-      }
-    />
+    <Route path="/" element={<HomeLanding />} />
     <Route
       path="/hira"
       element={

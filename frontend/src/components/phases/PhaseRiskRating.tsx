@@ -20,6 +20,7 @@ import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
 import { SaveStatus } from "@/components/common/SaveStatus";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
 import { useI18n } from "@/i18n/I18nContext";
+import { buildHazardNumberMap } from "@/lib/hazardNumbering";
 
 interface PhaseRiskRatingProps {
   raCase: RiskAssessmentCase;
@@ -125,7 +126,10 @@ export const PhaseRiskRating = ({
     return hazardsByStep.filter((group) => group.step.id === activeStepId);
   }, [activeStepId, hazardsByStep]);
 
-  const stepNumberMap = useMemo(() => new Map(raCase.steps.map((step, index) => [step.id, index + 1])), [raCase.steps]);
+  const hazardNumberMap = useMemo(
+    () => buildHazardNumberMap(raCase.steps, raCase.hazards),
+    [raCase.steps, raCase.hazards]
+  );
 
   const handleRatingChange = (hazardId: string, patch: Partial<{ severity: string; likelihood: string }>) => {
     const current = ratingsRef.current[hazardId] ?? { severity: "", likelihood: "" };
@@ -217,7 +221,7 @@ export const PhaseRiskRating = ({
 
   return (
     <div className="space-y-6">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+      <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-4">
         <p className="text-sm text-blue-800">
           <strong>{t("ra.risk.bannerTitle")}</strong>{" "}
           {t("ra.risk.bannerBodyPrefix")} <em>{t("ra.risk.bannerBodyEmphasis")}</em>{" "}
@@ -245,7 +249,7 @@ export const PhaseRiskRating = ({
       </div>
 
       {stepsToRender.map(({ step, hazards }) => (
-        <section key={step.id} className="rounded-lg border border-slate-200 p-4 space-y-3">
+        <section key={step.id} className="rounded border border-slate-200 p-3 space-y-2">
           <header>
             <h3 className="text-lg font-semibold text-slate-900">{step.activity}</h3>
             {step.description && <p className="text-sm text-slate-500">{step.description}</p>}
@@ -266,8 +270,8 @@ export const PhaseRiskRating = ({
               </SheetRow>
             </SheetHead>
             <SheetBody>
-              {hazards.map((hazard, index) => {
-                const numbering = stepNumberMap.get(step.id) ? `${stepNumberMap.get(step.id)}.${index + 1}` : "";
+              {hazards.map((hazard) => {
+                const numbering = hazardNumberMap.get(hazard.id)?.display ?? "";
                 const current = ratings[hazard.id] ?? { severity: "", likelihood: "" };
                 const cellColor = getRiskColorForAssessment(
                   current.severity,

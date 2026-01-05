@@ -26,19 +26,19 @@ describeDb("Case scoping hardening (db)", () => {
     stepAId = updatedA!.steps[0]!.id;
     stepBId = updatedB!.steps[0]!.id;
 
-    const hazardA = await service.addManualHazard(caseAId, {
+    const hazardAResult = await service.addManualHazard(caseAId, {
       stepId: stepAId,
       label: "Hazard A",
       description: "Hazard for A"
     });
-    hazardAId = hazardA!.id;
+    hazardAId = hazardAResult!.hazard.id;
 
-    const hazardB = await service.addManualHazard(caseBId, {
+    const hazardBResult = await service.addManualHazard(caseBId, {
       stepId: stepBId,
       label: "Hazard B",
       description: "Hazard for B"
     });
-    hazardBId = hazardB!.id;
+    hazardBId = hazardBResult!.hazard.id;
   });
 
   afterAll(async () => {

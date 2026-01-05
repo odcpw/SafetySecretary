@@ -1383,25 +1383,23 @@ export const translations = {
         ORGANIZATIONAL: "Organizational"
       },
       severity: {
-        A: "A - Catastrophic",
-        B: "B - Hazardous",
-        C: "C - Major",
-        D: "D - Minor",
-        E: "E - Negligible"
+        A: "A - Death",
+        B: "B - Irreversible Injury",
+        C: "C - Lost Time Injury",
+        D: "D - Medical Treatment",
+        E: "E - First Aid"
       },
       likelihood: {
-        "1": "1 - Certain to occur",
-        "2": "2 - Likely to occur",
-        "3": "3 - Possible to occur",
-        "4": "4 - Unlikely to occur",
-        "5": "5 - Extremely unlikely"
+        "1": "1 - Frequent",
+        "2": "2 - Likely",
+        "3": "3 - Possible",
+        "4": "4 - Unlikely",
+        "5": "5 - Rare"
       },
       riskBuckets: {
-        negligible: "Negligible Risk",
-        minor: "Minor Risk",
-        moderate: "Moderate Risk",
-        high: "High Risk",
-        extreme: "Extreme Risk"
+        low: "Low Risk",
+        medium: "Medium Risk",
+        high: "High Risk"
       }
     }
   },
@@ -2791,25 +2789,23 @@ export const translations = {
         ORGANIZATIONAL: "Organisationnel"
       },
       severity: {
-        A: "A - Catastrophique",
-        B: "B - Dangereux",
-        C: "C - Majeur",
-        D: "D - Mineur",
-        E: "E - Negligeable"
+        A: "A - Deces",
+        B: "B - Blessure irreversible",
+        C: "C - Arret de travail",
+        D: "D - Traitement medical",
+        E: "E - Premiers soins"
       },
       likelihood: {
-        "1": "1 - Certain",
+        "1": "1 - Frequent",
         "2": "2 - Probable",
         "3": "3 - Possible",
         "4": "4 - Peu probable",
-        "5": "5 - Tres improbable"
+        "5": "5 - Rare"
       },
       riskBuckets: {
-        negligible: "Risque negligeable",
-        minor: "Risque mineur",
-        moderate: "Risque modere",
-        high: "Risque eleve",
-        extreme: "Risque extreme"
+        low: "Risque faible",
+        medium: "Risque moyen",
+        high: "Risque élevé"
       }
     }
   },
@@ -4198,25 +4194,23 @@ export const translations = {
         ORGANIZATIONAL: "Organisatorisch"
       },
       severity: {
-        A: "A - Katastrophal",
-        B: "B - Gefahrlich",
-        C: "C - Schwer",
-        D: "D - Gering",
-        E: "E - Vernachlassigbar"
+        A: "A - Tod",
+        B: "B - Irreversible Verletzung",
+        C: "C - Arbeitsunfall mit Ausfallzeit",
+        D: "D - Aerztliche Behandlung",
+        E: "E - Erste Hilfe"
       },
       likelihood: {
-        "1": "1 - Sicher",
+        "1": "1 - Haufig",
         "2": "2 - Wahrscheinlich",
         "3": "3 - Moglich",
         "4": "4 - Unwahrscheinlich",
-        "5": "5 - Sehr unwahrscheinlich"
+        "5": "5 - Selten"
       },
       riskBuckets: {
-        negligible: "Vernachlassigbares Risiko",
-        minor: "Geringes Risiko",
-        moderate: "Moderates Risiko",
-        high: "Hohes Risiko",
-        extreme: "Extremes Risiko"
+        low: "Geringes Risiko",
+        medium: "Mittleres Risiko",
+        high: "Hohes Risiko"
       }
     }
   }

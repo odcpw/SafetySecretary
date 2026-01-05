@@ -21,6 +21,7 @@ import { useRaContext } from "@/contexts/RaContext";
 import { useSaveStatus } from "@/hooks/useSaveStatus";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { useI18n } from "@/i18n/I18nContext";
+import { buildHazardNumberMap } from "@/lib/hazardNumbering";
 
 interface PhaseControlsActionsProps {
   raCase: RiskAssessmentCase;
@@ -73,6 +74,10 @@ export const PhaseControlsActions = ({
   const { status, show, showSuccess, showError } = useSaveStatus();
   const { confirm, dialog } = useConfirmDialog();
 
+  const hazardNumberMap = useMemo(
+    () => buildHazardNumberMap(raCase.steps, raCase.hazards),
+    [raCase.steps, raCase.hazards]
+  );
   const stepNumberById = useMemo(() => new Map(raCase.steps.map((step, index) => [step.id, index + 1])), [raCase.steps]);
   const hazardsByStep = useMemo(() => {
     return raCase.steps.map((step) => ({
@@ -272,16 +277,16 @@ export const PhaseControlsActions = ({
                     </h4>
                     {step.description && <p className="text-sm text-slate-500">{step.description}</p>}
                   </header>
-                  {hazards.map((hazard, hazardIndex) => {
-                    const hazardNumber = stepIndex ? `${stepIndex}.${hazardIndex + 1}` : `${hazardIndex + 1}`;
+                  {hazards.map((hazard) => {
+                    const hazardNumber = hazardNumberMap.get(hazard.id)?.display ?? "?";
                     const hazardActions = [...(actionsByHazard[hazard.id] ?? [])].sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
                     const inlineDraft = inlineDrafts[hazard.id] ?? { description: "", owner: "", dueDate: "" };
 
-                    const hierarchyBadge: Record<ControlHierarchy, string> = {
-                      SUBSTITUTION: "S",
-                      TECHNICAL: "T",
-                      ORGANIZATIONAL: "O",
-                      PPE: "P"
+                    const hierarchyLabel: Record<ControlHierarchy, string> = {
+                      SUBSTITUTION: t("ra.controls.hierarchy.substitution"),
+                      TECHNICAL: t("ra.controls.hierarchy.technical"),
+                      ORGANIZATIONAL: t("ra.controls.hierarchy.organizational"),
+                      PPE: t("ra.controls.hierarchy.ppe")
                     };
 
                     const handleMove = async (actionId: string, direction: -1 | 1) => {
@@ -394,7 +399,7 @@ export const PhaseControlsActions = ({
                                     <SheetCell>
                                       {linkedControl?.hierarchy ? (
                                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-200 text-slate-700">
-                                          {hierarchyBadge[linkedControl.hierarchy]}
+                                          {hierarchyLabel[linkedControl.hierarchy]}
                                         </span>
                                       ) : (
                                         <span className="text-slate-400">{t("common.noData")}</span>
@@ -545,15 +550,10 @@ export const PhaseControlsActions = ({
                     >
                       <option value="">{t("ra.actions.form.selectHazard")}</option>
                       {raCase.hazards.map((hazard) => {
-                        const stepIndex = stepNumberById.get(hazard.stepId) ?? 0;
-                        const hazardIndex = (raCase.hazards
-                          .filter((h) => h.stepId === hazard.stepId)
-                          .sort((a, b) => a.orderIndex - b.orderIndex)
-                          .findIndex((h) => h.id === hazard.id)) + 1;
-                        const prefix = stepIndex ? `${stepIndex}.${hazardIndex} ` : "";
+                        const prefix = hazardNumberMap.get(hazard.id)?.display ?? "";
                         return (
                           <option key={hazard.id} value={hazard.id}>
-                            {prefix}{hazard.label}
+                            {prefix ? `${prefix} ` : ""}{hazard.label}
                           </option>
                         );
                       })}

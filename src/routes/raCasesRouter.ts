@@ -3,6 +3,7 @@ import express from "express";
 import { AppLocals } from "../types/app";
 import { TEMPLATE_LIKELIHOOD_LEVELS, TEMPLATE_SEVERITY_LEVELS } from "../types/templateRisk";
 import type { AttachmentDto } from "../services/raService";
+import type { ProposedControlInput, ControlHierarchy } from "../types/riskAssessment";
 
 export const raCasesRouter = express.Router();
 
@@ -16,6 +17,24 @@ const getTenantServices = (req: Request) => {
 const getLlmJobManager = (req: Request) => (req.app.locals as AppLocals).llmJobManager;
 const getReportService = (req: Request) => (req.app.locals as AppLocals).reportService;
 const getLlmService = (req: Request) => (req.app.locals as AppLocals).llmService;
+
+/**
+ * Handle and log errors consistently, returning a structured error response.
+ * In production, hides details; in development, includes error message.
+ */
+const handleError = (res: Response, operation: string, error: unknown, context?: Record<string, string>) => {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const contextStr = context ? ` ${JSON.stringify(context)}` : "";
+  console.error(`[raCasesRouter] ${operation}${contextStr}`, error);
+
+  const isDev = process.env.NODE_ENV !== "production";
+  res.status(500).json({
+    error: "Internal server error",
+    operation,
+    ...(isDev && { message: errorMessage }),
+    ...(context && { context })
+  });
+};
 
 const requireTenantDbUrl = (req: Request, res: Response) => {
   if (!req.auth) {
@@ -204,8 +223,7 @@ raCasesRouter.get("/", async (req: Request, res: Response) => {
     const cases = await raService.listCases(listParams);
     res.json({ cases });
   } catch (error) {
-    console.error("[raCasesRouter] listCases", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "listCases", error);
   }
 });
 
@@ -220,8 +238,7 @@ raCasesRouter.post("/", async (req: Request, res: Response) => {
     const raCase = await raService.createCase({ activityName, location, team });
     res.status(201).json(raCase);
   } catch (error) {
-    console.error("[raCasesRouter] createCase", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "createCase", error);
   }
 });
 
@@ -238,8 +255,7 @@ raCasesRouter.get("/:id", async (req: Request, res: Response) => {
     }
     res.json(raCase);
   } catch (error) {
-    console.error("[raCasesRouter] getCase", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "getCase", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -256,8 +272,7 @@ raCasesRouter.patch("/:id", async (req: Request, res: Response) => {
     }
     res.json(updated);
   } catch (error) {
-    console.error("[raCasesRouter] updateCaseMeta", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "updateCaseMeta", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -274,8 +289,7 @@ raCasesRouter.delete("/:id", async (req: Request, res: Response) => {
     }
     res.status(204).send();
   } catch (error) {
-    console.error("[raCasesRouter] deleteCase", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "deleteCase", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -292,8 +306,7 @@ raCasesRouter.post("/:id/advance-phase", async (req: Request, res: Response) => 
     }
     res.json({ id: updated.id, phase: updated.phase });
   } catch (error) {
-    console.error("[raCasesRouter] advancePhase", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "advancePhase", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -322,8 +335,7 @@ raCasesRouter.post("/:id/steps/extract", async (req: Request, res: Response) => 
     const job = llmJobManager.enqueueStepsExtraction({ caseId, description, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
-    console.error("[raCasesRouter] extractSteps", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "extractSteps", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -346,8 +358,7 @@ raCasesRouter.put("/:id/steps", async (req: Request, res: Response) => {
 
     res.json({ steps: updated.steps });
   } catch (error) {
-    console.error("[raCasesRouter] updateSteps", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "updateSteps", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -376,8 +387,7 @@ raCasesRouter.post("/:id/hazards/extract", async (req: Request, res: Response) =
     const job = llmJobManager.enqueueHazardExtraction({ caseId, narrative, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
-    console.error("[raCasesRouter] extractHazards", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "extractHazards", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -404,8 +414,7 @@ raCasesRouter.post("/:id/controls/extract", async (req: Request, res: Response) 
     const job = llmJobManager.enqueueControlExtraction({ caseId, notes, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
-    console.error("[raCasesRouter] extractControls", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "extractControls", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -432,8 +441,7 @@ raCasesRouter.post("/:id/actions/extract", async (req: Request, res: Response) =
     const job = llmJobManager.enqueueActionExtraction({ caseId, notes, tenantDbUrl });
     res.status(202).json(job);
   } catch (error) {
-    console.error("[raCasesRouter] extractActions", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "extractActions", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -449,14 +457,19 @@ raCasesRouter.post("/:id/hazards", async (req: Request, res: Response) => {
     }
 
     const { raService } = getTenantServices(req);
-    const hazard = await raService.addManualHazard(caseId, { stepId, label, description });
-    if (!hazard) {
+    const result = await raService.addManualHazard(caseId, { stepId, label, description });
+    if (!result) {
       return res.status(404).json({ error: "Not found" });
     }
-    res.status(201).json(hazard);
+    const response: { id: string; warning?: string } & Record<string, unknown> = {
+      ...result.hazard
+    };
+    if (result.warning) {
+      response.warning = result.warning;
+    }
+    res.status(201).json(response);
   } catch (error) {
-    console.error("[raCasesRouter] addManualHazard", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "addManualHazard", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -546,8 +559,7 @@ raCasesRouter.put("/:id/hazards/:hazardId", async (req: Request, res: Response) 
     }
     res.json(updated);
   } catch (error) {
-    console.error("[raCasesRouter] updateHazard", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "updateHazard", error, { caseId: caseId ?? "unknown", hazardId: hazardId ?? "unknown" });
   }
 });
 
@@ -569,8 +581,7 @@ raCasesRouter.delete("/:id/hazards/:hazardId", async (req: Request, res: Respons
     }
     res.status(204).send();
   } catch (error) {
-    console.error("[raCasesRouter] deleteHazard", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "deleteHazard", error, { caseId: caseId ?? "unknown", hazardId: hazardId ?? "unknown" });
   }
 });
 
@@ -618,8 +629,7 @@ raCasesRouter.put("/:id/hazards/risk", async (req: Request, res: Response) => {
     }
     res.json({ hazards: refreshed.hazards });
   } catch (error) {
-    console.error("[raCasesRouter] setHazardRiskRatings", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "setHazardRiskRatings", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -650,18 +660,17 @@ raCasesRouter.post("/:id/hazards/:hazardId/proposed-controls", async (req: Reque
       return res.status(400).json({ error: "Invalid control data", details: errors });
     }
 
-    const payload: { hazardId: string; description: string; hierarchy?: any } = { hazardId, description };
+    const payload: ProposedControlInput = { hazardId, description };
     if (normalizedHierarchy !== undefined) {
       payload.hierarchy = normalizedHierarchy;
     }
-    const control = await raService.addProposedControl(caseId, payload as any);
+    const control = await raService.addProposedControl(caseId, payload);
     if (!control) {
       return res.status(404).json({ error: "Not found" });
     }
     res.status(201).json(control);
   } catch (error) {
-    console.error("[raCasesRouter] addProposedControl", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "addProposedControl", error, { caseId: caseId ?? "unknown", hazardId: hazardId ?? "unknown" });
   }
 });
 
@@ -684,8 +693,7 @@ raCasesRouter.delete("/:id/hazards/:hazardId/proposed-controls/:controlId", asyn
     }
     res.status(204).send();
   } catch (error) {
-    console.error("[raCasesRouter] deleteProposedControl", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "deleteProposedControl", error, { caseId: caseId ?? "unknown", controlId: controlId ?? "unknown" });
   }
 });
 
@@ -733,8 +741,7 @@ raCasesRouter.put("/:id/hazards/residual-risk", async (req: Request, res: Respon
     }
     res.json({ hazards: refreshed.hazards });
   } catch (error) {
-    console.error("[raCasesRouter] setResidualRiskRatings", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "setResidualRiskRatings", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -775,8 +782,7 @@ raCasesRouter.put("/:id/steps/:stepId/hazards/order", async (req: Request, res: 
     }
     res.status(204).send();
   } catch (error) {
-    console.error("[raCasesRouter] reorderHazardsForStep", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "reorderHazardsForStep", error, { caseId: caseId ?? "unknown", stepId: stepId ?? "unknown" });
   }
 });
 
@@ -805,8 +811,7 @@ raCasesRouter.put("/:id/hazards/:hazardId/actions/order", async (req: Request, r
     }
     res.status(204).send();
   } catch (error) {
-    console.error("[raCasesRouter] reorderActionsForHazard", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "reorderActionsForHazard", error, { caseId: caseId ?? "unknown", hazardId: hazardId ?? "unknown" });
   }
 });
 
@@ -828,8 +833,7 @@ raCasesRouter.post("/:id/actions", async (req: Request, res: Response) => {
     }
     res.status(201).json(action);
   } catch (error) {
-    console.error("[raCasesRouter] addAction", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "addAction", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -893,8 +897,7 @@ raCasesRouter.put("/:id/actions/:actionId", async (req: Request, res: Response) 
     }
     res.json(updated);
   } catch (error) {
-    console.error("[raCasesRouter] updateAction", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "updateAction", error, { caseId: caseId ?? "unknown", actionId: actionId ?? "unknown" });
   }
 });
 
@@ -916,8 +919,7 @@ raCasesRouter.delete("/:id/actions/:actionId", async (req: Request, res: Respons
     }
     res.status(204).send();
   } catch (error) {
-    console.error("[raCasesRouter] deleteAction", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "deleteAction", error, { caseId: caseId ?? "unknown", actionId: actionId ?? "unknown" });
   }
 });
 
@@ -960,8 +962,7 @@ raCasesRouter.get("/:id/export/pdf", async (req: Request, res: Response) => {
     res.setHeader("Content-Disposition", `attachment; filename="ra-${caseId}.pdf"`);
     res.send(pdf);
   } catch (error) {
-    console.error("[raCasesRouter] exportPdf", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "exportPdf", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -1007,8 +1008,7 @@ raCasesRouter.get("/:id/export/xlsx", async (req: Request, res: Response) => {
     res.setHeader("Content-Disposition", `attachment; filename=\"ra-${caseId}.xlsx\"`);
     res.send(workbook);
   } catch (error) {
-    console.error("[raCasesRouter] exportXlsx", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "exportXlsx", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -1069,8 +1069,7 @@ raCasesRouter.post("/:id/contextual-update/parse", async (req: Request, res: Res
       needsClarification: result.needsClarification ?? false
     });
   } catch (error) {
-    console.error("[raCasesRouter] parseContextualUpdate", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "parseContextualUpdate", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -1092,6 +1091,10 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
       return res.status(404).json({ error: "Not found" });
     }
 
+    // Note: This endpoint handles dynamic commands from LLM with varying structures.
+    // The `as any` casts below extract fields from untyped location/data objects.
+    // Values are validated at runtime before use. A full type-safe refactor would
+    // require discriminated unions for each intent/target combination.
     const errors: string[] = [];
     const rawIntent = typeof command.intent === "string" ? command.intent.trim().toLowerCase() : "";
     const intent = rawIntent === "update" ? "modify" : rawIntent;
@@ -1373,14 +1376,14 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
           return res.status(400).json({ error: "Invalid hazard data", details: errors });
         }
 
-        const createdHazard = await raService.addManualHazard(caseId, {
+        const createdHazardResult = await raService.addManualHazard(caseId, {
           stepId,
           label,
           description: typeof descriptionRaw === "string" ? descriptionRaw : undefined,
           categoryCode,
           existingControls
         } as any);
-        if (!createdHazard) {
+        if (!createdHazardResult) {
           return res.status(404).json({ error: "Not found" });
         }
       } else if (intent === "delete" && typeof hazardId === "string") {
@@ -1595,8 +1598,7 @@ raCasesRouter.post("/:id/contextual-update/apply", async (req: Request, res: Res
     const updatedCase = await raService.getCaseById(caseId);
     res.json(updatedCase);
   } catch (error) {
-    console.error("[raCasesRouter] applyContextualUpdate", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "applyContextualUpdate", error, { caseId: caseId ?? "unknown" });
   }
 });
 
@@ -1740,8 +1742,7 @@ raCasesRouter.post("/:id/contextual-update/undo", async (req: Request, res: Resp
     }
     res.json(updated);
   } catch (error) {
-    console.error("[raCasesRouter] undoContextualUpdate", error);
-    res.status(500).json({ error: "Internal server error" });
+    handleError(res, "undoContextualUpdate", error, { caseId: caseId ?? "unknown" });
   }
 });
 

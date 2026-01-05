@@ -97,7 +97,7 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
   const activeColumn = columns[activeCol];
   const activeHazard = rows[activeRow]?.hazard ?? null;
 
-  /* eslint-disable react-hooks/set-state-in-effect */
+   
   useEffect(() => {
     setBaselineDraft(
       raCase.hazards.reduce<Record<string, { severity: string; likelihood: string }>>((acc, hazard) => {
@@ -118,7 +118,7 @@ export const BrowserTuiSpreadsheetView = ({ raCase }: { raCase: RiskAssessmentCa
       }, {})
     );
   }, [raCase]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+   
 
   useEffect(() => {
     const el = cellRefs.current[activeKey];

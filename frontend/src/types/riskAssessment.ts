@@ -4,12 +4,14 @@
  */
 
 // Phase progression for HIRA workflow
+// Note: RESIDUAL_RISK exists in DB but is normalized to ACTIONS in backend service
 export type Phase =
   | "PROCESS_STEPS"           // 1. Describe process: activity + equipment + substances
   | "HAZARD_IDENTIFICATION"   // 2. Identify hazards per step + existing controls
   | "RISK_RATING"             // 3. Baseline risk assessment (adherence to existing controls)
   | "CONTROL_DISCUSSION"      // 4. Discuss possible additional controls
-  | "ACTIONS"                 // 5. Structure controls into action plan
+  | "ACTIONS"                 // 5. Structure controls into action plan + residual risk rating
+  | "RESIDUAL_RISK"           // 6. (Legacy) Normalized to ACTIONS by backend
   | "COMPLETE";               // Final state
 
 // S-T-O-P control hierarchy (effectiveness: high to low)

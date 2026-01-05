@@ -3,6 +3,9 @@ import { env } from "../config/env";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+// Public auth endpoints that don't have a session yet to protect
+const CSRF_EXEMPT_PATHS = new Set(["/api/auth/login", "/api/auth/demo-login"]);
+
 const normalizeOrigin = (origin: string) => origin.replace(/\/$/, "");
 
 const getRequestHost = (req: Request) => req.get("host");
@@ -23,6 +26,11 @@ const getRequestOrigin = (req: Request) => {
 
 export const csrfProtection = (req: Request, res: Response, next: NextFunction) => {
   if (SAFE_METHODS.has(req.method)) {
+    return next();
+  }
+
+  // Skip CSRF for public auth endpoints (no session exists yet to protect)
+  if (CSRF_EXEMPT_PATHS.has(req.path)) {
     return next();
   }
 

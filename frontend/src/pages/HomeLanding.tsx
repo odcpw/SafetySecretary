@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { UserMenu } from "@/components/common/UserMenu";
@@ -7,6 +7,8 @@ import { useI18n } from "@/i18n/I18nContext";
 export const HomeLanding = () => {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const [loadingTile, setLoadingTile] = useState<string | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
   const tiles = useMemo(
     () => [
       {
@@ -52,6 +54,45 @@ export const HomeLanding = () => {
     [t]
   );
 
+  const handleTileClick = async (tileKey: string, path: string) => {
+    setDemoError(null);
+    setLoadingTile(tileKey);
+    try {
+      // Check if user is already authenticated
+      const authResponse = await fetch("/api/auth/me", {
+        method: "GET",
+        credentials: "include"
+      });
+
+      if (authResponse.ok) {
+        // Already authenticated, navigate directly
+        navigate(path);
+        return;
+      }
+
+      // Not authenticated, perform demo login
+      const demoResponse = await fetch("/api/auth/demo-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
+      });
+
+      if (!demoResponse.ok) {
+        const payload = await demoResponse.json().catch(() => ({}));
+        setDemoError(payload?.error || t("auth.demoLoginFailed"));
+        return;
+      }
+
+      // Demo login successful
+      sessionStorage.setItem("ss_demo", "true");
+      navigate(path);
+    } catch (err) {
+      setDemoError(err instanceof Error ? err.message : t("auth.demoLoginFailed"));
+    } finally {
+      setLoadingTile(null);
+    }
+  };
+
   return (
     <div className="landing-shell">
       <section className="landing-hero">
@@ -71,6 +112,12 @@ export const HomeLanding = () => {
         </div>
       </section>
 
+      {demoError && (
+        <div className="auth-error" style={{ margin: "0 auto 1rem", maxWidth: "40rem", textAlign: "center" }}>
+          {demoError}
+        </div>
+      )}
+
       <main className="home-tiles grid-auto">
         {tiles.map((tile) => (
           <section key={tile.key} className={`home-tile home-tile--${tile.key} app-panel card`}>
@@ -85,8 +132,12 @@ export const HomeLanding = () => {
               </ul>
             </div>
             <div className="home-tile__actions">
-              <button type="button" onClick={() => navigate(tile.path)}>
-                {tile.cta}
+              <button
+                type="button"
+                onClick={() => handleTileClick(tile.key, tile.path)}
+                disabled={loadingTile !== null}
+              >
+                {loadingTile === tile.key ? t("auth.demoSigningIn") : tile.cta}
               </button>
             </div>
           </section>

@@ -70,10 +70,12 @@ export const UserMenu = () => {
   }, [open]);
 
   const handleLogout = async () => {
+    const isDemo = session?.isDemo ?? false;
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
     } finally {
-      window.location.href = "/login";
+      // Demo users go to public landing; regular users can also go there since it's public
+      window.location.href = isDemo ? "/" : "/login";
     }
   };
 

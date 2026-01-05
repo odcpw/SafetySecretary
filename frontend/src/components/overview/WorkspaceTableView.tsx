@@ -14,6 +14,7 @@ import { useState, useMemo, useEffect } from "react";
 import type { Hazard, RatingInput, RiskAssessmentCase } from "@/types/riskAssessment";
 import { useRaContext } from "@/contexts/RaContext";
 import { HAZARD_CATEGORIES } from "@/lib/hazardCategories";
+import { buildHazardNumberMap } from "@/lib/hazardNumbering";
 import {
   buildDefaultMatrixLabels,
   getRiskColorForAssessment,
@@ -92,6 +93,10 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
   );
 
   const grouped = useMemo(() => groupHazardsByStep(raCase), [raCase]);
+  const hazardNumberMap = useMemo(
+    () => buildHazardNumberMap(raCase.steps, raCase.hazards),
+    [raCase.steps, raCase.hazards]
+  );
   const actionsByHazard = useMemo(() => {
     const grouped = raCase.actions.reduce<Record<string, RiskAssessmentCase["actions"]>>((acc, action) => {
       if (!action.hazardId) return acc;
@@ -103,7 +108,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
     return grouped;
   }, [raCase.actions]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
+   
   useEffect(() => {
     setBaselineDraft(
       raCase.hazards.reduce<Record<string, { severity: RatingInput["severity"]; likelihood: RatingInput["likelihood"] }>>(
@@ -130,7 +135,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
       )
     );
   }, [raCase]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+   
 
   useEffect(() => {
     setSettings(loadMatrixSettings(defaultLabels));
@@ -260,6 +265,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
               key={step.id}
               step={step}
               hazards={hazards}
+              hazardNumberMap={hazardNumberMap}
               renderRiskPill={renderRiskPill}
               actionsByHazard={actionsByHazard}
               saving={saving}
@@ -287,6 +293,7 @@ export const WorkspaceTableView = ({ raCase }: WorkspaceTableViewProps) => {
 interface EditableStepRowsProps {
   step: RiskAssessmentCase["steps"][number];
   hazards: Hazard[];
+  hazardNumberMap: Map<string, { stepNum: number; hazardNum: number; display: string }>;
   renderRiskPill: (severity?: string | null, likelihood?: string | null) => React.ReactNode;
   actionsByHazard: Record<string, RiskAssessmentCase["actions"]>;
   saving: boolean;
@@ -316,6 +323,7 @@ interface EditableStepRowsProps {
 const EditableStepRows = ({
   step,
   hazards,
+  hazardNumberMap,
   renderRiskPill,
   actionsByHazard,
   saving,
@@ -424,18 +432,26 @@ const EditableStepRows = ({
         const residual = residualDraft[hazard.id] ?? { severity: hazard.residual?.severity ?? "", likelihood: hazard.residual?.likelihood ?? "" };
         const draft = drafts[hazard.id];
 
+        const hazardNumber = hazardNumberMap.get(hazard.id)?.display ?? "?";
+
         return (
           <SheetRow key={hazard.id} className="hazard-row">
             {/* Hazard label and description */}
             <SheetCell className="sheet-cell">
               <div className="sheet-inline-form">
-                <SheetInput
-                  value={draft?.label ?? hazard.label}
-                  onChange={(event) => patchDraft(hazard.id, { label: event.target.value })}
-                  onBlur={() => void handleHazardSave(hazard.id)}
-                  placeholder={t("ra.workspace.hazardLabelPlaceholder")}
-                  disabled={saving}
-                />
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <span className="sheet-hazard-number" style={{ fontWeight: 600, whiteSpace: "nowrap" }}>
+                    {hazardNumber}
+                  </span>
+                  <SheetInput
+                    value={draft?.label ?? hazard.label}
+                    onChange={(event) => patchDraft(hazard.id, { label: event.target.value })}
+                    onBlur={() => void handleHazardSave(hazard.id)}
+                    placeholder={t("ra.workspace.hazardLabelPlaceholder")}
+                    disabled={saving}
+                    style={{ flex: 1 }}
+                  />
+                </div>
                 <SheetTextarea
                   value={draft?.description ?? hazard.description ?? ""}
                   onChange={(event) => patchDraft(hazard.id, { description: event.target.value })}

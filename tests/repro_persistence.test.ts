@@ -33,12 +33,12 @@ describeDb("RiskAssessmentService Persistence Repro (db)", () => {
         const stepId = updatedWithStep!.steps[0].id;
 
         // 2. Add Hazard
-        const hazard = await service.addManualHazard(caseId, {
+        const hazardResult = await service.addManualHazard(caseId, {
             stepId,
             label: "Hazard 1",
             description: "Test Hazard"
         });
-        const hazardId = hazard!.id;
+        const hazardId = hazardResult!.hazard.id;
 
         // 3. Set Risk Rating (Baseline)
         await service.setHazardRiskRatings(caseId, [

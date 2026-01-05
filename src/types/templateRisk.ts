@@ -5,18 +5,18 @@ export const TEMPLATE_LIKELIHOOD_LEVELS = ["1", "2", "3", "4", "5"] as const;
 export type TemplateLikelihoodLevel = (typeof TEMPLATE_LIKELIHOOD_LEVELS)[number];
 
 export const TEMPLATE_SEVERITY_LABEL: Record<TemplateSeverityLevel, string> = {
-  A: "Catastrophic",
-  B: "Hazardous",
-  C: "Major",
-  D: "Minor",
-  E: "Negligible"
+  A: "Death",
+  B: "Irreversible Injury",
+  C: "Lost Time Injury",
+  D: "Medical Treatment",
+  E: "First Aid"
 };
 
 export const TEMPLATE_LIKELIHOOD_LABEL: Record<TemplateLikelihoodLevel, string> = {
-  "1": "Certain to occur",
-  "2": "Likely to occur",
-  "3": "Possible to occur",
-  "4": "Unlikely to occur",
-  "5": "Extremely unlikely to occur"
+  "1": "Frequent",
+  "2": "Likely",
+  "3": "Possible",
+  "4": "Unlikely",
+  "5": "Rare"
 };
 

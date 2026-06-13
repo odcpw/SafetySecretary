@@ -1,0 +1,236 @@
+{
+	"categories": [
+		{
+			"code": "MECHANICAL",
+			"label": "Mechanical hazards",
+			"description": "Mechanical hazards from moving parts, hazardous surfaces, transport equipment, pressurised media, or falling objects.",
+			"examples": [
+				"unguarded moving machine parts",
+				"parts with hazardous surfaces (edges, corners, points, blades, roughness)",
+				"moving vehicles/transport gear (impact points, tipping, run-over, falls from ramps/slopes)",
+				"moving work equipment",
+				"pinch, shear, impact, cutting, piercing, in-running nip, entanglement points",
+				"uncontrolled motions (tipping/pendulum, rolling/sliding, flying parts)",
+				"falling objects (workpieces, tools dropping from platforms/scaffolds)",
+				"pressurised media (gases, vapours, oils, accumulators)"
+			]
+		},
+		{
+			"code": "FALLS",
+			"label": "Fall hazards",
+			"description": "Fall hazards from working at height, floor openings, steps, slippery surfaces, clutter, visibility, ladders, ramps, or lift platforms.",
+			"examples": [
+				"work at height",
+				"floor openings",
+				"steps/changes in level",
+				"slippery surfaces",
+				"clutter/disorder",
+				"poor visibility",
+				"ladders, ramps, lift platforms"
+			]
+		},
+		{
+			"code": "ELECTRICAL",
+			"label": "Electrical hazards",
+			"description": "Electrical hazards from live parts, electrostatic discharge, short circuits, overloads, arc flashes, or work on live systems.",
+			"examples": [
+				"live parts (missing grounding)",
+				"electrostatic discharge (missing grounding)",
+				"short circuits, overloads, arc flashes, etc.",
+				"work on live systems"
+			]
+		},
+		{
+			"code": "HAZARDOUS_SUBSTANCES",
+			"label": "Harmful substances (chemical / biological)",
+			"description": "Harmful substances include chemical and biological gases, vapours, liquids, aerosols, solids, dusts, and microorganisms.",
+			"examples": [
+				"gases, vapours",
+				"liquids, aerosols",
+				"solids/dusts",
+				"toxic, carcinogenic, mutagenic, reprotoxic, irritant, corrosive agents; microorganisms (viruses, bacteria, parasites, fungi, cell cultures, GMOs)"
+			]
+		},
+		{
+			"code": "FIRE_EXPLOSION",
+			"label": "Fire and explosion hazards",
+			"description": "Fire and explosion hazards from flammable liquids, dusts, gases, solids, explosive atmospheres, explosive substances, or ignition sources.",
+			"examples": [
+				"flammable liquids/dusts/gases (solvents, LPG)",
+				"combustible solids",
+				"explosive atmospheres",
+				"explosive substances",
+				"ignition sources"
+			]
+		},
+		{
+			"code": "THERMAL",
+			"label": "Thermal hazards",
+			"description": "Thermal hazards from hot or cold media, surfaces, liquids, steam, refrigerants, or material splashes.",
+			"examples": [
+				"hot/cold media (open flames, hot/cold surfaces or fluids, steam, refrigerants, splashes)"
+			]
+		},
+		{
+			"code": "PHYSICAL_AGENTS",
+			"label": "Specific physical agents",
+			"description": "Specific physical agents include noise, ultrasound, infrasound, radiation, electromagnetic fields, underpressure, or overpressure.",
+			"examples": [
+				"noise (continuous or impact)",
+				"ultrasound/infrasound (air- or structure-borne)",
+				"non-ionising radiation (UV curing, arc welding, sun exposure, lasers, electromagnetic fields)",
+				"ionising radiation (X-rays, radioactive materials)",
+				"under/overpressure (mining, caisson/tunnel work, high altitude)"
+			]
+		},
+		{
+			"code": "ENVIRONMENTAL",
+			"label": "Environmental conditions",
+			"description": "Environmental-condition hazards include climate, weather, humidity, heat, cold, draughts, air contamination, and lighting conditions.",
+			"examples": [
+				"climate/weather, humidity, indoor conditions, heat/cold",
+				"draughts, incorrect temperature/humidity, air contamination",
+				"sun exposure, hot/cold outdoor work, weather impacts",
+				"lighting issues (insufficient light, poor luminance, glare, flicker)"
+			]
+		},
+		{
+			"code": "MUSCULOSKELETAL",
+			"label": "Musculoskeletal strain",
+			"description": "Musculoskeletal strain from forced posture, awkward movement, lifting and carrying, repetitive work, or vibration.",
+			"examples": [
+				"forced posture",
+				"awkward movements",
+				"manual lifting/carrying",
+				"repetitive motions",
+				"vibration (whole-body or hand-arm)"
+			]
+		},
+		{
+			"code": "PSYCHOSOCIAL",
+			"label": "Psychosocial strain",
+			"description": "Psychosocial strain from overload, repetitive or one-sided tasks, low autonomy, emotional load, or adverse social conditions.",
+			"examples": [
+				"overload (constant time pressure, sustained vigilance, excessive responsibility, misqualification)",
+				"highly repetitive work without cognitive engagement",
+				"monotone single-step tasks (only executing, only monitoring, takt-bound)",
+				"lack of autonomy/decision latitude",
+				"high emotional load from customer-facing work",
+				"adverse social climate (conflict, discrimination, bullying)"
+			]
+		},
+		{
+			"code": "UNEXPECTED_ACTIONS",
+			"label": "Unexpected actions (control / power failures)",
+			"description": "Unexpected actions from control or feedback loop failure, control malfunction, or loss of energy supply.",
+			"examples": [
+				"control/feedback loop failure",
+				"loss of energy supply (short circuits, grid outages)"
+			]
+		},
+		{
+			"code": "WORK_ORGANISATION",
+			"label": "Work organisation",
+			"description": "Work-organisation hazards from qualifications, information, instruction, interruptions, responsibilities, feedback, worker involvement, or working time.",
+			"examples": [
+				"insufficient or incorrect qualifications",
+				"inadequate information/instruction, missing documentation, language barriers",
+				"frequent disruptions (poor maintenance)",
+				"unclear responsibilities",
+				"no feedback (only external QC)",
+				"lack of worker involvement, isolated workstations, poor planning",
+				"stressful schedules (shift/night work, irregular hours)"
+			]
+		}
+	],
+	"severity": [
+		{
+			"code": "A",
+			"label": "Death",
+			"anchor": "Fatal injury or multiple severe injuries."
+		},
+		{
+			"code": "B",
+			"label": "Irreversible injury",
+			"anchor": "Permanent disability, life-changing impact."
+		},
+		{
+			"code": "C",
+			"label": "Lost time injury",
+			"anchor": "Fracture or equivalent; days to weeks off work."
+		},
+		{
+			"code": "D",
+			"label": "Medical treatment",
+			"anchor": "Treatable injury; short absence likely."
+		},
+		{
+			"code": "E",
+			"label": "First aid",
+			"anchor": "Minor injury; first aid only; no time off."
+		}
+	],
+	"likelihood": [
+		{
+			"code": "1",
+			"label": "Frequent",
+			"anchor": "At least monthly in a collective estimate of 1000 people performing the task under similar conditions."
+		},
+		{
+			"code": "2",
+			"label": "Occasional",
+			"anchor": "At least yearly and at most monthly in a collective estimate of 1000 people performing the task under similar conditions."
+		},
+		{
+			"code": "3",
+			"label": "Rare",
+			"anchor": "At least once every five years and at most yearly in a collective estimate of 1000 people performing the task under similar conditions."
+		},
+		{
+			"code": "4",
+			"label": "Unlikely",
+			"anchor": "At least once every 20 years and at most once every five years in a collective estimate of 1000 people performing the task under similar conditions."
+		},
+		{
+			"code": "5",
+			"label": "Practically impossible",
+			"anchor": "At least once every 100 years and at most once every 20 years in a collective estimate of 1000 people performing the task under similar conditions."
+		}
+	],
+	"riskBands": [
+		{
+			"code": "HIGH",
+			"label": "Higher risk"
+		},
+		{
+			"code": "MEDIUM",
+			"label": "Medium risk"
+		},
+		{
+			"code": "LOW",
+			"label": "Lower risk"
+		}
+	],
+	"controlHierarchy": [
+		{
+			"code": "SUBSTITUTION",
+			"letter": "S",
+			"label": "Substitution"
+		},
+		{
+			"code": "TECHNICAL",
+			"letter": "T",
+			"label": "Technical"
+		},
+		{
+			"code": "ORGANIZATIONAL",
+			"letter": "O",
+			"label": "Organisational"
+		},
+		{
+			"code": "PPE",
+			"letter": "P",
+			"label": "PPE"
+		}
+	]
+}

@@ -1,0 +1,10 @@
+{
+	"entries": [
+		{
+			"responseText": "{\"reply\":\"Understood — I noted where it happened, a first cause with a measure, and marked that branch's root. What is the credible worst case here?\",\"operations\":[{\"kind\":\"incident_field_update\",\"payload\":{\"field\":\"location\",\"value\":\"Loading bay gate 3\"}},{\"kind\":\"cause_node\",\"ref\":\"c1\",\"payload\":{\"label\":\"Pedestrian route crosses the live forklift reversing zone\",\"method\":\"cause-tree\"}},{\"kind\":\"stop_action\",\"payload\":{\"title\":\"Site manager separates pedestrian route from reversing zone with barriers by end of month\",\"stopClass\":\"T\",\"purpose\":\"preventive\",\"linkedCauseNodeId\":\"c1\"}},{\"kind\":\"cause_update\",\"payload\":{\"causeId\":\"c1\",\"branchStatus\":\"ROOT_REACHED\",\"isRootCause\":true}}]}"
+		},
+		{
+			"responseText": "This is not JSON at all, just a plain coach sentence."
+		}
+	]
+}

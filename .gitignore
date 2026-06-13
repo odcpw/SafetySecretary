@@ -1,0 +1,24 @@
+# App/tooling output
+build/
+case-backups/
+.data/
+coverage/
+dist/
+.env
+.env.*
+!.env.example
+.env.local
+*.log
+.next/
+next-env.d.ts
+node_modules/
+pnpm-debug.log*
+test-results/
+.tmp/
+*.tsbuildinfo
+
+# Internal / local-only — kept out of the public repo
+AGENTS.md
+MODES_ANALYSIS_PROGRESS.md
+MODES_OF_REASONING_*.md
+evidence/

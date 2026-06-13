@@ -1,0 +1,20 @@
+Synthetic SDS Fixture: Dust Powder C
+Supplier: Synthetic Fixture Laboratory
+Revision: 2026-05-06
+
+Section 2 - Hazard Identification
+May form combustible dust concentrations in air. Dust may cause respiratory
+irritation.
+
+Section 5 - Fire Fighting Measures
+Use water spray, foam, dry chemical, or carbon dioxide. Avoid high-pressure
+water streams that may disperse dust.
+
+Section 7 - Handling and Storage
+Avoid generating dust. Ground and bond equipment during transfer. Keep container
+closed when not in use.
+
+Section 8 - Exposure Controls and Personal Protection
+Use local exhaust ventilation at dust generation points. Wear a P2 particulate
+respirator when dust control is insufficient. Wear safety glasses with side
+shields.

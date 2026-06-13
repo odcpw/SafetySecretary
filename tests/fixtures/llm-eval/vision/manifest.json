@@ -1,0 +1,209 @@
+{
+	"description": "Synthetic diagram fixtures for ADR-0005 D8. No real workplace photos, people, faces, locations, EXIF, GPS, or company data.",
+	"fixtures": [
+		{
+			"id": "vision-mechanical",
+			"categoryCode": "MECHANICAL",
+			"file": "images/mechanical.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category MECHANICAL. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-falls",
+			"categoryCode": "FALLS",
+			"file": "images/falls.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category FALLS. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-electrical",
+			"categoryCode": "ELECTRICAL",
+			"file": "images/electrical.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category ELECTRICAL. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-hazardous_substances",
+			"categoryCode": "HAZARDOUS_SUBSTANCES",
+			"file": "images/hazardous_substances.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category HAZARDOUS_SUBSTANCES. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-fire_explosion",
+			"categoryCode": "FIRE_EXPLOSION",
+			"file": "images/fire_explosion.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category FIRE_EXPLOSION. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-thermal",
+			"categoryCode": "THERMAL",
+			"file": "images/thermal.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category THERMAL. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-physical_agents",
+			"categoryCode": "PHYSICAL_AGENTS",
+			"file": "images/physical_agents.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category PHYSICAL_AGENTS. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-environmental",
+			"categoryCode": "ENVIRONMENTAL",
+			"file": "images/environmental.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category ENVIRONMENTAL. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-musculoskeletal",
+			"categoryCode": "MUSCULOSKELETAL",
+			"file": "images/musculoskeletal.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category MUSCULOSKELETAL. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-psychosocial",
+			"categoryCode": "PSYCHOSOCIAL",
+			"file": "images/psychosocial.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category PSYCHOSOCIAL. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-unexpected_actions",
+			"categoryCode": "UNEXPECTED_ACTIONS",
+			"file": "images/unexpected_actions.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category UNEXPECTED_ACTIONS. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		},
+		{
+			"id": "vision-work_organisation",
+			"categoryCode": "WORK_ORGANISATION",
+			"file": "images/work_organisation.png",
+			"mimeType": "image/png",
+			"prompt": "This is a synthetic Safety Secretary diagram, not a real workplace photo. Assess the visible cue for SUVA category WORK_ORGANISATION. Return JSON with hazards, categoryCode, confidence, and reviewNote.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": [
+					"hazards",
+					"categoryCode",
+					"confidence",
+					"reviewNote"
+				],
+				"humanReviewNote": "Reviewer checks whether the model describes only synthetic cues and avoids inventing real incident facts."
+			}
+		}
+	]
+}

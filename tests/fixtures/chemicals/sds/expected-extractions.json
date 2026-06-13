@@ -1,0 +1,128 @@
+{
+	"fixtures": [
+		{
+			"id": "synthetic-solvent-cleaner",
+			"file": "synthetic-solvent-cleaner.txt",
+			"productName": "Solvent Cleaner A",
+			"controls": [
+				{
+					"controlType": "use_control",
+					"controlText": "Use local exhaust ventilation when vapor may be generated",
+					"sdsSection": "Section 8 - Exposure Controls and Personal Protection",
+					"sourceExcerpt": "Use local exhaust ventilation when vapor may be generated.",
+					"pageLineRef": null,
+					"confidence": 0.92
+				},
+				{
+					"controlType": "eye_protection",
+					"controlText": "Wear splash goggles",
+					"sdsSection": "Section 8 - Exposure Controls and Personal Protection",
+					"sourceExcerpt": "Wear splash goggles.",
+					"pageLineRef": null,
+					"confidence": 0.9
+				},
+				{
+					"controlType": "glove_type",
+					"controlText": "Wear nitrile gloves when handling the liquid",
+					"sdsSection": "Section 8 - Exposure Controls and Personal Protection",
+					"sourceExcerpt": "Wear nitrile gloves when handling the liquid.",
+					"pageLineRef": null,
+					"confidence": 0.88
+				}
+			]
+		},
+		{
+			"id": "synthetic-corrosive-cleaner",
+			"file": "synthetic-corrosive-cleaner.txt",
+			"productName": "Corrosive Cleaner B",
+			"controls": [
+				{
+					"controlType": "first_aid",
+					"controlText": "Rinse skin with water for at least 15 minutes after contact",
+					"sdsSection": "Section 4 - First Aid Measures",
+					"sourceExcerpt": "If on skin, take off contaminated clothing immediately and rinse skin with water for at least 15 minutes.",
+					"pageLineRef": null,
+					"confidence": 0.89
+				},
+				{
+					"controlType": "storage",
+					"controlText": "Store locked up in corrosion-resistant containers",
+					"sdsSection": "Section 7 - Handling and Storage",
+					"sourceExcerpt": "Store locked up in corrosion-resistant containers.",
+					"pageLineRef": null,
+					"confidence": 0.87
+				},
+				{
+					"controlType": "eye_protection",
+					"controlText": "Wear face shield or tightly fitting safety goggles",
+					"sdsSection": "Section 8 - Exposure Controls and Personal Protection",
+					"sourceExcerpt": "Wear face shield or tightly fitting safety goggles.",
+					"pageLineRef": null,
+					"confidence": 0.91
+				}
+			]
+		},
+		{
+			"id": "synthetic-dust-powder",
+			"file": "synthetic-dust-powder.txt",
+			"productName": "Dust Powder C",
+			"controls": [
+				{
+					"controlType": "handling",
+					"controlText": "Avoid generating dust and ground equipment during transfer",
+					"sdsSection": "Section 7 - Handling and Storage",
+					"sourceExcerpt": "Avoid generating dust. Ground and bond equipment during transfer.",
+					"pageLineRef": null,
+					"confidence": 0.84
+				},
+				{
+					"controlType": "respiratory",
+					"controlText": "Wear a P2 particulate respirator when dust control is insufficient",
+					"sdsSection": "Section 8 - Exposure Controls and Personal Protection",
+					"sourceExcerpt": "Wear a P2 particulate respirator when dust control is insufficient.",
+					"pageLineRef": null,
+					"confidence": 0.9
+				},
+				{
+					"controlType": "fire_fighting",
+					"controlText": "Avoid high-pressure water streams that may disperse dust",
+					"sdsSection": "Section 5 - Fire Fighting Measures",
+					"sourceExcerpt": "Avoid high-pressure water streams that may disperse dust.",
+					"pageLineRef": null,
+					"confidence": 0.82
+				}
+			]
+		},
+		{
+			"id": "synthetic-flammable-aerosol",
+			"file": "synthetic-flammable-aerosol.txt",
+			"productName": "Flammable Aerosol D",
+			"controls": [
+				{
+					"controlType": "use_control",
+					"controlText": "Use only outdoors or in a well-ventilated area",
+					"sdsSection": "Section 8 - Exposure Controls and Personal Protection",
+					"sourceExcerpt": "Use only outdoors or in a well-ventilated area.",
+					"pageLineRef": null,
+					"confidence": 0.91
+				},
+				{
+					"controlType": "storage",
+					"controlText": "Protect from sunlight and do not expose to temperatures exceeding 50 C",
+					"sdsSection": "Section 7 - Handling and Storage",
+					"sourceExcerpt": "Protect from sunlight. Do not expose to temperatures exceeding 50 C.",
+					"pageLineRef": null,
+					"confidence": 0.86
+				},
+				{
+					"controlType": "fire_fighting",
+					"controlText": "Cool containers exposed to fire with water spray from a safe distance",
+					"sdsSection": "Section 5 - Fire Fighting Measures",
+					"sourceExcerpt": "Cool containers exposed to fire with water spray from a safe distance.",
+					"pageLineRef": null,
+					"confidence": 0.88
+				}
+			]
+		}
+	]
+}

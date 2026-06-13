@@ -1,0 +1,186 @@
+{
+	"categories": [
+		{
+			"code": "MECHANICAL",
+			"label": "Phénomènes dangereux mécaniques",
+			"description": "Éléments en mouvement, surfaces dangereuses, équipements de travail mobiles, objets en hauteur ou fluides sous pression.",
+			"examples": [
+				"Zones d'écrasement, de cisaillement, de choc, de coupure, de perforation, d'entraînement ou de happement."
+			]
+		},
+		{
+			"code": "FALLS",
+			"label": "Phénomènes dangereux de chute",
+			"description": "Travail en hauteur, dénivellations, surfaces glissantes, désordre ou conditions de visibilité défavorables.",
+			"examples": [
+				"Échelles, rampes, marches, ouvertures dans les sols, neige, glace, câbles au sol."
+			]
+		},
+		{
+			"code": "ELECTRICAL",
+			"label": "Phénomènes dangereux électriques",
+			"description": "Éléments sous tension, phénomènes électrostatiques, courts-circuits, surcharges ou arcs électriques.",
+			"examples": [
+				"Contact avec des éléments sous tension ou arcs électriques."
+			]
+		},
+		{
+			"code": "HAZARDOUS_SUBSTANCES",
+			"label": "Substances nocives (chimiques, biologiques)",
+			"description": "Gaz, vapeurs, liquides, aérosols, solides et microorganismes nocifs.",
+			"examples": [
+				"Substances toxiques, cancérigènes, mutagènes, reprotoxiques, irritantes ou corrosives."
+			]
+		},
+		{
+			"code": "FIRE_EXPLOSION",
+			"label": "Substances inflammables ou explosives",
+			"description": "Liquides, poussières, gaz, solides, atmosphères explosives, explosifs et sources d'inflammation.",
+			"examples": ["Solvants, gaz liquéfié, combustibles et carburants."]
+		},
+		{
+			"code": "THERMAL",
+			"label": "Phénomènes dangereux thermiques",
+			"description": "Milieux chauds ou froids et matières chaudes ou froides.",
+			"examples": [
+				"Flammes ouvertes, surfaces chaudes ou froides, liquides chauds ou froids, vapeur chaude, agents réfrigérants ou frigorigènes."
+			]
+		},
+		{
+			"code": "PHYSICAL_AGENTS",
+			"label": "Contraintes physiques particulières",
+			"description": "Bruit, ultrasons, infrasons, rayonnements, champs électromagnétiques, dépression ou surpression.",
+			"examples": [
+				"Bruit permanent, bruit d'impulsion, rayonnement UV, rayonnement laser, rayons X, substances radioactives."
+			]
+		},
+		{
+			"code": "ENVIRONMENTAL",
+			"label": "Contraintes liées à l'environnement de travail",
+			"description": "Climat, intempéries, chaleur, froid, climat en espace clos et lumière.",
+			"examples": [
+				"Courants d'air, température ou humidité inappropriées, exposition solaire, mauvais éclairage, éblouissement ou scintillement."
+			]
+		},
+		{
+			"code": "MUSCULOSKELETAL",
+			"label": "Contraintes exercées sur l'appareil locomoteur",
+			"description": "Posture imposée, mouvement pénible, levage et manutention d'objets lourds, activités répétitives ou vibrations.",
+			"examples": [
+				"Mouvements répétitifs de brève durée, vibrations transmises à l'ensemble du corps, de la main ou du bras."
+			]
+		},
+		{
+			"code": "PSYCHOSOCIAL",
+			"label": "Contraintes psychiques",
+			"description": "Surmenage, activités répétitives, activités incomplètes ou monotones, manque de marge de manœuvre et charge émotionnelle.",
+			"examples": [
+				"Pression permanente, surcharge de responsabilités, travaux routiniers, mobbing ou discrimination."
+			]
+		},
+		{
+			"code": "UNEXPECTED_ACTIONS",
+			"label": "Actions inattendues",
+			"description": "Mouvements incontrôlés, mise en marche intempestive ou dysfonctionnements de commande.",
+			"examples": ["Mise en marche intempestive."]
+		},
+		{
+			"code": "WORK_ORGANISATION",
+			"label": "Organisation du travail",
+			"description": "Manque de qualification, manque d'information ou d'instruction, interruptions, responsabilités peu claires, absence de feed-back ou horaires contraignants.",
+			"examples": [
+				"Documents de travail, formations et informations lacunaires ou inexistants; travail par équipe, travail de nuit ou changements d'horaire à court terme."
+			]
+		}
+	],
+	"severity": [
+		{
+			"code": "A",
+			"label": "Décès",
+			"anchor": "Blessure mortelle ou plusieurs blessures graves."
+		},
+		{
+			"code": "B",
+			"label": "Atteinte irréversible à la santé",
+			"anchor": "Atteinte permanente ou conséquence qui change durablement la vie."
+		},
+		{
+			"code": "C",
+			"label": "Blessure avec arrêt de travail",
+			"anchor": "Blessure avec arrêt de travail; absence de quelques jours à quelques semaines."
+		},
+		{
+			"code": "D",
+			"label": "Traitement médical",
+			"anchor": "Blessure nécessitant un traitement médical; courte absence possible."
+		},
+		{
+			"code": "E",
+			"label": "Premiers secours",
+			"anchor": "Blessure mineure; premiers secours uniquement; pas d'arrêt de travail."
+		}
+	],
+	"likelihood": [
+		{
+			"code": "1",
+			"label": "Fréquent",
+			"anchor": "Au moins une fois par mois dans une estimation collective de 1000 personnes effectuant cette tâche dans des conditions similaires."
+		},
+		{
+			"code": "2",
+			"label": "Occasionnel",
+			"anchor": "Au moins une fois par an et au maximum une fois par mois dans une estimation collective de 1000 personnes effectuant cette tâche dans des conditions similaires."
+		},
+		{
+			"code": "3",
+			"label": "Rare",
+			"anchor": "Au moins une fois tous les cinq ans et au maximum une fois par an dans une estimation collective de 1000 personnes effectuant cette tâche dans des conditions similaires."
+		},
+		{
+			"code": "4",
+			"label": "Improbable",
+			"anchor": "Au moins une fois tous les 20 ans et au maximum une fois tous les cinq ans dans une estimation collective de 1000 personnes effectuant cette tâche dans des conditions similaires."
+		},
+		{
+			"code": "5",
+			"label": "Quasi impossible",
+			"anchor": "Au moins une fois tous les 100 ans et au maximum une fois tous les 20 ans dans une estimation collective de 1000 personnes effectuant cette tâche dans des conditions similaires."
+		}
+	],
+	"riskBands": [
+		{
+			"code": "HIGH",
+			"label": "Risque plus élevé"
+		},
+		{
+			"code": "MEDIUM",
+			"label": "Risque moyen"
+		},
+		{
+			"code": "LOW",
+			"label": "Risque plus faible"
+		}
+	],
+	"controlHierarchy": [
+		{
+			"code": "SUBSTITUTION",
+			"letter": "S",
+			"label": "Remplacement de procédés et de substances dangereux"
+		},
+		{
+			"code": "TECHNICAL",
+			"letter": "T",
+			"label": "Mesures techniques de protection"
+		},
+		{
+			"code": "ORGANIZATIONAL",
+			"letter": "O",
+			"label": "Mesures organisationnelles"
+		},
+		{
+			"code": "PPE",
+			"letter": "P",
+			"label": "Mesures relatives aux personnes"
+		}
+	]
+}

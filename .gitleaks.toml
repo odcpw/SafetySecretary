@@ -1,0 +1,13 @@
+title = "Safety Secretary secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "safety-secretary-openai-canary"
+description = "Rejects the non-secret OpenAI-shaped canary used by the pre-commit hook test."
+regex = '''(?i)OPENAI_API_KEY\s*=\s*sk-fake-canary'''
+keywords = [
+  "OPENAI_API_KEY",
+  "sk-fake-canary",
+]

@@ -1,0 +1,19 @@
+Synthetic SDS Fixture: Corrosive Cleaner B
+Supplier: Synthetic Fixture Laboratory
+Revision: 2026-05-06
+
+Section 2 - Hazard Identification
+Causes severe skin burns and eye damage. May be corrosive to metals.
+
+Section 4 - First Aid Measures
+If on skin, take off contaminated clothing immediately and rinse skin with
+water for at least 15 minutes. If eye contact occurs, rinse cautiously with
+water for several minutes and seek medical attention.
+
+Section 7 - Handling and Storage
+Do not breathe mist or spray. Store locked up in corrosion-resistant containers.
+Keep only in the original container.
+
+Section 8 - Exposure Controls and Personal Protection
+Wear chemical-resistant gloves. Wear face shield or tightly fitting safety
+goggles. Use local exhaust ventilation where mist may form.

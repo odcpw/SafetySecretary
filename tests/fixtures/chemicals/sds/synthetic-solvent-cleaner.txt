@@ -1,0 +1,18 @@
+Synthetic SDS Fixture: Solvent Cleaner A
+Supplier: Synthetic Fixture Laboratory
+Revision: 2026-05-06
+
+Section 2 - Hazard Identification
+Highly flammable liquid and vapor. Causes serious eye irritation.
+
+Section 4 - First Aid Measures
+If in eyes, rinse cautiously with water for several minutes. Remove contact
+lenses if present and easy to do. Continue rinsing.
+
+Section 7 - Handling and Storage
+Keep container tightly closed. Use only with adequate ventilation. Keep away
+from heat, sparks, open flames, and hot surfaces.
+
+Section 8 - Exposure Controls and Personal Protection
+Use local exhaust ventilation when vapor may be generated. Wear splash goggles.
+Wear nitrile gloves when handling the liquid.

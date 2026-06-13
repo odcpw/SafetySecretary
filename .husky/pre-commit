@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+set -eu
+
+required_version="$(node -p "require('./package.json').config.secretScan.gitleaksVersion")"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks ${required_version} is required for Safety Secretary secret scanning." >&2
+  echo "Install the official gitleaks CLI, then retry the commit." >&2
+  exit 1
+fi
+
+actual_version="$(gitleaks version 2>/dev/null | sed -E 's/^gitleaks version //; s/^v//')"
+
+if [ "${actual_version}" != "${required_version}" ]; then
+  echo "gitleaks ${required_version} is required; found ${actual_version:-unknown}." >&2
+  exit 1
+fi
+
+echo "Running gitleaks staged-diff secret scan..."
+if ! gitleaks protect --staged --config .gitleaks.toml --redact --no-banner; then
+  echo "Secret scanning failed. Remove the secret or follow docs/dev/secret-scan.md for a reviewed exception." >&2
+  exit 1
+fi

@@ -1,0 +1,30 @@
+{
+  "name": "Safety Secretary",
+  "short_name": "SafetySec",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0e0e10",
+  "background_color": "#16161a",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icons/icon-256.png",
+      "type": "image/png",
+      "sizes": "256x256"
+    },
+    {
+      "src": "/icons/icon-384.png",
+      "type": "image/png",
+      "sizes": "384x384"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

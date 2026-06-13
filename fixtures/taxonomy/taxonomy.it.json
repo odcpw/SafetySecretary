@@ -1,0 +1,186 @@
+{
+	"categories": [
+		{
+			"code": "MECHANICAL",
+			"label": "Pericoli di natura meccanica",
+			"description": "Parti di macchine in movimento, superfici pericolose, mezzi di trasporto o strumenti di lavoro in movimento, movimento incontrollato di elementi, oggetti in altezza e sostanze o materiali in pressione.",
+			"examples": [
+				"Punti di schiacciamento, cesoiamento, urto, taglio, puntura, trascinamento, impigliamento."
+			]
+		},
+		{
+			"code": "FALLS",
+			"label": "Pericolo di caduta",
+			"description": "Altezza di lavoro, dislivelli, superfici sdrucciolevoli, disordine e visibilità.",
+			"examples": [
+				"Scale, rampe, gradini, aperture nel pavimento, neve, ghiaccio, sporcizia, cavi per terra."
+			]
+		},
+		{
+			"code": "ELECTRICAL",
+			"label": "Pericoli di natura elettrica",
+			"description": "Elementi in tensione, processi elettrostatici, cortocircuiti, sovraccarichi e archi elettrici.",
+			"examples": [
+				"Elementi in tensione, processi elettrostatici, cortocircuiti, sovraccarichi, archi elettrici."
+			]
+		},
+		{
+			"code": "HAZARDOUS_SUBSTANCES",
+			"label": "Sostanze nocive (chimiche / biologiche)",
+			"description": "Gas, vapori, liquidi, aerosol, sostanze solide e microrganismi.",
+			"examples": [
+				"Sostanze tossiche, cancerogene, mutagene, teratogene, irritanti o corrosive; virus, batteri, parassiti, funghi, colture cellulari."
+			]
+		},
+		{
+			"code": "FIRE_EXPLOSION",
+			"label": "Pericoli di incendio e di esplosione",
+			"description": "Liquidi, polveri, gas, sostanze solide, atmosfere esplosive, sostanze esplosive e fonti di innesco.",
+			"examples": ["Solventi, gas liquidi, sostanze infiammabili, carburanti."]
+		},
+		{
+			"code": "THERMAL",
+			"label": "Pericoli di natura termica",
+			"description": "Materiali molto caldi o molto freddi.",
+			"examples": [
+				"Fiamme libere, superfici o liquidi molto caldi o molto freddi, vapore caldo, fluido refrigerante."
+			]
+		},
+		{
+			"code": "PHYSICAL_AGENTS",
+			"label": "Sollecitazioni fisiche particolari",
+			"description": "Rumore, ultrasuoni, infrasuoni, radiazioni non ionizzanti, radiazioni ionizzanti, depressione e sovrapressione.",
+			"examples": [
+				"Rumore continuo, rumore impulsivo, raggi ultravioletti, raggi laser, campi elettromagnetici, raggi X, sostanze radioattive."
+			]
+		},
+		{
+			"code": "ENVIRONMENTAL",
+			"label": "Sollecitazioni dovute a condizioni ambientali",
+			"description": "Clima, intemperie, caldo, freddo, microclima e luce.",
+			"examples": [
+				"Correnti d'aria, temperatura dell'ambiente non ottimale, umidità dell'aria relativa, effetti del sole, condizioni atmosferiche, illuminazione carente, abbagliamento."
+			]
+		},
+		{
+			"code": "MUSCULOSKELETAL",
+			"label": "Sollecitazione all'apparato locomotore",
+			"description": "Postura forzata, movimenti sfavorevoli del corpo, sollevamento e spostamento di carichi, attività ripetitive e vibrazioni.",
+			"examples": [
+				"Movimenti brevi e ripetitivi con eventuale sollevamento di carichi; vibrazioni nell'intero corpo o di un arto."
+			]
+		},
+		{
+			"code": "PSYCHOSOCIAL",
+			"label": "Sollecitazioni psichiche",
+			"description": "Sovraccarico mentale, attività fortemente ripetitive, attività incomplete o monotone, margine di manovra e di decisione troppo ristretto, forte coinvolgimento emotivo e condizioni sociali opprimenti.",
+			"examples": [
+				"Scadenze ravvicinate, attenzione continua, responsabilità eccessiva, attività di routine, discriminazione, mobbing."
+			]
+		},
+		{
+			"code": "UNEXPECTED_ACTIONS",
+			"label": "Azioni inaspettate",
+			"description": "Azioni incontrollate, come avviamento imprevisto.",
+			"examples": ["Avviamento imprevisto."]
+		},
+		{
+			"code": "WORK_ORGANISATION",
+			"label": "Organizzazione del lavoro",
+			"description": "Qualificazione insufficiente o inadeguata, informazioni e istruzioni insufficienti, distrazioni, responsabilità poco chiare, nessun feedback, nessun coinvolgimento, posti di lavoro isolati e orario di lavoro pesante.",
+			"examples": [
+				"Documentazioni di lavoro, istruzioni e informazioni inesistenti o carenti; barriere linguistiche; lavoro a turni, lavoro notturno, orario variabile a breve termine e irregolare."
+			]
+		}
+	],
+	"severity": [
+		{
+			"code": "A",
+			"label": "Decesso",
+			"anchor": "Infortunio mortale o più lesioni gravi."
+		},
+		{
+			"code": "B",
+			"label": "Danno irreversibile alla salute",
+			"anchor": "Danno permanente o conseguenza che cambia in modo duraturo la vita."
+		},
+		{
+			"code": "C",
+			"label": "Infortunio con assenza dal lavoro",
+			"anchor": "Infortunio con assenza dal lavoro; assenza da alcuni giorni ad alcune settimane."
+		},
+		{
+			"code": "D",
+			"label": "Trattamento medico",
+			"anchor": "Infortunio che richiede trattamento medico; possibile breve assenza."
+		},
+		{
+			"code": "E",
+			"label": "Primo soccorso",
+			"anchor": "Infortunio lieve; solo primo soccorso; nessuna assenza dal lavoro."
+		}
+	],
+	"likelihood": [
+		{
+			"code": "1",
+			"label": "Frequente",
+			"anchor": "Almeno 1 volta al mese in una valutazione collettiva di 1000 persone che svolgono questa attività in condizioni simili."
+		},
+		{
+			"code": "2",
+			"label": "Occasionale",
+			"anchor": "Almeno 1 volta all'anno e al massimo 1 volta al mese in una valutazione collettiva di 1000 persone che svolgono questa attività in condizioni simili."
+		},
+		{
+			"code": "3",
+			"label": "Rara",
+			"anchor": "Almeno 1 volta ogni 5 anni e al massimo 1 volta all'anno in una valutazione collettiva di 1000 persone che svolgono questa attività in condizioni simili."
+		},
+		{
+			"code": "4",
+			"label": "Improbabile",
+			"anchor": "Almeno 1 volta ogni 20 anni e al massimo 1 volta ogni 5 anni in una valutazione collettiva di 1000 persone che svolgono questa attività in condizioni simili."
+		},
+		{
+			"code": "5",
+			"label": "Quasi impossibile",
+			"anchor": "Almeno 1 volta ogni 100 anni e al massimo 1 volta ogni 20 anni in una valutazione collettiva di 1000 persone che svolgono questa attività in condizioni simili."
+		}
+	],
+	"riskBands": [
+		{
+			"code": "HIGH",
+			"label": "Rischio più elevato"
+		},
+		{
+			"code": "MEDIUM",
+			"label": "Rischio medio"
+		},
+		{
+			"code": "LOW",
+			"label": "Rischio più basso"
+		}
+	],
+	"controlHierarchy": [
+		{
+			"code": "SUBSTITUTION",
+			"letter": "S",
+			"label": "Sostituzione"
+		},
+		{
+			"code": "TECHNICAL",
+			"letter": "T",
+			"label": "Misure tecniche"
+		},
+		{
+			"code": "ORGANIZATIONAL",
+			"letter": "O",
+			"label": "Misure organizzative"
+		},
+		{
+			"code": "PPE",
+			"letter": "P",
+			"label": "Misure personali"
+		}
+	]
+}

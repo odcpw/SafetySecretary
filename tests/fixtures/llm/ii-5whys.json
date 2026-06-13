@@ -1,0 +1,25 @@
+{
+	"entries": [
+		{
+			"locale": "en",
+			"parentKind": "timeline_event",
+			"parentStatement": "Machine guard was open while the line was running.",
+			"responseText": "What normally made bypassing the interlock feel acceptable or necessary at the time?",
+			"userAnswer": "Maintenance bypassed the interlock to keep production moving."
+		},
+		{
+			"locale": "en",
+			"parentKind": "cause_node",
+			"parentStatement": "Maintenance bypassed the interlock to keep production moving.",
+			"responseText": "What conditions or trade-offs made the planned maintenance window hard to use?",
+			"userAnswer": "The planned maintenance window was cancelled after a delivery delay."
+		},
+		{
+			"locale": "en",
+			"parentKind": "cause_node",
+			"parentStatement": "The planned maintenance window was cancelled after a delivery delay.",
+			"responseText": "What should be kept or changed so delayed deliveries do not make bypassing safeguards the practical path?",
+			"userAnswer": "Supervisors had no escalation path for stopping the line when the shipment was late."
+		}
+	]
+}

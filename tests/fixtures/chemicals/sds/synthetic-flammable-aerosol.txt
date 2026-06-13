@@ -1,0 +1,20 @@
+Synthetic SDS Fixture: Flammable Aerosol D
+Supplier: Synthetic Fixture Laboratory
+Revision: 2026-05-06
+
+Section 2 - Hazard Identification
+Extremely flammable aerosol. Pressurized container may burst if heated.
+
+Section 4 - First Aid Measures
+If inhaled, move person to fresh air and keep comfortable for breathing.
+
+Section 5 - Fire Fighting Measures
+Use dry chemical, carbon dioxide, or foam. Cool containers exposed to fire with
+water spray from a safe distance.
+
+Section 7 - Handling and Storage
+Do not spray on an open flame or other ignition source. Protect from sunlight.
+Do not expose to temperatures exceeding 50 C.
+
+Section 8 - Exposure Controls and Personal Protection
+Use only outdoors or in a well-ventilated area. Wear safety glasses during use.

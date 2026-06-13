@@ -1,0 +1,236 @@
+{
+	"categories": [
+		{
+			"code": "MECHANICAL",
+			"label": "Mechanische Gefährdungen",
+			"description": "Mechanische Gefährdungen durch bewegte Teile, gefährliche Oberflächen, Transportmittel, Druckmedien oder herabstürzende Gegenstände.",
+			"examples": [
+				"ungeschützte bewegte Maschinenteile",
+				"Teile mit gefährlichen Oberflächen (Ecken, Kanten, Spitzen, Schneiden, Rauhigkeit)",
+				"bewegte Transportmittel (An-/Auffahrstellen, Umkippen, Überrollen, Abstürzen, Rampen, Gefälle)",
+				"bewegte Arbeitsmittel",
+				"Quetschstellen, Scherstellen, Stossstellen, Schneidstellen, Stichstellen, Einzugsstellen, Fangstellen",
+				"unkontrolliert bewegte Teile (kippende oder pendelnde Teile, rollende oder gleitende Teile, wegfliegende Teile)",
+				"herabstürzende Gegenstände (Werkstücke, von Plattformen und Gerüsten herunterfallende Werkzeuge)",
+				"unter Druck stehende Medien (Gase, Dämpfe, Öle, Akkumulatoren)"
+			]
+		},
+		{
+			"code": "FALLS",
+			"label": "Sturzgefährdungen",
+			"description": "Sturzgefährdungen durch Arbeit in der Höhe, Bodenöffnungen, Stufen, rutschige Oberflächen, Unordnung oder Sichtverhältnisse.",
+			"examples": [
+				"Arbeitshöhe",
+				"Bodenöffnung",
+				"Stufen",
+				"rutschige Oberflächen",
+				"Unordnung",
+				"Sichtverhältnisse",
+				"Leiter, Rampen, Hebebühne"
+			]
+		},
+		{
+			"code": "ELECTRICAL",
+			"label": "Elektrische Gefährdungen",
+			"description": "Elektrische Gefährdungen durch spannungsführende Teile, elektrostatische Vorgänge, Kurzschlüsse, Überlastungen, Lichtbögen oder Arbeiten unter Spannung.",
+			"examples": [
+				"unter Spannung stehende Teile (fehlende Erdung)",
+				"elektrostatische Vorgänge (fehlende Erdung)",
+				"Kurzschlüsse, Überlastungen, Lichtbögen usw.",
+				"Arbeiten unter Spannung"
+			]
+		},
+		{
+			"code": "HAZARDOUS_SUBSTANCES",
+			"label": "Gesundheitsgefährdende Stoffe (chemisch / biologisch)",
+			"description": "Gesundheitsgefährdende Stoffe umfassen chemische und biologische Stoffe wie Gase, Dämpfe, Flüssigkeiten, Aerosole, Feststoffe und Mikroorganismen.",
+			"examples": [
+				"Gase, Dämpfe",
+				"Flüssigkeiten, Aerosole",
+				"Feststoffe",
+				"giftige, krebserzeugende, erbgutverändernde, fortpflanzungsgefährdende, reizende, ätzende Stoffe …"
+			]
+		},
+		{
+			"code": "FIRE_EXPLOSION",
+			"label": "Brand- und Explosionsgefährdungen",
+			"description": "Brand- und Explosionsgefährdungen durch brennbare Flüssigkeiten, Stäube, Gase, Feststoffe, explosionsfähige Atmosphären, Explosivstoffe oder Zündquellen.",
+			"examples": [
+				"Flüssigkeiten, Stäube, Gase (Lösungsmittel, Flüssiggas)",
+				"Feststoffe",
+				"explosionsfähige Atmosphäre",
+				"Explosivstoffe",
+				"Zündquellen"
+			]
+		},
+		{
+			"code": "THERMAL",
+			"label": "Thermische Gefährdungen",
+			"description": "Thermische Gefährdungen durch heisse oder kalte Medien, Oberflächen, Flüssigkeiten, Dampf, Kältemittel oder Materialspritzer.",
+			"examples": [
+				"heisse oder kalte Medien (offene Flammen, heisse/kalte Oberflächen, heisse/kalte Flüssigkeiten, Heissdampf, Kälte- und Kühlmittel, Spritzer von heissen/kalten Materialien)"
+			]
+		},
+		{
+			"code": "PHYSICAL_AGENTS",
+			"label": "Spezielle physikalische Belastungen",
+			"description": "Spezielle physikalische Belastungen durch Lärm, Ultra- oder Infraschall, Strahlung, elektromagnetische Felder, Unterdruck oder Überdruck.",
+			"examples": [
+				"Lärm (Dauerschall, Impulslärm)",
+				"Ultra-/Infraschall (luft- oder festkörpergeleitet)",
+				"nicht-ionisierende Strahlung – UV-Trocknung und -Härtung, Lichtbogenschweissen, Sonnenexposition, Laser, elektromagnetische Felder",
+				"ionisierende Strahlung (Röntgenstrahlung, radioaktive Stoffe)",
+				"Unter- oder Überdruck (Bergbau, Caisson-, Tunnelarbeiten, Höhenlagen)"
+			]
+		},
+		{
+			"code": "ENVIRONMENTAL",
+			"label": "Belastungen durch Arbeitsumgebungsbedingungen",
+			"description": "Belastungen durch Arbeitsumgebungsbedingungen wie Klima, Witterung, Luftfeuchtigkeit, Hitze, Kälte, Zugluft, Luftverunreinigung oder Beleuchtung.",
+			"examples": [
+				"Klima, Witterung, Luftfeuchtigkeit, Raumklima, Hitze, Kälte",
+				"Zugluft, falsche Raumtemperatur und relative Luftfeuchtigkeit, Luftverunreinigung",
+				"Sonneneinwirkung, Hitzearbeit, Kältearbeit, Witterungseinflüsse",
+				"Licht (mangelhafte Beleuchtung, schlechte Leuchtdichteverteilung, Blendung, Flimmern)"
+			]
+		},
+		{
+			"code": "MUSCULOSKELETAL",
+			"label": "Belastungen am Bewegungsapparat",
+			"description": "Belastungen am Bewegungsapparat durch Zwangshaltung, ungünstige Körperbewegungen, Heben und Tragen, repetitive Tätigkeiten oder Vibrationen.",
+			"examples": [
+				"Zwangshaltung",
+				"ungünstige Körperbewegung",
+				"Heben und Tragen von Gewichten",
+				"repetitive Tätigkeiten",
+				"Vibrationen (Ganzkörper oder Hand-Arm)"
+			]
+		},
+		{
+			"code": "PSYCHOSOCIAL",
+			"label": "Psychische Belastungen",
+			"description": "Psychische Belastungen durch Überforderung, repetitive oder einseitige Tätigkeiten, wenig Handlungsspielraum, emotionale Belastung oder belastende soziale Bedingungen.",
+			"examples": [
+				"Überforderung (ständiger Zeitdruck, Daueraufmerksamkeit, zu hohe Verantwortung, Unter-/Überqualifikation)",
+				"stark repetitive Tätigkeiten",
+				"unvollständige, einseitige Tätigkeiten (nur Ausführen, nur Kontrollieren, Taktbindung)",
+				"zu wenig Handlungs- und Entscheidungsspielraum",
+				"hohe emotionale Belastungen bei der Arbeit mit Kunden",
+				"belastende soziale Bedingungen (Kolleg*innen/Vorgesetzte, Diskriminierung, Mobbing)"
+			]
+		},
+		{
+			"code": "UNEXPECTED_ACTIONS",
+			"label": "Unerwartete Aktionen",
+			"description": "Unerwartete Aktionen durch Ausfall oder Fehlfunktion von Steuerungen oder Energieversorgung.",
+			"examples": [
+				"Ausfall des Steuer- bzw. Regelkreises / Fehlfunktion der Steuerung",
+				"Ausfall Energieversorgung / Kurzschlüsse, Netzunterbrüche"
+			]
+		},
+		{
+			"code": "WORK_ORGANISATION",
+			"label": "Arbeitsorganisation",
+			"description": "Arbeitsorganisatorische Gefährdungen durch Qualifikation, Information, Instruktion, Unterbrechungen, Zuständigkeiten, Rückmeldungen, Einbezug oder Arbeitszeiten.",
+			"examples": [
+				"mangelnde oder falsche Qualifikation",
+				"ungenügende Information/Instruktion, fehlende Arbeitsunterlagen, Sprachbarrieren",
+				"häufige Störungen/Unterbrechungen (mangelnder Unterhalt)",
+				"unklare Kompetenzen und Verantwortlichkeiten",
+				"fehlende Rückmeldungen (nur externe Qualitätskontrolle)",
+				"fehlender Einbezug der Mitarbeitenden / isolierte Einzelarbeitsplätze / Fehlplanung",
+				"belastende Arbeitszeiten (Schicht-/Nachtarbeit, unregelmässige Zeiten)"
+			]
+		}
+	],
+	"severity": [
+		{
+			"code": "A",
+			"label": "Tod",
+			"anchor": "Tödliche Verletzung oder mehrere schwere Verletzungen."
+		},
+		{
+			"code": "B",
+			"label": "Irreversibler Gesundheitsschaden",
+			"anchor": "Bleibender Schaden oder lebensverändernde Auswirkung."
+		},
+		{
+			"code": "C",
+			"label": "Verletzung mit Arbeitsausfall",
+			"anchor": "Verletzung mit Arbeitsausfall; Tage bis Wochen Abwesenheit."
+		},
+		{
+			"code": "D",
+			"label": "Medizinische Behandlung",
+			"anchor": "Behandelbare Verletzung; kurze Abwesenheit möglich."
+		},
+		{
+			"code": "E",
+			"label": "Erste Hilfe",
+			"anchor": "Leichte Verletzung; Erste Hilfe; kein Arbeitsausfall."
+		}
+	],
+	"likelihood": [
+		{
+			"code": "1",
+			"label": "Häufig",
+			"anchor": "Mindestens einmal pro Monat in einer kollektiven Schätzung von 1000 Personen, die diese Tätigkeit unter ähnlichen Bedingungen ausführen."
+		},
+		{
+			"code": "2",
+			"label": "Gelegentlich",
+			"anchor": "Mindestens einmal pro Jahr und höchstens einmal pro Monat in einer kollektiven Schätzung von 1000 Personen, die diese Tätigkeit unter ähnlichen Bedingungen ausführen."
+		},
+		{
+			"code": "3",
+			"label": "Selten",
+			"anchor": "Mindestens einmal pro 5 Jahre und höchstens einmal pro Jahr in einer kollektiven Schätzung von 1000 Personen, die diese Tätigkeit unter ähnlichen Bedingungen ausführen."
+		},
+		{
+			"code": "4",
+			"label": "Unwahrscheinlich",
+			"anchor": "Mindestens einmal pro 20 Jahre und höchstens einmal pro 5 Jahre in einer kollektiven Schätzung von 1000 Personen, die diese Tätigkeit unter ähnlichen Bedingungen ausführen."
+		},
+		{
+			"code": "5",
+			"label": "Praktisch unmöglich",
+			"anchor": "Mindestens einmal pro 100 Jahre und höchstens einmal pro 20 Jahre in einer kollektiven Schätzung von 1000 Personen, die diese Tätigkeit unter ähnlichen Bedingungen ausführen."
+		}
+	],
+	"riskBands": [
+		{
+			"code": "HIGH",
+			"label": "Höheres Risiko"
+		},
+		{
+			"code": "MEDIUM",
+			"label": "Mittleres Risiko"
+		},
+		{
+			"code": "LOW",
+			"label": "Tieferes Risiko"
+		}
+	],
+	"controlHierarchy": [
+		{
+			"code": "SUBSTITUTION",
+			"letter": "S",
+			"label": "Substitution"
+		},
+		{
+			"code": "TECHNICAL",
+			"letter": "T",
+			"label": "Technische Massnahmen"
+		},
+		{
+			"code": "ORGANIZATIONAL",
+			"letter": "O",
+			"label": "Organisatorische Massnahmen"
+		},
+		{
+			"code": "PPE",
+			"letter": "P",
+			"label": "Personenbezogene Massnahmen"
+		}
+	]
+}

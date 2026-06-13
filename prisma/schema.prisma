@@ -1,0 +1,894 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["shared", "tenant"]
+}
+
+enum Language {
+  de
+  en
+  fr
+  it
+
+  @@map("language_code")
+  @@schema("shared")
+}
+
+enum IncidentType {
+  NEAR_MISS
+  ACCIDENT
+  PROPERTY_DAMAGE
+
+  @@map("incident_type")
+  @@schema("tenant")
+}
+
+enum IncidentActualInjuryOutcome {
+  UNKNOWN
+  NO_INJURY
+  FIRST_AID
+  MEDICAL_TREATMENT
+  LOST_TIME
+  IRREVERSIBLE_INJURY
+  FATALITY
+
+  @@map("incident_actual_injury_outcome")
+  @@schema("tenant")
+}
+
+enum IncidentWorkflowStage {
+  FACTS
+  TIMELINE
+  CAUSES
+  ACTIONS
+  REVIEW
+  APPROVED
+
+  @@map("incident_workflow_stage")
+  @@schema("tenant")
+}
+
+enum IncidentTimelineConfidence {
+  CONFIRMED
+  LIKELY
+  UNCLEAR
+
+  @@map("incident_timeline_confidence")
+  @@schema("tenant")
+}
+
+enum IncidentActionType {
+  SUBSTITUTION
+  TECHNICAL
+  ORGANIZATIONAL
+  PPE
+  ENGINEERING
+  ORGANISATIONAL
+  TRAINING
+
+  @@map("incident_action_type")
+  @@schema("tenant")
+}
+
+enum IncidentActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETE
+
+  @@map("incident_action_status")
+  @@schema("tenant")
+}
+
+enum IncidentVisionConsent {
+  ASK
+  ALWAYS
+  NEVER
+
+  @@map("incident_vision_consent")
+  @@schema("tenant")
+}
+
+enum ApprovalWorkflowType {
+  HIRA
+  JHA
+  II
+
+  @@map("approval_workflow_type")
+  @@schema("tenant")
+}
+
+enum GeneratedArtifactSource {
+  GENERATED
+  HAND_TUNED
+
+  @@map("generated_artifact_source")
+  @@schema("tenant")
+}
+
+enum CostLedgerKind {
+  authoring
+  generation
+
+  @@map("cost_ledger_kind")
+  @@schema("tenant")
+}
+
+enum ChemicalProfileStatus {
+  DRAFT    @map("draft")
+  ACTIVE   @map("active")
+  ARCHIVED @map("archived")
+
+  @@map("chemical_profile_status")
+  @@schema("tenant")
+}
+
+enum ChemicalProfileExtractionStatus {
+  NONE            @map("none")
+  PENDING         @map("pending")
+  EXTRACTED       @map("extracted")
+  REVIEW_REQUIRED @map("review_required")
+  APPROVED        @map("approved")
+
+  @@map("chemical_profile_extraction_status")
+  @@schema("tenant")
+}
+
+enum ChemicalControlType {
+  USE_CONTROL    @map("use_control")
+  PPE            @map("ppe")
+  GLOVE_TYPE     @map("glove_type")
+  EYE_PROTECTION @map("eye_protection")
+  RESPIRATORY    @map("respiratory")
+  ENVIRONMENTAL  @map("environmental")
+  STORAGE        @map("storage")
+  HANDLING       @map("handling")
+  FIRST_AID      @map("first_aid")
+  FIRE_FIGHTING  @map("fire_fighting")
+  SPILL_RESPONSE @map("spill_response")
+
+  @@map("chemical_control_type")
+  @@schema("tenant")
+}
+
+enum ChemicalControlSourceProvenance {
+  MANUAL         @map("manual")
+  SDS_EXTRACTION @map("sds_extraction")
+
+  @@map("chemical_control_source_provenance")
+  @@schema("tenant")
+}
+
+enum ChemicalControlReviewStatus {
+  PENDING  @map("pending")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+
+  @@map("chemical_control_review_status")
+  @@schema("tenant")
+}
+
+enum ActionItemStatus {
+  OPEN        @map("open")
+  IN_PROGRESS @map("in_progress")
+  COMPLETED   @map("completed")
+  CANCELLED   @map("cancelled")
+
+  @@map("action_item_status")
+  @@schema("tenant")
+}
+
+enum ActionItemOriginType {
+  HIRA              @map("hira")
+  II                @map("ii")
+  JHA               @map("jha")
+  SAFETY_WALK       @map("safety_walk")
+  AUDIT_INSPECTION  @map("audit_inspection")
+  TOOLBOX_TALK      @map("toolbox_talk")
+  MEETING           @map("meeting")
+  MANUAL            @map("manual")
+  SAFETY_MOMENT     @map("safety_moment")
+  CREATIVE_ARTIFACT @map("creative_artifact")
+  CAMPAIGN          @map("campaign")
+  ROADMAP           @map("roadmap")
+  SAFETY_DAY        @map("safety_day")
+
+  @@map("action_item_origin_type")
+  @@schema("tenant")
+}
+
+enum ActionItemPriority {
+  LOW      @map("low")
+  MEDIUM   @map("medium")
+  HIGH     @map("high")
+  CRITICAL @map("critical")
+
+  @@map("action_item_priority")
+  @@schema("tenant")
+}
+
+enum ActionItemVerificationStatus {
+  NOT_REQUIRED    @map("not_required")
+  NEEDED          @map("needed")
+  VERIFIED        @map("verified")
+  NEEDS_FOLLOW_UP @map("needs_follow_up")
+
+  @@map("action_item_verification_status")
+  @@schema("tenant")
+}
+
+enum ActionItemEffectivenessResult {
+  UNKNOWN         @map("unknown")
+  EFFECTIVE       @map("effective")
+  NEEDS_FOLLOW_UP @map("needs_follow_up")
+
+  @@map("action_item_effectiveness_result")
+  @@schema("tenant")
+}
+
+enum FindingType {
+  SAFETY_WALK  @map("safety_walk")
+  AUDIT        @map("audit")
+  INSPECTION   @map("inspection")
+  MEETING      @map("meeting")
+  TOOLBOX_TALK @map("toolbox_talk")
+
+  @@map("finding_type")
+  @@schema("tenant")
+}
+
+enum FindingIntent {
+  HAZARD               @map("hazard")
+  GOOD_CATCH           @map("good_catch")
+  POSITIVE_OBSERVATION @map("positive_observation")
+
+  @@map("finding_intent")
+  @@schema("tenant")
+}
+
+enum FindingSeverity {
+  LOW      @map("low")
+  MEDIUM   @map("medium")
+  HIGH     @map("high")
+  CRITICAL @map("critical")
+
+  @@map("finding_severity")
+  @@schema("tenant")
+}
+
+enum FindingStatus {
+  OPEN           @map("open")
+  ACTION_CREATED @map("action_created")
+  RESOLVED       @map("resolved")
+  DISMISSED      @map("dismissed")
+
+  @@map("finding_status")
+  @@schema("tenant")
+}
+
+model Tenant {
+  id                                String             @id @default(uuid()) @db.Uuid
+  name                              String
+  defaultLanguage                   Language           @map("default_language")
+  workspaceKind                     String             @default("company") @map("workspace_kind")
+  createdByUserId                   String?            @map("created_by_user_id") @db.Uuid
+  visionEnabled                     Boolean            @default(false) @map("vision_enabled")
+  byokProviderConfigCiphertext      Bytes?             @map("byok_provider_config_ciphertext")
+  byokProviderConfigMaskedIndicator String?            @map("byok_provider_config_masked_indicator")
+  localOverrideConfig               Json?              @map("local_override_config")
+  capabilities                      Json               @default("{}")
+  monthlyCapUsd                     Decimal?           @map("monthly_cap_usd") @db.Decimal(10, 2)
+  createdAt                         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt                         DateTime?          @map("deleted_at") @db.Timestamptz(6)
+  createdBy                         User?              @relation("TenantCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  domains                           TenantDomain[]
+  invitations                       Invitation[]
+  memberships                       TenantMembership[]
+  sessions                          Session[]
+
+  @@map("tenants")
+  @@schema("shared")
+}
+
+model User {
+  id                     String                @id @default(uuid()) @db.Uuid
+  email                  String                @unique @db.Citext
+  uiLocale               Language?             @map("ui_locale")
+  createdAt              DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  acknowledgements       UserAcknowledgement[]
+  createdInvitations     Invitation[]          @relation("InvitationCreator")
+  approvalSnapshots      ApprovalSnapshot[]
+  assignedActionItems    ActionItem[]          @relation("ActionItemAssignee")
+  chemicalControlReviews ChemicalControl[]     @relation("ChemicalControlReviewer")
+  chemicalReviews        ChemicalProfile[]     @relation("ChemicalProfileSdsReviewer")
+  reportedFindings       Finding[]             @relation("FindingReporter")
+  generatedArtifacts     GeneratedArtifact[]
+  createdTenants         Tenant[]              @relation("TenantCreator")
+  memberships            TenantMembership[]
+  sessions               Session[]
+  verifiedActionItems    ActionItem[]          @relation("ActionItemVerifier")
+
+  @@map("users")
+  @@schema("shared")
+}
+
+model TenantDomain {
+  id        String   @id @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  domain    String   @unique @db.Citext
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "tenant_domains_tenant_id_idx")
+  @@map("tenant_domains")
+  @@schema("shared")
+}
+
+model UserAcknowledgement {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  disclaimerVersion String   @map("disclaimer_version")
+  acknowledgedAt    DateTime @default(now()) @map("acknowledged_at") @db.Timestamptz(6)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, disclaimerVersion], map: "user_acknowledgements_user_id_disclaimer_version_key")
+  @@index([userId], map: "user_acknowledgements_user_id_idx")
+  @@map("user_acknowledgements")
+  @@schema("shared")
+}
+
+model TenantMembership {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId], map: "tenant_memberships_tenant_id_user_id_key")
+  @@index([userId], map: "tenant_memberships_user_id_idx")
+  @@map("tenant_memberships")
+  @@schema("shared")
+}
+
+model Invitation {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  recipientEmail String    @map("recipient_email") @db.Citext
+  tokenHash      Bytes     @unique @map("token_hash")
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  consumedAt     DateTime? @map("consumed_at") @db.Timestamptz(6)
+  createdById    String    @map("created_by") @db.Uuid
+  createdBy      User      @relation("InvitationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([createdById], map: "invitations_created_by_idx")
+  @@index([tenantId], map: "invitations_tenant_id_idx")
+  @@map("invitations")
+  @@schema("shared")
+}
+
+model MagicLinkToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  email      String    @db.Citext
+  tokenHash  Bytes     @unique @map("token_hash")
+  expiresAt  DateTime  @default(dbgenerated("(now() + interval '15 minutes')")) @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+
+  @@map("magic_link_tokens")
+  @@schema("shared")
+}
+
+model MagicLinkRequestLimit {
+  scope       String
+  bucketStart DateTime @map("bucket_start") @db.Timestamptz(6)
+  count       Int      @default(0)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([scope, bucketStart])
+  @@index([bucketStart], map: "magic_link_request_limits_bucket_start_idx")
+  @@map("magic_link_request_limits")
+  @@schema("shared")
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  deviceHint String?  @map("device_hint")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "sessions_tenant_id_idx")
+  @@index([userId], map: "sessions_user_id_idx")
+  @@map("sessions")
+  @@schema("shared")
+}
+
+model IncidentCase {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  caseNumber         String?                 @map("case_number")
+  suvaCaseNumber     String?                 @map("suva_case_number")
+  title              String
+  incidentAt         DateTime?               @map("incident_at") @db.Timestamptz(6)
+  incidentTimeNote   String?                 @map("incident_time_note")
+  location           String?
+  incidentType       IncidentType            @map("incident_type")
+  actualInjuryOutcome IncidentActualInjuryOutcome? @map("actual_injury_outcome")
+  actualSeverityCode String?                 @map("actual_severity_code")
+  actualSeverityReason String?               @map("actual_severity_reason")
+  potentialOutcomeText String?                 @map("potential_outcome_text")
+  potentialSeverityCode String?                 @map("potential_severity_code")
+  potentialLikelihoodCode String?                 @map("potential_likelihood_code")
+  potentialRiskBand   String?                 @map("potential_risk_band")
+  hazardCategoryCode String?                 @map("hazard_category_code")
+  departmentText     String?                 @map("department_text")
+  areaText           String?                 @map("area_text")
+  shiftText          String?                 @map("shift_text")
+  workActivity       String?                 @map("work_activity")
+  workType           String?                 @map("work_type")
+  eventType          String?                 @map("event_type")
+  processInvolved    String?                 @map("process_involved")
+  ppeRequired        String[]                @default([]) @map("ppe_required")
+  ppeWorn            String[]                @default([]) @map("ppe_worn")
+  injuryNature       String?                 @map("injury_nature")
+  bodyPart           String?                 @map("body_part")
+  lostDays           Int?                    @map("lost_days")
+  contractorFlag     Boolean?                @map("contractor_flag")
+  timeInRoleBand     String?                 @map("time_in_role_band")
+  reportableUvg      Boolean?                @map("reportable_uvg")
+  controlFailure     String?                 @map("control_failure")
+  immediateCause     String?                 @map("immediate_cause")
+  contributingCauses String[]                @default([]) @map("contributing_causes")
+  closedAt           DateTime?               @map("closed_at") @db.Timestamptz(6)
+  coordinatorRole    String                  @map("coordinator_role")
+  coordinatorName    String?                 @map("coordinator_name")
+  workflowStage      IncidentWorkflowStage   @default(FACTS) @map("workflow_stage")
+  contentLanguage    Language                @map("content_language")
+  visionConsent      IncidentVisionConsent   @default(ASK) @map("vision_consent")
+  hiraFollowupNeeded Boolean                 @default(false) @map("hira_followup_needed")
+  hiraFollowupText   String?                 @map("hira_followup_text")
+  createdById        String                  @map("created_by") @db.Uuid
+  createdAt          DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  persons            IncidentPerson[]
+  accounts           IncidentAccount[]
+  timelineEvents     IncidentTimelineEvent[]
+  causeNodes         IncidentCauseNode[]
+  approvalSnapshots  ApprovalSnapshot[]      @relation("ApprovalSnapshotIiCase")
+  generatedArtifacts GeneratedArtifact[]     @relation("GeneratedArtifactIiCase")
+
+  @@index([createdById], map: "incident_case_created_by_idx")
+  @@index([workflowStage], map: "incident_case_workflow_stage_idx")
+  @@map("incident_case")
+  @@schema("tenant")
+}
+
+model VisionCallAudit {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  workflowId    String   @map("workflow_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  photoHash     String   @map("photo_hash")
+  provider      String
+  model         String
+  promptPurpose String   @map("prompt_purpose")
+  calledAt      DateTime @default(now()) @map("called_at") @db.Timestamptz(6)
+  latencyMs     Int      @map("latency_ms")
+  tokenCostUsd  Decimal? @map("token_cost_usd") @db.Decimal(12, 6)
+
+  @@index([workflowId], map: "vision_call_audit_workflow_id_idx")
+  @@index([userId], map: "vision_call_audit_user_id_idx")
+  @@map("vision_call_audit")
+  @@schema("tenant")
+}
+
+model CostLedgerEntry {
+  id          String         @id @default(uuid()) @db.Uuid
+  calledAt    DateTime       @default(now()) @map("called_at") @db.Timestamptz(6)
+  kind        CostLedgerKind
+  provider    String
+  tokenInput  Int            @map("token_input")
+  tokenOutput Int            @map("token_output")
+  costUsd     Decimal        @map("cost_usd") @db.Decimal(10, 5)
+
+  @@index([calledAt], map: "cost_ledger_entry_called_at_idx")
+  @@map("cost_ledger_entry")
+  @@schema("tenant")
+}
+
+model ChemicalProfile {
+  id                  String                          @id @default(uuid()) @db.Uuid
+  tenantId            String                          @map("tenant_id") @db.Uuid
+  productName         String                          @map("product_name")
+  manufacturer        String
+  casNumber           String?                         @map("cas_number")
+  unNumber            String?                         @map("un_number")
+  profileStatus       ChemicalProfileStatus           @default(DRAFT) @map("profile_status")
+  sdsReviewed         Boolean                         @default(false) @map("sds_reviewed")
+  sdsReviewedByUserId String?                         @map("sds_reviewed_by_user_id") @db.Uuid
+  sdsReviewedAt       DateTime?                       @map("sds_reviewed_at") @db.Timestamptz(6)
+  extractionStatus    ChemicalProfileExtractionStatus @default(NONE) @map("extraction_status")
+  storagePath         String?                         @map("storage_path")
+  createdAt           DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sdsReviewedBy       User?                           @relation("ChemicalProfileSdsReviewer", fields: [sdsReviewedByUserId], references: [id], onDelete: Restrict)
+  controls            ChemicalControl[]
+
+  @@index([tenantId], map: "chemical_profile_tenant_id_idx")
+  @@index([profileStatus], map: "chemical_profile_profile_status_idx")
+  @@index([extractionStatus], map: "chemical_profile_extraction_status_idx")
+  @@map("chemical_profile")
+  @@schema("tenant")
+}
+
+model ChemicalControl {
+  id                    String                          @id @default(uuid()) @db.Uuid
+  chemicalProfileId     String                          @map("chemical_profile_id") @db.Uuid
+  controlType           ChemicalControlType             @map("control_type")
+  controlText           String                          @map("control_text")
+  sourceProvenance      ChemicalControlSourceProvenance @default(MANUAL) @map("source_provenance")
+  reviewStatus          ChemicalControlReviewStatus     @default(PENDING) @map("review_status")
+  reviewedByUserId      String?                         @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt            DateTime?                       @map("reviewed_at") @db.Timestamptz(6)
+  sortOrder             Int                             @default(0) @map("sort_order")
+  sdsSection            String?                         @map("sds_section")
+  sourceExcerpt         String?                         @map("source_excerpt")
+  pageLineRef           String?                         @map("page_line_ref")
+  sourceFilename        String?                         @map("source_filename")
+  sourceStoragePath     String?                         @map("source_storage_path")
+  extractionModelMarker String?                         @map("extraction_model_marker")
+  extractionConfidence  Float?                          @map("extraction_confidence")
+  createdAt             DateTime                        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime                        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  chemicalProfile       ChemicalProfile                 @relation(fields: [chemicalProfileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  reviewedBy            User?                           @relation("ChemicalControlReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([chemicalProfileId], map: "chemical_control_profile_id_idx")
+  @@index([controlType], map: "chemical_control_type_idx")
+  @@index([sourceProvenance], map: "chemical_control_source_provenance_idx")
+  @@index([reviewStatus], map: "chemical_control_review_status_idx")
+  @@map("chemical_control")
+  @@schema("tenant")
+}
+
+model ActionItem {
+  id                  String                        @id @default(uuid()) @db.Uuid
+  tenantId            String                        @map("tenant_id") @db.Uuid
+  title               String
+  description         String?
+  status              ActionItemStatus              @default(OPEN)
+  dueDate             DateTime?                     @map("due_date") @db.Date
+  assigneeUserId      String?                       @map("assignee_user_id") @db.Uuid
+  ownerText           String?                       @map("owner_text")
+  departmentText      String?                       @map("department_text")
+  originType          ActionItemOriginType          @map("origin_type")
+  originId            String?                       @map("origin_id") @db.Uuid
+  originLabel         String                        @map("origin_label")
+  originCreatedAt     DateTime                      @map("origin_created_at") @db.Timestamptz(6)
+  priority            ActionItemPriority            @default(MEDIUM)
+  isSafetyCritical    Boolean                       @default(false) @map("is_safety_critical")
+  verificationStatus  ActionItemVerificationStatus  @default(NOT_REQUIRED) @map("verification_status")
+  verificationNote    String?                       @map("verification_note")
+  verifiedAt          DateTime?                     @map("verified_at") @db.Timestamptz(6)
+  verifiedByUserId    String?                       @map("verified_by_user_id") @db.Uuid
+  effectivenessResult ActionItemEffectivenessResult @default(UNKNOWN) @map("effectiveness_result")
+  assignedAt          DateTime?                     @map("assigned_at") @db.Timestamptz(6)
+  escalatedAt         DateTime?                     @map("escalated_at") @db.Timestamptz(6)
+  notificationSentAt  DateTime?                     @map("notification_sent_at") @db.Timestamptz(6)
+  completedAt         DateTime?                     @map("completed_at") @db.Timestamptz(6)
+  createdAt           DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assignee            User?                         @relation("ActionItemAssignee", fields: [assigneeUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  verifiedBy          User?                         @relation("ActionItemVerifier", fields: [verifiedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  attachments         ActionAttachment[]
+  finding             Finding?                      @relation("FindingActionItem")
+  incidentCauseActions IncidentCauseAction[]         @relation("IncidentCauseActionItem")
+
+  @@index([tenantId], map: "action_item_tenant_id_idx")
+  @@index([status], map: "action_item_status_idx")
+  @@index([dueDate], map: "action_item_due_date_idx")
+  @@index([assigneeUserId], map: "action_item_assignee_user_id_idx")
+  @@index([originType, originId], map: "action_item_origin_idx")
+  @@index([priority], map: "action_item_priority_idx")
+  @@index([verificationStatus], map: "action_item_verification_status_idx")
+  @@map("action_item")
+  @@schema("tenant")
+}
+
+model ActionAttachment {
+  id               String     @id @default(uuid()) @db.Uuid
+  actionItemId     String     @map("action_item_id") @db.Uuid
+  storagePath      String     @map("storage_path")
+  filename         String
+  mimeType         String     @map("mime_type")
+  uploadedByUserId String     @map("uploaded_by_user_id") @db.Uuid
+  uploadedAt       DateTime   @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+  description      String?
+  actionItem       ActionItem @relation(fields: [actionItemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([storagePath], map: "action_attachment_storage_path_key")
+  @@index([actionItemId], map: "action_attachment_action_item_id_idx")
+  @@index([uploadedByUserId], map: "action_attachment_uploaded_by_user_id_idx")
+  @@map("action_attachment")
+  @@schema("tenant")
+}
+
+model Finding {
+  id                String          @id @default(uuid()) @db.Uuid
+  tenantId          String          @map("tenant_id") @db.Uuid
+  findingType       FindingType     @map("finding_type")
+  intent            FindingIntent   @default(HAZARD)
+  title             String
+  description       String
+  severity          FindingSeverity
+  departmentText    String?         @map("department_text")
+  locationText      String?         @map("location_text")
+  workAsDoneContext String?         @map("work_as_done_context")
+  reportedByUserId  String          @map("reported_by_user_id") @db.Uuid
+  reportedAt        DateTime        @default(now()) @map("reported_at") @db.Timestamptz(6)
+  status            FindingStatus   @default(OPEN)
+  photoStoragePath  String?         @map("photo_storage_path")
+  actionItemId      String?         @unique(map: "finding_action_item_id_key") @map("action_item_id") @db.Uuid
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  actionItem        ActionItem?     @relation("FindingActionItem", fields: [actionItemId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reportedBy        User            @relation("FindingReporter", fields: [reportedByUserId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([tenantId], map: "finding_tenant_id_idx")
+  @@index([findingType], map: "finding_type_idx")
+  @@index([intent], map: "finding_intent_idx")
+  @@index([severity], map: "finding_severity_idx")
+  @@index([status], map: "finding_status_idx")
+  @@index([reportedByUserId], map: "finding_reported_by_user_id_idx")
+  @@index([reportedAt], map: "finding_reported_at_idx")
+  @@map("finding")
+  @@schema("tenant")
+}
+
+model IncidentPerson {
+  id           String           @id @default(uuid()) @db.Uuid
+  caseId       String           @map("case_id") @db.Uuid
+  role         String
+  name         String?
+  otherInfo    String?          @map("other_info")
+  yearsWithCompany Int?         @map("years_with_company")
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  incidentCase IncidentCase     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  account      IncidentAccount?
+
+  @@index([caseId], map: "incident_person_case_id_idx")
+  @@map("incident_person")
+  @@schema("tenant")
+}
+
+model IncidentAccount {
+  id              String                   @id @default(uuid()) @db.Uuid
+  caseId          String                   @map("case_id") @db.Uuid
+  personId        String                   @unique(map: "incident_account_person_id_key") @map("person_id") @db.Uuid
+  rawStatement    String?                  @map("raw_statement")
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  incidentCase    IncidentCase             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  person          IncidentPerson           @relation(fields: [personId], references: [id], onDelete: Cascade)
+  facts           IncidentFact[]
+  personalEvents  IncidentPersonalEvent[]
+  timelineSources IncidentTimelineSource[]
+
+  @@index([caseId], map: "incident_account_case_id_idx")
+  @@map("incident_account")
+  @@schema("tenant")
+}
+
+model IncidentFact {
+  id              String                   @id @default(uuid()) @db.Uuid
+  accountId       String                   @map("account_id") @db.Uuid
+  orderIndex      Int                      @default(0) @map("order_index")
+  text            String
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account         IncidentAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  timelineSources IncidentTimelineSource[]
+
+  @@index([accountId], map: "incident_fact_account_id_idx")
+  @@map("incident_fact")
+  @@schema("tenant")
+}
+
+model IncidentPersonalEvent {
+  id              String                   @id @default(uuid()) @db.Uuid
+  accountId       String                   @map("account_id") @db.Uuid
+  orderIndex      Int                      @default(0) @map("order_index")
+  eventAt         DateTime?                @map("event_at") @db.Timestamptz(6)
+  timeLabel       String?                  @map("time_label")
+  text            String
+  createdAt       DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
+  account         IncidentAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  timelineSources IncidentTimelineSource[]
+
+  @@index([accountId], map: "incident_personal_event_account_id_idx")
+  @@map("incident_personal_event")
+  @@schema("tenant")
+}
+
+model IncidentTimelineEvent {
+  id           String                     @id @default(uuid()) @db.Uuid
+  caseId       String                     @map("case_id") @db.Uuid
+  orderIndex   Int                        @default(0) @map("order_index")
+  eventAt      DateTime?                  @map("event_at") @db.Timestamptz(6)
+  timeLabel    String?                    @map("time_label")
+  text         String
+  confidence   IncidentTimelineConfidence @default(LIKELY)
+  createdAt    DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  incidentCase IncidentCase               @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  sources      IncidentTimelineSource[]
+  deviations   IncidentDeviation[]
+  causeNodes   IncidentCauseNode[]
+  attachments  IncidentAttachment[]
+
+  @@index([caseId], map: "incident_timeline_event_case_id_idx")
+  @@index([eventAt], map: "incident_timeline_event_event_at_idx")
+  @@map("incident_timeline_event")
+  @@schema("tenant")
+}
+
+model IncidentTimelineSource {
+  id              String                 @id @default(uuid()) @db.Uuid
+  timelineEventId String                 @map("timeline_event_id") @db.Uuid
+  accountId       String                 @map("account_id") @db.Uuid
+  factId          String?                @map("fact_id") @db.Uuid
+  personalEventId String?                @map("personal_event_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  timelineEvent   IncidentTimelineEvent  @relation(fields: [timelineEventId], references: [id], onDelete: Cascade)
+  account         IncidentAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  fact            IncidentFact?          @relation(fields: [factId], references: [id], onDelete: SetNull)
+  personalEvent   IncidentPersonalEvent? @relation(fields: [personalEventId], references: [id], onDelete: SetNull)
+
+  @@index([timelineEventId], map: "incident_timeline_source_event_id_idx")
+  @@index([accountId], map: "incident_timeline_source_account_id_idx")
+  @@index([factId], map: "incident_timeline_source_fact_id_idx")
+  @@index([personalEventId], map: "incident_timeline_source_personal_event_id_idx")
+  @@map("incident_timeline_source")
+  @@schema("tenant")
+}
+
+model IncidentDeviation {
+  id            String                @id @default(uuid()) @db.Uuid
+  eventId       String                @map("event_id") @db.Uuid
+  orderIndex    Int                   @default(0) @map("order_index")
+  expected      String?
+  actual        String?
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  timelineEvent IncidentTimelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId], map: "incident_deviation_event_id_idx")
+  @@map("incident_deviation")
+  @@schema("tenant")
+}
+
+model IncidentCauseNode {
+  id              String                 @id @default(uuid()) @db.Uuid
+  caseId          String                 @map("case_id") @db.Uuid
+  parentId        String?                @map("parent_id") @db.Uuid
+  timelineEventId String?                @map("timeline_event_id") @db.Uuid
+  orderIndex      Int                    @default(0) @map("order_index")
+  statement       String
+  question        String?
+  isRootCause     Boolean                @default(false) @map("is_root_cause")
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+  incidentCase    IncidentCase           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  parent          IncidentCauseNode?     @relation("IncidentCauseTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children        IncidentCauseNode[]    @relation("IncidentCauseTree")
+  timelineEvent   IncidentTimelineEvent? @relation(fields: [timelineEventId], references: [id], onDelete: SetNull)
+  actions         IncidentCauseAction[]
+
+  @@index([caseId], map: "incident_cause_node_case_id_idx")
+  @@index([parentId], map: "incident_cause_node_parent_id_idx")
+  @@index([timelineEventId], map: "incident_cause_node_timeline_event_id_idx")
+  @@map("incident_cause_node")
+  @@schema("tenant")
+}
+
+model IncidentCauseAction {
+  id           String               @id @default(uuid()) @db.Uuid
+  causeNodeId  String               @map("cause_node_id") @db.Uuid
+  actionItemId String?              @map("action_item_id") @db.Uuid
+  orderIndex   Int                  @default(0) @map("order_index")
+  description  String
+  ownerRole    String?              @map("owner_role")
+  dueDate      DateTime?            @map("due_date") @db.Date
+  actionType   IncidentActionType?  @map("action_type")
+  status       IncidentActionStatus @default(OPEN)
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  actionItem   ActionItem?          @relation("IncidentCauseActionItem", fields: [actionItemId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  causeNode    IncidentCauseNode    @relation(fields: [causeNodeId], references: [id], onDelete: Cascade)
+
+  @@index([causeNodeId], map: "incident_cause_action_cause_node_id_idx")
+  @@index([actionItemId], map: "incident_cause_action_action_item_id_idx")
+  @@map("incident_cause_action")
+  @@schema("tenant")
+}
+
+model IncidentAttachment {
+  id            String                @id @default(uuid()) @db.Uuid
+  eventId       String                @map("event_id") @db.Uuid
+  storageKey    String                @map("storage_key")
+  filename      String?
+  mimeType      String?               @map("mime_type")
+  sizeBytes     BigInt?               @map("size_bytes")
+  createdAt     DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById   String                @map("created_by") @db.Uuid
+  timelineEvent IncidentTimelineEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId], map: "incident_attachment_event_id_idx")
+  @@index([createdById], map: "incident_attachment_created_by_idx")
+  @@map("incident_attachment")
+  @@schema("tenant")
+}
+
+model ApprovalSnapshot {
+  id             String               @id @default(uuid()) @db.Uuid
+  workflowType   ApprovalWorkflowType @map("workflow_type")
+  hiraCaseId     String?              @map("hira_case_id") @db.Uuid
+  jhaCaseId      String?              @map("jha_case_id") @db.Uuid
+  iiCaseId       String?              @map("ii_case_id") @db.Uuid
+  versionLabel   String               @map("version_label")
+  approvedById   String               @map("approved_by") @db.Uuid
+  approvedAt     DateTime             @map("approved_at") @db.Timestamptz(6)
+  schemaVersion  Int                  @default(1) @map("schema_version")
+  workflowData   Json                 @map("workflow_data")
+  artifactRefs   Json                 @default("[]") @map("artifact_refs")
+  attachmentRefs Json                 @default("[]") @map("attachment_refs")
+  approvedBy     User                 @relation(fields: [approvedById], references: [id], onDelete: Restrict)
+  iiCase         IncidentCase?        @relation("ApprovalSnapshotIiCase", fields: [iiCaseId], references: [id], onDelete: Restrict)
+  artifacts      GeneratedArtifact[]
+
+  @@index([approvedById], map: "approval_snapshot_approved_by_idx")
+  @@index([iiCaseId], map: "approval_snapshot_ii_case_id_idx")
+  @@index([workflowType], map: "approval_snapshot_workflow_type_idx")
+  @@map("approval_snapshot")
+  @@schema("tenant")
+}
+
+model GeneratedArtifact {
+  id               String                  @id @default(uuid()) @db.Uuid
+  workflowType     ApprovalWorkflowType    @map("workflow_type")
+  hiraCaseId       String?                 @map("hira_case_id") @db.Uuid
+  jhaCaseId        String?                 @map("jha_case_id") @db.Uuid
+  iiCaseId         String?                 @map("ii_case_id") @db.Uuid
+  outputType       String                  @map("output_type")
+  versionSeq       Int                     @map("version_seq")
+  snapshotId       String?                 @map("snapshot_id") @db.Uuid
+  storageKey       String                  @map("storage_key")
+  filename         String?
+  mimeType         String?                 @map("mime_type")
+  sizeBytes        BigInt?                 @map("size_bytes")
+  generatedAt      DateTime                @default(now()) @map("generated_at") @db.Timestamptz(6)
+  generatedById    String                  @map("generated_by") @db.Uuid
+  source           GeneratedArtifactSource
+  isSnapshotLinked Boolean                 @default(false) @map("is_snapshot_linked")
+  snapshot         ApprovalSnapshot?       @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  iiCase           IncidentCase?           @relation("GeneratedArtifactIiCase", fields: [iiCaseId], references: [id], onDelete: Restrict)
+  generatedBy      User                    @relation(fields: [generatedById], references: [id], onDelete: Restrict)
+
+  @@index([generatedById], map: "generated_artifact_generated_by_idx")
+  @@index([iiCaseId], map: "generated_artifact_ii_case_id_idx")
+  @@index([snapshotId], map: "generated_artifact_snapshot_id_idx")
+  @@index([workflowType], map: "generated_artifact_workflow_type_idx")
+  @@map("generated_artifact")
+  @@schema("tenant")
+}

@@ -1,0 +1,127 @@
+[
+  {
+    "severity": "A",
+    "likelihood": "1",
+    "band": "HIGH"
+  },
+  {
+    "severity": "B",
+    "likelihood": "1",
+    "band": "HIGH"
+  },
+  {
+    "severity": "C",
+    "likelihood": "1",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "D",
+    "likelihood": "1",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "E",
+    "likelihood": "1",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "A",
+    "likelihood": "2",
+    "band": "HIGH"
+  },
+  {
+    "severity": "B",
+    "likelihood": "2",
+    "band": "HIGH"
+  },
+  {
+    "severity": "C",
+    "likelihood": "2",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "D",
+    "likelihood": "2",
+    "band": "LOW"
+  },
+  {
+    "severity": "E",
+    "likelihood": "2",
+    "band": "LOW"
+  },
+  {
+    "severity": "A",
+    "likelihood": "3",
+    "band": "HIGH"
+  },
+  {
+    "severity": "B",
+    "likelihood": "3",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "C",
+    "likelihood": "3",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "D",
+    "likelihood": "3",
+    "band": "LOW"
+  },
+  {
+    "severity": "E",
+    "likelihood": "3",
+    "band": "LOW"
+  },
+  {
+    "severity": "A",
+    "likelihood": "4",
+    "band": "MEDIUM"
+  },
+  {
+    "severity": "B",
+    "likelihood": "4",
+    "band": "LOW"
+  },
+  {
+    "severity": "C",
+    "likelihood": "4",
+    "band": "LOW"
+  },
+  {
+    "severity": "D",
+    "likelihood": "4",
+    "band": "LOW"
+  },
+  {
+    "severity": "E",
+    "likelihood": "4",
+    "band": "LOW"
+  },
+  {
+    "severity": "A",
+    "likelihood": "5",
+    "band": "LOW"
+  },
+  {
+    "severity": "B",
+    "likelihood": "5",
+    "band": "LOW"
+  },
+  {
+    "severity": "C",
+    "likelihood": "5",
+    "band": "LOW"
+  },
+  {
+    "severity": "D",
+    "likelihood": "5",
+    "band": "LOW"
+  },
+  {
+    "severity": "E",
+    "likelihood": "5",
+    "band": "LOW"
+  }
+]

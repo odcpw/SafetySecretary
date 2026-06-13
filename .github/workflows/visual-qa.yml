@@ -1,0 +1,62 @@
+name: Visual QA
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/visual-qa.yml"
+      - "docs/dev/visual-qa.md"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "playwright.config.ts"
+      - "src/app/**"
+      - "src/components/**"
+      - "src/lib/i18n/**"
+      - "tests/visual/**"
+  workflow_dispatch:
+
+jobs:
+  visual-qa:
+    name: Playwright visual baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Build app assets
+        run: pnpm build
+
+      - name: Run visual QA
+        run: pnpm test:visual --reporter=line,html
+
+      - name: Upload visual diff artifacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: visual-qa-playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,96 @@
+{
+	"family": "hazard_extraction",
+	"description": "Extract hazards and existing controls from step context.",
+	"fixtures": [
+		{
+			"id": "hazard_extraction-01",
+			"prompt": "Scenario: packaging line changeover with a jammed carton sensor. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-02",
+			"prompt": "Scenario: forklift battery charging beside a pedestrian route. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-03",
+			"prompt": "Scenario: cleaning a mixer with residual wet product in the bowl. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-04",
+			"prompt": "Scenario: replacing a blade on a guarded cutting station. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-05",
+			"prompt": "Scenario: moving solvent drums from storage to a dosing point. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-06",
+			"prompt": "Scenario: working from a step ladder to reset an overhead valve. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-07",
+			"prompt": "Scenario: clearing dust from a filter housing during maintenance. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-08",
+			"prompt": "Scenario: night-shift handover after an alarm and partial stop. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-09",
+			"prompt": "Scenario: manual pallet wrapping at the end of a packing process. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		},
+		{
+			"id": "hazard_extraction-10",
+			"prompt": "Scenario: outdoor unloading during rain and poor visibility. Extract hazards for the relevant step, including categoryCode and existingControls. Return JSON only.",
+			"expectedShape": {
+				"mode": "json_schema",
+				"requiredFields": ["hazards"],
+				"humanReviewNote": "Reviewer checks usefulness, safety-domain fit, and whether the output avoids inventing facts."
+			}
+		}
+	]
+}

@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import {
+	authCookieSecurityContextFromRequest,
 	CSRF_COOKIE_NAME,
 	LOCALE_COOKIE_NAME,
 	setSessionCookie,
+	shouldUseSecureAuthCookies,
 } from "../../../../lib/auth/cookies";
 import { resolveUiLocale, type UiLocale } from "../../../../lib/auth/locale";
+import { normalizeLocalReturnTo } from "../../../../lib/auth/return-to";
 import { issueSession } from "../../../../lib/auth/session";
 import { prisma, provisionTenantSchema } from "../../../../lib/db";
 import { DISCLAIMER_VERSION } from "../../../../lib/legal/disclaimer";
@@ -53,8 +56,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		userId: workspace.userId,
 	});
 
-	setSessionCookie(response, session);
-	setCsrfCookie(response);
+	const cookieSecurity = authCookieSecurityContextFromRequest(request);
+	setSessionCookie(response, session, cookieSecurity);
+	setCsrfCookie(response, cookieSecurity);
 
 	return response;
 }
@@ -181,19 +185,18 @@ async function readReturnTo(request: NextRequest): Promise<string | null> {
 }
 
 function safeReturnTo(value: string | null): string {
-	if (!value?.startsWith("/") || value.startsWith("//")) {
-		return "/workspace";
-	}
-
-	return value;
+	return normalizeLocalReturnTo(value);
 }
 
-function setCsrfCookie(response: NextResponse): void {
+function setCsrfCookie(
+	response: NextResponse,
+	cookieSecurity: ReturnType<typeof authCookieSecurityContextFromRequest>,
+): void {
 	response.cookies.set(CSRF_COOKIE_NAME, randomUUID(), {
 		httpOnly: false,
 		maxAge: csrfCookieMaxAgeSeconds,
 		path: "/",
 		sameSite: "lax",
-		secure: process.env.NODE_ENV === "production",
+		secure: shouldUseSecureAuthCookies(cookieSecurity),
 	});
 }

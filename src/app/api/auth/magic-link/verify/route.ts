@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
 import type { Language } from "@prisma/client";
-import { setSessionCookie } from "../../../../../lib/auth/cookies";
+import {
+	authCookieSecurityContextFromRequest,
+	setSessionCookie,
+} from "../../../../../lib/auth/cookies";
 import { pickInitialUiLocale } from "../../../../../lib/auth/locale";
 import {
 	consumeMagicLinkToken,
@@ -118,7 +121,11 @@ async function verifyMagicLink(
 				{ status: 200 },
 			);
 
-	setSessionCookie(response, session);
+	setSessionCookie(
+		response,
+		session,
+		authCookieSecurityContextFromRequest(request),
+	);
 
 	return response;
 }

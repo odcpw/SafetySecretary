@@ -44,6 +44,7 @@ const {
 	normalizeOAuthReturnTo,
 	oauthRedirectUri,
 	oauthStateCookieName,
+	validateOAuthIdTokenClaims,
 } = (await import(
 	oauthModulePath
 )) as typeof import("../../../src/lib/auth/oauth");
@@ -60,6 +61,7 @@ test("Microsoft OAuth authorization request uses common tenant, PKCE, state cook
 		provider: "microsoft",
 		requestUrl: "https://safetysecretary.com/signin?returnTo=/workspace",
 		returnTo: "/incidents",
+		nonce: "nonce-1",
 		state: "state-1",
 	});
 
@@ -77,6 +79,7 @@ test("Microsoft OAuth authorization request uses common tenant, PKCE, state cook
 	);
 	assert.equal(request.authorizationUrl.searchParams.get("response_type"), "code");
 	assert.equal(request.authorizationUrl.searchParams.get("state"), "state-1");
+	assert.equal(request.authorizationUrl.searchParams.get("nonce"), "nonce-1");
 	assert.equal(
 		request.authorizationUrl.searchParams.get("redirect_uri"),
 		"https://safetysecretary.com/api/auth/oauth/microsoft/callback",
@@ -95,6 +98,7 @@ test("Microsoft OAuth authorization request uses common tenant, PKCE, state cook
 	assert.equal(request.cookie.maxAgeSeconds, 600);
 	assert.deepEqual(decodeOAuthStateCookie(request.cookie.value), {
 		codeVerifier: "verifier-1",
+		nonce: "nonce-1",
 		provider: "microsoft",
 		returnTo: "/incidents",
 		state: "state-1",
@@ -146,11 +150,198 @@ test("OAuth helpers reject missing provider credentials", () => {
 test("OAuth returnTo and state cookie parsing are defensive", () => {
 	assert.equal(normalizeOAuthReturnTo("/workspace/actions"), "/workspace/actions");
 	assert.equal(normalizeOAuthReturnTo("//evil.example.test"), "/workspace");
+	assert.equal(normalizeOAuthReturnTo("/\\evil.example.test"), "/workspace");
+	assert.equal(normalizeOAuthReturnTo("/workspace\u0000/actions"), "/workspace");
 	assert.equal(
 		normalizeOAuthReturnTo("https://evil.example.test/workspace"),
 		"/workspace",
 	);
 	assert.equal(decodeOAuthStateCookie("not-json"), null);
+	assert.equal(
+		decodeOAuthStateCookie(
+			Buffer.from(
+				JSON.stringify({
+					codeVerifier: "verifier-1",
+					provider: "google",
+					returnTo: "/workspace",
+					state: "state-1",
+				}),
+				"utf8",
+			).toString("base64url"),
+		),
+		null,
+	);
+});
+
+test("OAuth ID token claims require expected audience, issuer, nonce, and expiry", () => {
+	const now = new Date("2026-06-16T12:00:00.000Z");
+	const validGoogleClaims = {
+		aud: "google-client",
+		email: "alice@example.com",
+		email_verified: true,
+		exp: Math.floor(now.getTime() / 1000) + 300,
+		iss: "https://accounts.google.com",
+		nonce: "nonce-1",
+		sub: "subject-1",
+	};
+
+	assert.deepEqual(
+		validateOAuthIdTokenClaims({
+			claims: validGoogleClaims,
+			env: {
+				GOOGLE_OAUTH_CLIENT_ID: "google-client",
+				GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+			},
+			expectedNonce: "nonce-1",
+			now,
+			provider: "google",
+		}),
+		validGoogleClaims,
+	);
+	assert.throws(
+		() =>
+			validateOAuthIdTokenClaims({
+				claims: { ...validGoogleClaims, aud: "other-client" },
+				env: {
+					GOOGLE_OAUTH_CLIENT_ID: "google-client",
+					GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+				},
+				expectedNonce: "nonce-1",
+				now,
+				provider: "google",
+			}),
+		/OAuth ID token claims failed validation/,
+	);
+	assert.throws(
+		() =>
+			validateOAuthIdTokenClaims({
+				claims: null,
+				env: {
+					GOOGLE_OAUTH_CLIENT_ID: "google-client",
+					GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+				},
+				expectedNonce: "nonce-1",
+				now,
+				provider: "google",
+			}),
+		/OAuth ID token claims failed validation/,
+	);
+	assert.throws(
+		() =>
+			validateOAuthIdTokenClaims({
+				claims: { ...validGoogleClaims, iss: "https://accounts.google.evil" },
+				env: {
+					GOOGLE_OAUTH_CLIENT_ID: "google-client",
+					GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+				},
+				expectedNonce: "nonce-1",
+				now,
+				provider: "google",
+			}),
+		/OAuth ID token claims failed validation/,
+	);
+	assert.throws(
+		() =>
+			validateOAuthIdTokenClaims({
+				claims: { ...validGoogleClaims, nonce: "other-nonce" },
+				env: {
+					GOOGLE_OAUTH_CLIENT_ID: "google-client",
+					GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+				},
+				expectedNonce: "nonce-1",
+				now,
+				provider: "google",
+			}),
+		/OAuth ID token claims failed validation/,
+	);
+	assert.throws(
+		() =>
+			validateOAuthIdTokenClaims({
+				claims: {
+					...validGoogleClaims,
+					exp: Math.floor(now.getTime() / 1000) - 1,
+				},
+				env: {
+					GOOGLE_OAUTH_CLIENT_ID: "google-client",
+					GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+				},
+				expectedNonce: "nonce-1",
+				now,
+				provider: "google",
+			}),
+		/OAuth ID token claims failed validation/,
+	);
+
+	assert.deepEqual(
+		validateOAuthIdTokenClaims({
+			claims: {
+				aud: ["microsoft-client", "api://other"],
+				email: "alice@example.com",
+				exp: Math.floor(now.getTime() / 1000) + 300,
+				iss: "https://login.microsoftonline.com/tenant-id/v2.0",
+				nonce: "nonce-2",
+				sub: "subject-2",
+				xms_edov: true,
+			},
+			env: {
+				MICROSOFT_OAUTH_CLIENT_ID: "microsoft-client",
+				MICROSOFT_OAUTH_CLIENT_SECRET: "microsoft-secret",
+			},
+			expectedNonce: "nonce-2",
+			now,
+			provider: "microsoft",
+		}).sub,
+		"subject-2",
+	);
+
+	const tenantId = "11111111-1111-4111-8111-111111111111";
+	assert.equal(
+		validateOAuthIdTokenClaims({
+			claims: {
+				aud: "microsoft-client",
+				email: "alice@example.com",
+				exp: Math.floor(now.getTime() / 1000) + 300,
+				iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+				nonce: "nonce-3",
+				sub: "subject-3",
+				tid: tenantId,
+				xms_edov: true,
+			},
+			env: {
+				MICROSOFT_OAUTH_CLIENT_ID: "microsoft-client",
+				MICROSOFT_OAUTH_CLIENT_SECRET: "microsoft-secret",
+				MICROSOFT_OAUTH_TENANT: tenantId,
+			},
+			expectedNonce: "nonce-3",
+			now,
+			provider: "microsoft",
+		}).sub,
+		"subject-3",
+	);
+	assert.throws(
+		() =>
+			validateOAuthIdTokenClaims({
+				claims: {
+					aud: "microsoft-client",
+					email: "alice@example.com",
+					exp: Math.floor(now.getTime() / 1000) + 300,
+					iss: "https://login.microsoftonline.com/22222222-2222-4222-8222-222222222222/v2.0",
+					nonce: "nonce-3",
+					sub: "subject-3",
+					tid: "22222222-2222-4222-8222-222222222222",
+					xms_edov: true,
+				},
+				env: {
+					MICROSOFT_OAUTH_CLIENT_ID: "microsoft-client",
+					MICROSOFT_OAUTH_CLIENT_SECRET: "microsoft-secret",
+					MICROSOFT_OAUTH_TENANT: tenantId,
+				},
+				expectedNonce: "nonce-3",
+				now,
+				provider: "microsoft",
+			}),
+		/OAuth ID token claims failed validation/,
+	);
 });
 
 test("OAuth email extraction requires verified Google email and Microsoft domain-owner verified email", () => {

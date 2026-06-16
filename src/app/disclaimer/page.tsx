@@ -3,6 +3,7 @@
 import { Suspense, type FormEvent, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CSRF_COOKIE_NAME } from "../../lib/auth/cookies";
+import { normalizeLocalReturnTo } from "../../lib/auth/return-to";
 import { acknowledgementText } from "../../lib/legal/disclaimer";
 import { t } from "../../lib/i18n/t";
 import { LOCALES, type Locale, type MessageKey } from "../../lib/i18n/types";
@@ -100,11 +101,7 @@ function parseLocale(value: string | undefined): Locale {
 }
 
 function safeReturnTo(value: string | undefined): string {
-  if (!value?.startsWith("/") || value.startsWith("//")) {
-    return "/workspace";
-  }
-
-  return value;
+  return normalizeLocalReturnTo(value);
 }
 
 function ensureCsrfToken(name: string): string {

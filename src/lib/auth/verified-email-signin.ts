@@ -2,8 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { Language } from "@prisma/client";
 import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "../db";
-import { CSRF_COOKIE_NAME, setSessionCookie } from "./cookies";
+import {
+	authCookieSecurityContextFromRequest,
+	CSRF_COOKIE_NAME,
+	setSessionCookie,
+	shouldUseSecureAuthCookies,
+} from "./cookies";
 import { pickInitialUiLocale } from "./locale";
+import { normalizeLocalReturnTo } from "./return-to";
 import {
 	issueSession,
 	SessionTenantMembershipError,
@@ -77,10 +83,11 @@ export async function signInVerifiedEmail(input: {
 		throw error;
 	}
 
-	const redirectTo = input.returnTo ?? "/workspace";
+	const redirectTo = normalizeLocalReturnTo(input.returnTo);
 	const response = NextResponse.redirect(new URL(redirectTo, input.request.url), 303);
-	setSessionCookie(response, session);
-	setCsrfCookie(response);
+	const cookieSecurity = authCookieSecurityContextFromRequest(input.request);
+	setSessionCookie(response, session, cookieSecurity);
+	setCsrfCookie(response, cookieSecurity);
 
 	return {
 		ok: true,
@@ -90,13 +97,16 @@ export async function signInVerifiedEmail(input: {
 	};
 }
 
-function setCsrfCookie(response: NextResponse): void {
+function setCsrfCookie(
+	response: NextResponse,
+	cookieSecurity: ReturnType<typeof authCookieSecurityContextFromRequest>,
+): void {
 	response.cookies.set(CSRF_COOKIE_NAME, randomUUID(), {
 		httpOnly: false,
 		maxAge: csrfCookieMaxAgeSeconds,
 		path: "/",
 		sameSite: "lax",
-		secure: process.env.NODE_ENV === "production",
+		secure: shouldUseSecureAuthCookies(cookieSecurity),
 	});
 }
 

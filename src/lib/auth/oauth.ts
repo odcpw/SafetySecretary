@@ -3,6 +3,7 @@ import {
 	isValidMagicLinkEmail,
 	normalizeMagicLinkEmail,
 } from "./magic-link";
+import { normalizeLocalReturnTo } from "./return-to";
 
 export type OAuthProvider = "google" | "microsoft";
 
@@ -27,6 +28,7 @@ export type OAuthAuthorizationRequest = {
 
 export type OAuthStateCookie = {
 	codeVerifier: string;
+	nonce: string;
 	provider: OAuthProvider;
 	returnTo: string;
 	state: string;
@@ -41,6 +43,16 @@ export const OAUTH_STATE_TTL_SECONDS = 10 * 60;
 export const OAUTH_STATE_COOKIE_PREFIX = "ssfw_oauth_";
 
 const providerNames = new Set<OAuthProvider>(["google", "microsoft"]);
+
+export class OAuthTokenValidationError extends Error {
+	readonly code: string;
+
+	constructor(code: string) {
+		super("OAuth ID token claims failed validation.");
+		this.name = "OAuthTokenValidationError";
+		this.code = code;
+	}
+}
 
 export function isOAuthProvider(value: string): value is OAuthProvider {
 	return providerNames.has(value as OAuthProvider);
@@ -106,6 +118,7 @@ export function buildOAuthAuthorizationRequest(input: {
 	requestUrl: URL | string;
 	returnTo?: string | null;
 	state?: string;
+	nonce?: string;
 	codeVerifier?: string;
 }): OAuthAuthorizationRequest {
 	const requestUrl = new URL(input.requestUrl);
@@ -113,6 +126,7 @@ export function buildOAuthAuthorizationRequest(input: {
 	assertOAuthProviderConfigured(config);
 
 	const state = input.state ?? randomToken();
+	const nonce = input.nonce ?? randomToken();
 	const codeVerifier = input.codeVerifier ?? randomToken(48);
 	const redirectUri = oauthRedirectUri(input.provider, requestUrl, input.env);
 	const returnTo = normalizeOAuthReturnTo(input.returnTo);
@@ -125,6 +139,7 @@ export function buildOAuthAuthorizationRequest(input: {
 	authorizationUrl.searchParams.set("response_type", "code");
 	authorizationUrl.searchParams.set("scope", config.scopes.join(" "));
 	authorizationUrl.searchParams.set("state", state);
+	authorizationUrl.searchParams.set("nonce", nonce);
 	authorizationUrl.searchParams.set("prompt", "select_account");
 
 	return {
@@ -133,6 +148,7 @@ export function buildOAuthAuthorizationRequest(input: {
 			name: oauthStateCookieName(input.provider),
 			value: encodeOAuthStateCookie({
 				codeVerifier,
+				nonce,
 				provider: input.provider,
 				returnTo,
 				state,
@@ -140,6 +156,44 @@ export function buildOAuthAuthorizationRequest(input: {
 			maxAgeSeconds: OAUTH_STATE_TTL_SECONDS,
 		},
 	};
+}
+
+export function validateOAuthIdTokenClaims(input: {
+	env?: EnvLike;
+	provider: OAuthProvider;
+	claims: OAuthTokenClaims | null;
+	expectedNonce: string;
+	now?: Date;
+}): OAuthTokenClaims {
+	const claims = input.claims;
+	if (!claims) {
+		throw new OAuthTokenValidationError("OAUTH_ID_TOKEN_MISSING");
+	}
+
+	const config = oauthProviderConfig(input.provider, input.env);
+	if (!claimAudienceMatches(claims.aud, config.clientId)) {
+		throw new OAuthTokenValidationError("OAUTH_ID_TOKEN_AUDIENCE");
+	}
+
+	if (!issuerMatches(input.provider, claims.iss)) {
+		throw new OAuthTokenValidationError("OAUTH_ID_TOKEN_ISSUER");
+	}
+
+	if (!microsoftTenantMatches(input.provider, claims, input.env)) {
+		throw new OAuthTokenValidationError("OAUTH_ID_TOKEN_TENANT");
+	}
+
+	if (claims.nonce !== input.expectedNonce) {
+		throw new OAuthTokenValidationError("OAUTH_ID_TOKEN_NONCE");
+	}
+
+	const expiresAt = typeof claims.exp === "number" ? claims.exp : Number.NaN;
+	const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
+	if (!Number.isFinite(expiresAt) || expiresAt <= nowSeconds) {
+		throw new OAuthTokenValidationError("OAUTH_ID_TOKEN_EXPIRED");
+	}
+
+	return claims;
 }
 
 export function oauthRedirectUri(
@@ -290,9 +344,11 @@ export function decodeOAuthStateCookie(value: string): OAuthStateCookie | null {
 			!provider ||
 			!isOAuthProvider(provider) ||
 			typeof parsed.state !== "string" ||
+			typeof parsed.nonce !== "string" ||
 			typeof parsed.codeVerifier !== "string" ||
 			typeof parsed.returnTo !== "string" ||
 			!parsed.state ||
+			!parsed.nonce ||
 			!parsed.codeVerifier
 		) {
 			return null;
@@ -300,6 +356,7 @@ export function decodeOAuthStateCookie(value: string): OAuthStateCookie | null {
 
 		return {
 			codeVerifier: parsed.codeVerifier,
+			nonce: parsed.nonce,
 			provider,
 			returnTo: normalizeOAuthReturnTo(parsed.returnTo),
 			state: parsed.state,
@@ -310,16 +367,7 @@ export function decodeOAuthStateCookie(value: string): OAuthStateCookie | null {
 }
 
 export function normalizeOAuthReturnTo(value: string | null | undefined): string {
-	if (!value) {
-		return "/workspace";
-	}
-
-	const trimmed = value.trim();
-	if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
-		return "/workspace";
-	}
-
-	return trimmed;
+	return normalizeLocalReturnTo(value);
 }
 
 function encodeOAuthStateCookie(value: OAuthStateCookie): string {
@@ -357,6 +405,81 @@ function decodeJwtPayload(token: string): OAuthTokenClaims | null {
 	} catch {
 		return null;
 	}
+}
+
+function claimAudienceMatches(value: unknown, clientId: string): boolean {
+	if (!clientId) {
+		return false;
+	}
+
+	if (typeof value === "string") {
+		return value === clientId;
+	}
+
+	return Array.isArray(value) && value.includes(clientId);
+}
+
+function issuerMatches(provider: OAuthProvider, value: unknown): boolean {
+	if (typeof value !== "string") {
+		return false;
+	}
+
+	if (provider === "google") {
+		return value === "https://accounts.google.com" || value === "accounts.google.com";
+	}
+
+	return /^https:\/\/login\.microsoftonline\.com\/[^/]+\/v2\.0$/.test(value);
+}
+
+function microsoftTenantMatches(
+	provider: OAuthProvider,
+	claims: OAuthTokenClaims,
+	env: EnvLike = process.env,
+): boolean {
+	if (provider !== "microsoft") {
+		return true;
+	}
+
+	const configuredTenant = microsoftTenantFromEnv(env);
+	if (!isGuid(configuredTenant)) {
+		// "common", "organizations", and domain-form tenant values are valid
+		// Microsoft endpoints but cannot be compared to the token tid without
+		// discovery; those deployments rely on the authorize endpoint plus the
+		// email-domain workspace boundary.
+		return true;
+	}
+
+	const tenantId = typeof claims.tid === "string" ? claims.tid.trim() : "";
+	const issuerTenant = microsoftIssuerTenant(claims.iss);
+	return (
+		tenantId.toLowerCase() === configuredTenant.toLowerCase() &&
+		issuerTenant?.toLowerCase() === configuredTenant.toLowerCase()
+	);
+}
+
+function microsoftTenantFromEnv(env: EnvLike): string {
+	return (
+		env.MICROSOFT_OAUTH_TENANT ??
+		env.AZURE_AD_TENANT_ID ??
+		"common"
+	).trim();
+}
+
+function microsoftIssuerTenant(value: unknown): string | null {
+	if (typeof value !== "string") {
+		return null;
+	}
+
+	const match = value.match(
+		/^https:\/\/login\.microsoftonline\.com\/([^/]+)\/v2\.0$/,
+	);
+	return match?.[1] ?? null;
+}
+
+function isGuid(value: string): boolean {
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+		value,
+	);
 }
 
 function pkceChallenge(codeVerifier: string): string {

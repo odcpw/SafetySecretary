@@ -4,6 +4,10 @@ import {
 	buildOAuthAuthorizationRequest,
 	isOAuthProvider,
 } from "../../../../../../lib/auth/oauth";
+import {
+	authCookieSecurityContextFromRequest,
+	shouldUseSecureAuthCookies,
+} from "../../../../../../lib/auth/cookies";
 
 export const runtime = "nodejs";
 
@@ -43,7 +47,9 @@ export async function GET(
 		maxAge: authorization.cookie.maxAgeSeconds,
 		path: "/",
 		sameSite: "lax",
-		secure: process.env.NODE_ENV === "production",
+		secure: shouldUseSecureAuthCookies(
+			authCookieSecurityContextFromRequest(request),
+		),
 	});
 
 	return response;

@@ -6,7 +6,12 @@ import {
 	fetchOAuthUserInfo,
 	isOAuthProvider,
 	oauthStateCookieName,
+	validateOAuthIdTokenClaims,
 } from "../../../../../../lib/auth/oauth";
+import {
+	authCookieSecurityContextFromRequest,
+	shouldUseSecureAuthCookies,
+} from "../../../../../../lib/auth/cookies";
 import {
 	OAuthIdentityConflictError,
 	oauthIdentityFromUserInfo,
@@ -45,6 +50,7 @@ export async function GET(
 		return clearOAuthStateCookie(
 			redirectToSignin(request, "oauth_state"),
 			cookieName,
+			request,
 		);
 	}
 
@@ -54,6 +60,7 @@ export async function GET(
 		return clearOAuthStateCookie(
 			redirectToSignin(request, "oauth_failed"),
 			cookieName,
+			request,
 		);
 	}
 
@@ -64,6 +71,11 @@ export async function GET(
 			provider: providerParam,
 			requestUrl: request.url,
 		});
+		const idTokenClaims = validateOAuthIdTokenClaims({
+			claims: token.idTokenClaims,
+			expectedNonce: stateCookie.nonce,
+			provider: providerParam,
+		});
 		const userInfo = await fetchOAuthUserInfo({
 			accessToken: token.accessToken,
 			provider: providerParam,
@@ -71,18 +83,19 @@ export async function GET(
 		const email = extractVerifiedOAuthEmail(
 			providerParam,
 			userInfo,
-			token.idTokenClaims,
+			idTokenClaims,
 		);
 		const identity = oauthIdentityFromUserInfo(
 			providerParam,
 			userInfo,
-			token.idTokenClaims,
+			idTokenClaims,
 		);
 
 		if (!email || !identity) {
 			return clearOAuthStateCookie(
 				redirectToSignin(request, "oauth_email"),
 				cookieName,
+				request,
 			);
 		}
 
@@ -104,16 +117,18 @@ export async function GET(
 			return clearOAuthStateCookie(
 				redirectToSignin(request, "oauth_failed"),
 				cookieName,
+				request,
 			);
 		}
 
-		return clearOAuthStateCookie(result.response, cookieName);
+		return clearOAuthStateCookie(result.response, cookieName, request);
 	} catch (error) {
 		if (error instanceof OAuthIdentityConflictError) {
 			logOAuthFailure(providerParam, error.code);
 			return clearOAuthStateCookie(
 				redirectToSignin(request, "oauth_identity_conflict"),
 				cookieName,
+				request,
 			);
 		}
 
@@ -121,6 +136,7 @@ export async function GET(
 		return clearOAuthStateCookie(
 			redirectToSignin(request, "oauth_failed"),
 			cookieName,
+			request,
 		);
 	}
 }
@@ -134,13 +150,16 @@ function redirectToSignin(request: NextRequest, reason: string): NextResponse {
 function clearOAuthStateCookie(
 	response: NextResponse,
 	cookieName: string,
+	request: NextRequest,
 ): NextResponse {
 	response.cookies.set(cookieName, "", {
 		httpOnly: true,
 		maxAge: 0,
 		path: "/",
 		sameSite: "lax",
-		secure: process.env.NODE_ENV === "production",
+		secure: shouldUseSecureAuthCookies(
+			authCookieSecurityContextFromRequest(request),
+		),
 	});
 	return response;
 }

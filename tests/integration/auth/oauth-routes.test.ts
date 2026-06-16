@@ -83,11 +83,29 @@ test("OAuth start route stores sanitized returnTo in the state cookie", async ()
 			authorizationUrl.searchParams.get("redirect_uri"),
 			"https://app.example.test/api/auth/oauth/google/callback",
 		);
+		assert.ok(authorizationUrl.searchParams.get("nonce"));
 
 		const stateCookie = cookieValue(response, oauthStateCookieName("google"));
 		assert.ok(stateCookie);
 		assert.equal(
 			decodeOAuthStateCookie(stateCookie)?.returnTo,
+			"/workspace",
+		);
+		assert.equal(response.headers.get("set-cookie")?.includes("Secure"), true);
+
+		const backslashResponse = await startRoute.GET(
+			new NextRequest(
+				"https://app.example.test/api/auth/oauth/google/start?returnTo=/%5Cevil.example.test/workspace",
+			),
+			{ params: { provider: "google" } },
+		);
+		const backslashStateCookie = cookieValue(
+			backslashResponse,
+			oauthStateCookieName("google"),
+		);
+		assert.ok(backslashStateCookie);
+		assert.equal(
+			decodeOAuthStateCookie(backslashStateCookie)?.returnTo,
 			"/workspace",
 		);
 	} finally {
@@ -147,6 +165,7 @@ test("OAuth callback exchanges code, creates a session, and clears state cookie"
 		},
 		provider: "google",
 		requestUrl: "https://app.example.test/signin",
+		nonce: "nonce-ok",
 		returnTo: "/workspace",
 		state: "state-ok",
 	});
@@ -156,8 +175,10 @@ test("OAuth callback exchanges code, creates a session, and clears state cookie"
 		GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
 	});
 	const restoreFetch = mockOAuthFetch({
+		audience: "google-client",
 		email,
 		emailVerified: true,
+		nonce: "nonce-ok",
 		subject,
 	});
 	let tenantId: string | undefined;
@@ -242,6 +263,7 @@ test("OAuth callback reports provider identity conflicts distinctly", async (t) 
 		},
 		provider: "google",
 		requestUrl: "https://app.example.test/signin",
+		nonce: "nonce-conflict",
 		state: "state-conflict",
 	});
 	const restoreEnv = setEnv({
@@ -250,8 +272,10 @@ test("OAuth callback reports provider identity conflicts distinctly", async (t) 
 		GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
 	});
 	const restoreFetch = mockOAuthFetch({
+		audience: "google-client",
 		email: attackerEmail,
 		emailVerified: true,
+		nonce: "nonce-conflict",
 		subject,
 	});
 
@@ -288,6 +312,57 @@ test("OAuth callback reports provider identity conflicts distinctly", async (t) 
 			existing.userId,
 			[attackerEmail],
 		);
+	}
+});
+
+test("OAuth callback rejects invalid ID token claims before signing in", async () => {
+	const authorization = buildOAuthAuthorizationRequest({
+		codeVerifier: "verifier-invalid-id-token",
+		env: {
+			APP_BASE_URL: "https://app.example.test",
+			GOOGLE_OAUTH_CLIENT_ID: "google-client",
+			GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+		},
+		provider: "google",
+		requestUrl: "https://app.example.test/signin",
+		nonce: "nonce-real",
+		state: "state-invalid-id-token",
+	});
+	const restoreEnv = setEnv({
+		APP_BASE_URL: "https://app.example.test",
+		GOOGLE_OAUTH_CLIENT_ID: "google-client",
+		GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+	});
+	const restoreFetch = mockOAuthFetch({
+		audience: "other-client",
+		email: "alice@example.invalid",
+		emailVerified: true,
+		nonce: "nonce-real",
+		subject: "subject-invalid-id-token",
+	});
+
+	try {
+		const response = await callbackRoute.GET(
+			new NextRequest(
+				"https://app.example.test/api/auth/oauth/google/callback?code=code-invalid-id-token&state=state-invalid-id-token",
+				{
+					headers: {
+						cookie: `${authorization.cookie.name}=${authorization.cookie.value}`,
+					},
+				},
+			),
+			{ params: { provider: "google" } },
+		);
+
+		assert.equal(response.status, 303);
+		assert.equal(
+			response.headers.get("location"),
+			"https://app.example.test/signin?oauth=oauth_failed",
+		);
+		assert.equal(cookieValue(response, oauthStateCookieName("google")), "");
+	} finally {
+		restoreFetch();
+		restoreEnv();
 	}
 });
 
@@ -340,8 +415,10 @@ async function cleanupRows(
 }
 
 function mockOAuthFetch(input: {
+	audience?: string;
 	email: string;
 	emailVerified: boolean;
+	nonce?: string;
 	subject: string;
 }): () => void {
 	const previousFetch = globalThis.fetch;
@@ -353,9 +430,12 @@ function mockOAuthFetch(input: {
 				JSON.stringify({
 					access_token: "access-token",
 					id_token: jwtWithPayload({
+						aud: input.audience ?? "google-client",
 						email: input.email,
 						email_verified: input.emailVerified,
+						exp: Math.floor(Date.now() / 1000) + 300,
 						iss: "https://accounts.google.com",
+						nonce: input.nonce ?? "nonce",
 						sub: input.subject,
 					}),
 				}),

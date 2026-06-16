@@ -117,7 +117,12 @@ const { NextRequest } = (await import(
 	"next/server.js"
 )) as typeof import("next/server");
 type NextRequestInit = ConstructorParameters<typeof NextRequest>[1];
-const { CSRF_COOKIE_NAME, SESSION_COOKIE_NAME, buildSessionCookieOptions } =
+const {
+	CSRF_COOKIE_NAME,
+	SESSION_COOKIE_NAME,
+	buildSessionCookieOptions,
+	shouldUseSecureAuthCookies,
+} =
 	(await import(
 		cookiesModulePath
 	)) as typeof import("../../../src/lib/auth/cookies");
@@ -390,17 +395,47 @@ test("cookie options are HttpOnly Secure SameSite=Lax in production", () => {
 	}
 });
 
-test("cookie options disable Secure in local non-production envs", () => {
+test("cookie options follow HTTPS base URL outside production", () => {
 	const originalNodeEnv = process.env.NODE_ENV;
+	const originalAppBaseUrl = process.env.APP_BASE_URL;
 
 	try {
 		setOptionalEnv("NODE_ENV", "development");
+		setOptionalEnv("APP_BASE_URL", undefined);
 		assert.equal(buildSessionCookieOptions(60).secure, false);
 
 		setOptionalEnv("NODE_ENV", "test");
 		assert.equal(buildSessionCookieOptions(60).secure, false);
+
+		setOptionalEnv("APP_BASE_URL", "http://localhost:3000");
+		assert.equal(buildSessionCookieOptions(60).secure, false);
+
+		setOptionalEnv("APP_BASE_URL", "https://app.example.test");
+		assert.equal(buildSessionCookieOptions(60).secure, true);
+
+		setOptionalEnv("APP_BASE_URL", "http://localhost:3000");
+		assert.equal(
+			shouldUseSecureAuthCookies({
+				forwardedProto: "https",
+				requestUrl: "http://internal.local",
+			}),
+			true,
+		);
+		assert.equal(
+			shouldUseSecureAuthCookies({
+				requestUrl: "https://preview.example.test/path",
+			}),
+			true,
+		);
+		assert.equal(
+			shouldUseSecureAuthCookies({
+				env: { APP_BASE_URL: "not a url", NODE_ENV: "test" },
+			}),
+			false,
+		);
 	} finally {
 		setOptionalEnv("NODE_ENV", originalNodeEnv);
+		setOptionalEnv("APP_BASE_URL", originalAppBaseUrl);
 	}
 });
 

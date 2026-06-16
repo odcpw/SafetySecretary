@@ -5,6 +5,7 @@ import {
 	type ValidatedSession,
 	validateSession,
 } from "../../../../lib/auth/session";
+import { normalizeLocalReturnTo } from "../../../../lib/auth/return-to";
 import { DISCLAIMER_VERSION } from "../../../../lib/legal/disclaimer";
 
 export const runtime = "nodejs";
@@ -123,11 +124,7 @@ function wantsHtmlRedirect(request: NextRequest): boolean {
 }
 
 function safeReturnTo(value: string | null): string {
-	if (!value?.startsWith("/") || value.startsWith("//")) {
-		return "/workspace";
-	}
-
-	return value;
+	return normalizeLocalReturnTo(value);
 }
 
 function getPrismaClient(): PrismaClient {

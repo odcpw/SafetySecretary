@@ -50,6 +50,7 @@ test("classifies public email domains as personal workspaces", () => {
 	});
 
 	assert.equal(isPublicEmailDomain("googlemail.com"), true);
+	assert.equal(isPublicEmailDomain("msn.com"), true);
 	assert.equal(isPublicEmailDomain(" Proton.Me "), true);
 });
 

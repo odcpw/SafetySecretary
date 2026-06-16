@@ -528,6 +528,11 @@ test("member-removal API is protected even though other auth APIs are public", a
 	const memberId = "11111111-1111-4111-8111-111111111111";
 
 	assert.equal(isPublicPath("/api/auth/magic-link/request"), true);
+	assert.equal(isPublicPath("/api/auth/oauth/microsoft/start"), true);
+	assert.equal(isPublicPath("/api/auth/oauth/microsoft/callback"), true);
+	assert.equal(isPublicPath("/api/auth/oauth/google/start"), true);
+	assert.equal(isPublicPath("/api/auth/oauth/google/callback"), true);
+	assert.equal(isPublicPath("/api/auth/oauth/google/profile"), false);
 	assert.equal(isPublicPath(`/api/auth/members/${memberId}`), false);
 });
 

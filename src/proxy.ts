@@ -107,6 +107,7 @@ export function isPublicPath(pathname: string): boolean {
 
 	return (
 		PUBLIC_AUTH_API_PATHS.has(pathname) ||
+		/^\/api\/auth\/oauth\/[^/]+\/(?:start|callback)$/.test(pathname) ||
 		/^\/icons\/[^/]+$/.test(pathname) ||
 		/^\/invite\/[^/]+$/.test(pathname)
 	);

@@ -26,6 +26,7 @@ export const PUBLIC_EMAIL_DOMAINS = new Set([
 	"live.com",
 	"mac.com",
 	"me.com",
+	"msn.com",
 	"outlook.com",
 	"pm.me",
 	"proton.me",

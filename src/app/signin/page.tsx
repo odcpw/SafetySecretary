@@ -1,16 +1,29 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 const SUCCESS_MESSAGE = "Check your email for a sign-in link.";
 const DEV_AUTH_BYPASS_ENABLED =
 	process.env.NEXT_PUBLIC_SSFW_DEV_AUTH_BYPASS === "1";
+const MICROSOFT_OAUTH_ENABLED =
+	process.env.NEXT_PUBLIC_MICROSOFT_OAUTH_ENABLED === "1";
+const GOOGLE_OAUTH_ENABLED = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "1";
 
 export default function SigninPage() {
 	const [email, setEmail] = useState("");
 	const [message, setMessage] = useState("");
+	const [returnTo, setReturnTo] = useState("");
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [isDevSubmitting, setIsDevSubmitting] = useState(false);
+
+	useEffect(() => {
+		const params = new URLSearchParams(window.location.search);
+		setReturnTo(params.get("returnTo") ?? "");
+		const oauthReason = params.get("oauth");
+		if (oauthReason) {
+			setMessage(oauthFailureMessage(oauthReason));
+		}
+	}, []);
 
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -70,6 +83,16 @@ export default function SigninPage() {
 		}
 	}
 
+	function oauthHref(provider: "google" | "microsoft"): string {
+		const params = new URLSearchParams();
+		if (returnTo) {
+			params.set("returnTo", returnTo);
+		}
+
+		const suffix = params.toString();
+		return `/api/auth/oauth/${provider}/start${suffix ? `?${suffix}` : ""}`;
+	}
+
 	return (
 		<main
 			style={{
@@ -110,6 +133,54 @@ export default function SigninPage() {
 						Enter your email to receive a sign-in link.
 					</p>
 				</div>
+
+				{MICROSOFT_OAUTH_ENABLED || GOOGLE_OAUTH_ENABLED ? (
+					<div
+						style={{
+							display: "grid",
+							gap: "0.5rem",
+						}}
+					>
+						{MICROSOFT_OAUTH_ENABLED ? (
+							<a
+								href={oauthHref("microsoft")}
+								style={{
+									alignItems: "center",
+									border: "1px solid var(--color-border)",
+									borderRadius: "0.375rem",
+									color: "var(--color-text)",
+									display: "inline-flex",
+									font: "inherit",
+									fontWeight: 500,
+									justifyContent: "center",
+									minHeight: "2.5rem",
+									textDecoration: "none",
+								}}
+							>
+								Continue with Microsoft
+							</a>
+						) : null}
+						{GOOGLE_OAUTH_ENABLED ? (
+							<a
+								href={oauthHref("google")}
+								style={{
+									alignItems: "center",
+									border: "1px solid var(--color-border)",
+									borderRadius: "0.375rem",
+									color: "var(--color-text)",
+									display: "inline-flex",
+									font: "inherit",
+									fontWeight: 500,
+									justifyContent: "center",
+									minHeight: "2.5rem",
+									textDecoration: "none",
+								}}
+							>
+								Continue with Google
+							</a>
+						) : null}
+					</div>
+				) : null}
 
 				<label
 					style={{
@@ -205,4 +276,17 @@ export default function SigninPage() {
 			</form>
 		</main>
 	);
+}
+
+function oauthFailureMessage(reason: string): string {
+	switch (reason) {
+		case "oauth_state":
+			return "Sign-in session expired. Try again.";
+		case "oauth_email":
+			return "That account did not provide a verified email. Use an email sign-in link.";
+		case "oauth_identity_conflict":
+			return "That provider account is already linked differently. Use an email sign-in link.";
+		default:
+			return "OAuth sign-in could not be completed. Use an email sign-in link.";
+	}
 }

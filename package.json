@@ -4,7 +4,7 @@
 	"private": true,
 	"packageManager": "pnpm@10.32.1",
 	"scripts": {
-		"test": "pnpm test:agent && pnpm test:llm:privacy && pnpm test:tenancy && pnpm test:taxonomy && pnpm test:incidents:causes && pnpm test:incidents:actions",
+		"test": "pnpm test:agent && pnpm test:auth:oauth && pnpm test:llm:privacy && pnpm test:tenancy && pnpm test:taxonomy && pnpm test:incidents:causes && pnpm test:incidents:actions",
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
@@ -29,6 +29,7 @@
 		"test:incidents:status": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/incidents/workflow-stage.test.ts tests/integration/incidents/status.test.ts",
 		"test:incidents:workbench": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/workbench-editing.test.ts",
 		"test:incidents:vision-consent": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/vision-consent.test.ts",
+		"test:auth:oauth": "node --env-file=.env --experimental-strip-types --experimental-specifier-resolution=node --test --test-concurrency=1 tests/unit/auth/oauth.test.ts tests/integration/auth/oauth-identity.test.ts tests/integration/auth/oauth-routes.test.ts",
 		"test:auth:last-user": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/auth/membership.test.ts tests/unit/auth/session.test.ts tests/unit/auth/company-delete.test.ts tests/integration/auth/last-user-policy.test.ts",
 		"test:tenancy": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/tenancy/adr-0001-t01-t20.test.ts",
 		"test:taxonomy": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/taxonomy/acceptance.test.ts tests/integration/taxonomy/cross-language.test.ts",

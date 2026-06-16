@@ -309,10 +309,29 @@ model User {
   generatedArtifacts     GeneratedArtifact[]
   createdTenants         Tenant[]              @relation("TenantCreator")
   memberships            TenantMembership[]
+  oauthIdentities         OAuthIdentity[]
   sessions               Session[]
   verifiedActionItems    ActionItem[]          @relation("ActionItemVerifier")
 
   @@map("users")
+  @@schema("shared")
+}
+
+model OAuthIdentity {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id") @db.Uuid
+  provider        String
+  providerSubject String   @map("provider_subject")
+  issuer          String?
+  email           String   @db.Citext
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt      DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject], map: "oauth_identities_provider_subject_key")
+  @@unique([provider, userId], map: "oauth_identities_provider_user_key")
+  @@index([userId], map: "oauth_identities_user_id_idx")
+  @@map("oauth_identities")
   @@schema("shared")
 }
 

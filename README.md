@@ -62,6 +62,31 @@ SSFW_DEV_AUTH_BYPASS=1             # skip the login screen for local use
 NEXT_PUBLIC_SSFW_DEV_AUTH_BYPASS=1
 ```
 
+Optional OAuth sign-in can be enabled alongside magic links:
+
+```
+MICROSOFT_OAUTH_CLIENT_ID=...
+MICROSOFT_OAUTH_CLIENT_SECRET=...
+MICROSOFT_OAUTH_TENANT=common
+NEXT_PUBLIC_MICROSOFT_OAUTH_ENABLED=1
+
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED=1
+```
+
+Use these redirect URIs in the provider consoles:
+
+```
+https://your-domain.example/api/auth/oauth/microsoft/callback
+https://your-domain.example/api/auth/oauth/google/callback
+```
+
+For Microsoft, configure the app registration so ID tokens include `email` and
+the domain-owner-verified `xms_edov` claim. Safety Secretary does not use
+unverified Microsoft email claims for workspace auto-join. Microsoft consumer
+accounts that do not emit `xms_edov` should use magic-link sign-in.
+
 ```bash
 # 4. Start the database and load a demo incident
 pnpm dev:bootstrap

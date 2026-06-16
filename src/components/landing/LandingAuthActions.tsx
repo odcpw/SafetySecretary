@@ -15,6 +15,9 @@ type LandingAuthActionsProps = {
 
 const DEV_AUTH_BYPASS_ENABLED =
 	process.env.NEXT_PUBLIC_SSFW_DEV_AUTH_BYPASS === "1";
+const MICROSOFT_OAUTH_ENABLED =
+	process.env.NEXT_PUBLIC_MICROSOFT_OAUTH_ENABLED === "1";
+const GOOGLE_OAUTH_ENABLED = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "1";
 
 const primaryButton =
 	"inline-flex min-h-10 items-center justify-center rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)] px-4 text-[var(--text-sm)] font-medium text-[var(--color-bg)] outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)]";
@@ -70,6 +73,22 @@ export default function LandingAuthActions({ copy }: LandingAuthActionsProps) {
 				<a className={primaryButton} href="/signin">
 					{copy.signIn}
 				</a>
+				{MICROSOFT_OAUTH_ENABLED ? (
+					<a
+						className={secondaryButton}
+						href="/api/auth/oauth/microsoft/start?returnTo=/workspace"
+					>
+						Microsoft
+					</a>
+				) : null}
+				{GOOGLE_OAUTH_ENABLED ? (
+					<a
+						className={secondaryButton}
+						href="/api/auth/oauth/google/start?returnTo=/workspace"
+					>
+						Google
+					</a>
+				) : null}
 				{DEV_AUTH_BYPASS_ENABLED ? (
 					<button
 						className={secondaryButton}

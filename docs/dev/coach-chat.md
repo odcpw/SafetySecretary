@@ -76,6 +76,58 @@ dispatch uses mock providers; the coach reads a sequential fixture from
 `SSFW_II_COACH_MOCK_SEED_PATH` (see
 `tests/fixtures/llm/ii-coach-chat.json`).
 
+## Flue runtime
+
+Set `SSFW_II_COACH_RUNTIME=flue` to route chat turns through the packaged
+Flue agent in `.flue/agents/incident-investigation.ts`. The Flue agent
+instance id encodes tenant id + incident id, so the durable agent boundary is
+one case, not one browser tab or one logged-in user.
+
+The agent's authored tools use Flue 1.0 Valibot schemas. `read_incident_record`
+returns a compact case-owned record view plus `proposalDigest`,
+`causeTreeDigest`, and `phaseSignal`. The full app context bundle is
+intentionally not returned to the model on every turn.
+
+The Next runtime admits each turn with `client.agents.send(...)` and waits on
+the Flue durable event stream for the matching `operationKind: "prompt"` result.
+Do not switch this back to blocking `client.agents.prompt(...)`: long-thinking
+models can exceed a single HTTP wait while the durable stream continues making
+progress.
+
+Experience mining should use durable sources:
+
+- tenant Postgres incident tables for accepted facts, timeline events, causes,
+  actions, and HIRA follow-ups;
+- `incident_coach_message` for assistant turns, proposed operations, and
+  accept/dismiss decisions;
+- Flue `flue_session_entries` when the agent conversation tree itself is
+  needed;
+- Flue `submissionId` / event-stream coordinates for runtime debugging and
+  replay.
+
+Do not use `flue_event_stream_entries`, `flue_event_streams`, or
+`flue_agent_stream_chunks` as the primary product-learning corpus. In Flue 1.0
+the durable event stream is much cleaner than 0.11: `turn_request` is
+in-process only, `message_end` is the authoritative completed message event,
+and streaming deltas are progress signals. Event streams are good for runtime
+debugging/replay; accepted app records and coach-message decisions are better
+for mining safety-investigation experience.
+
+Prune Flue telemetry with:
+
+```bash
+pnpm flue:prune
+```
+
+Relevant knobs:
+
+- `SSFW_FLUE_SQLITE_PATH` selects the Flue SQLite file.
+- `SSFW_FLUE_STREAM_RETENTION_HOURS` controls legacy timestamped stream
+  retention on pre-1.0 SQLite files. Flue 1.0 event streams do not expose a
+  stream-created timestamp, so the pruner does not delete them by age.
+- `SSFW_FLUE_PRUNE_VACUUM=1` runs `VACUUM` and a WAL truncate checkpoint to
+  reclaim disk after pruning.
+
 ## Tests
 
 ```bash

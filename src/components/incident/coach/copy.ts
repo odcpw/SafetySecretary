@@ -16,6 +16,9 @@ export type CoachCopy = {
 		heading: string;
 		subhead: string;
 		thinking: string;
+		activityTitle: string;
+		activityShow: string;
+		activityHide: string;
 		welcomeBody: string;
 		starterPrompt1: string;
 		starterPrompt2: string;
@@ -36,6 +39,9 @@ export type CoachCopy = {
 		recordUnavailable: string;
 		loadingRecord: string;
 		acceptAll: string;
+		proposalGroupTitle: string;
+		reviewProposals: string;
+		hideProposals: string;
 		inRecord: string;
 		dismissed: string;
 		acceptEdited: string;
@@ -299,6 +305,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			heading: "Safety Secretary",
 			subhead: "Talk it through — the record fills itself",
 			thinking: "Thinking…",
+			activityTitle: "Agent activity",
+			activityShow: "Show",
+			activityHide: "Hide",
 			welcomeBody:
 				"I help you investigate this incident: we talk, I fill the record on the right, and together we find what really caused it — and what to change. Start by telling me what happened, in normal words.",
 			starterPrompt1:
@@ -324,6 +333,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			recordUnavailable: "Record unavailable.",
 			loadingRecord: "Loading record…",
 			acceptAll: "Accept all",
+			proposalGroupTitle: "Proposed changes",
+			reviewProposals: "Review",
+			hideProposals: "Hide",
 			inRecord: "✓ in record",
 			dismissed: "dismissed",
 			acceptEdited: "Accept edited",
@@ -619,6 +631,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			heading: "Safety Secretary",
 			subhead: "Erzähl es einfach — der Datensatz füllt sich von selbst",
 			thinking: "Denkt nach…",
+			activityTitle: "Agentenaktivität",
+			activityShow: "Anzeigen",
+			activityHide: "Ausblenden",
 			welcomeBody:
 				"Ich helfe dir, dieses Ereignis zu untersuchen: Wir reden, ich fülle den Datensatz rechts, und gemeinsam finden wir die wahre Ursache — und was zu ändern ist. Erzähl einfach, was passiert ist, in normalen Worten.",
 			starterPrompt1:
@@ -645,6 +660,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			recordUnavailable: "Datensatz nicht verfügbar.",
 			loadingRecord: "Datensatz wird geladen…",
 			acceptAll: "Alle annehmen",
+			proposalGroupTitle: "Vorgeschlagene Änderungen",
+			reviewProposals: "Prüfen",
+			hideProposals: "Ausblenden",
 			inRecord: "✓ im Datensatz",
 			dismissed: "verworfen",
 			acceptEdited: "Bearbeitet annehmen",
@@ -953,6 +971,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			heading: "Safety Secretary",
 			subhead: "Raconte-le — le dossier se remplit tout seul",
 			thinking: "Réflexion…",
+			activityTitle: "Activité de l'agent",
+			activityShow: "Afficher",
+			activityHide: "Masquer",
 			welcomeBody:
 				"Je t'aide à enquêter sur cet événement : on discute, je remplis le dossier à droite, et ensemble on trouve la vraie cause — et ce qu'il faut changer. Commence par raconter ce qui s'est passé, avec des mots simples.",
 			starterPrompt1:
@@ -979,6 +1000,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			recordUnavailable: "Dossier indisponible.",
 			loadingRecord: "Chargement du dossier…",
 			acceptAll: "Tout accepter",
+			proposalGroupTitle: "Modifications proposées",
+			reviewProposals: "Examiner",
+			hideProposals: "Masquer",
 			inRecord: "✓ dans le dossier",
 			dismissed: "écarté",
 			acceptEdited: "Accepter la version modifiée",
@@ -1283,6 +1307,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			heading: "Safety Secretary",
 			subhead: "Raccontalo — il record si compila da solo",
 			thinking: "Sto pensando…",
+			activityTitle: "Attività dell'agente",
+			activityShow: "Mostra",
+			activityHide: "Nascondi",
 			welcomeBody:
 				"Ti aiuto a indagare su questo evento: parliamo, io compilo il record a destra e insieme troviamo la vera causa — e cosa cambiare. Inizia raccontando cosa è successo, con parole semplici.",
 			starterPrompt1:
@@ -1309,6 +1336,9 @@ export const coachCopyByLocale: Record<Locale, CoachCopy> = {
 			recordUnavailable: "Record non disponibile.",
 			loadingRecord: "Caricamento del record…",
 			acceptAll: "Accetta tutti",
+			proposalGroupTitle: "Modifiche proposte",
+			reviewProposals: "Rivedi",
+			hideProposals: "Nascondi",
 			inRecord: "✓ nel record",
 			dismissed: "scartato",
 			acceptEdited: "Accetta la versione modificata",

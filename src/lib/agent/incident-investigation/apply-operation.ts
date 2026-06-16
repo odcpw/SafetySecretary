@@ -94,6 +94,12 @@ export async function applyIncidentCoachOperation(input: {
 				const recordId = randomUUID();
 				const payload = input.operation.payload;
 				const orderIndex = await nextTimelineOrderIndex(tx, input.incidentId);
+				const eventAt = payload.occurredAt
+					? new Date(payload.occurredAt)
+					: null;
+				if (payload.occurredAt && Number.isNaN(eventAt?.getTime())) {
+					return { code: "INVALID_FIELD_VALUE", ok: false };
+				}
 				const timeLabel = payload.phase
 					? `${phaseLabel(payload.phase)} — ${payload.title}`
 					: payload.title;
@@ -102,6 +108,7 @@ export async function applyIncidentCoachOperation(input: {
 						id,
 						case_id,
 						order_index,
+						event_at,
 						time_label,
 						text,
 						confidence
@@ -109,6 +116,7 @@ export async function applyIncidentCoachOperation(input: {
 						${recordId}::uuid,
 						${input.incidentId}::uuid,
 						${orderIndex},
+						${eventAt?.toISOString() ?? null}::timestamptz,
 						${timeLabel},
 						${editedText ?? payload.narrative ?? payload.title},
 						'LIKELY'::incident_timeline_confidence

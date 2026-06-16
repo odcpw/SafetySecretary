@@ -10,6 +10,7 @@ import {
 	INCIDENT_TYPE_CODES,
 	parseActualInjuryOutcome,
 } from "../../../lib/incident/classification";
+import type { ManualIncidentRecordChange } from "../../../lib/incident/coach-consistency";
 import {
 	dateTimeLabel,
 	incidentFieldHeading,
@@ -26,6 +27,7 @@ type OverviewEditorProps = {
 	readonly copy: CoachCopy;
 	readonly locale: string;
 	readonly onRecordChange?: () => void;
+	readonly onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 };
 
 type FieldKind = "text" | "datetime" | "select";
@@ -175,6 +177,7 @@ export default function OverviewEditor({
 	copy,
 	locale,
 	onRecordChange,
+	onManualRecordChange,
 }: OverviewEditorProps) {
 	const editableFields = buildEditableFields(copy, locale);
 	const [error, setError] = useState<string | null>(null);
@@ -222,6 +225,12 @@ export default function OverviewEditor({
 
 			setEditing(null);
 			onRecordChange?.();
+			onManualRecordChange?.({
+				area: "overview",
+				summary: `${field.label}: ${displayValue(incident, field) ?? "—"} -> ${
+					value || "—"
+				}`,
+			});
 		} catch (caught) {
 			setError(userSafeError(caught, copy));
 		} finally {

@@ -22,10 +22,15 @@ type CoachTranscribeRouteContext = {
 };
 
 type CoachTranscribeRouteOptions = {
+	readonly sessionValidator?: SessionValidator;
 	readonly transcribe?: (
 		input: TranscribeCoachAudioInput,
 	) => Promise<{ text: string }>;
 };
+
+type SessionValidator = (
+	cookieValue: string | null | undefined,
+) => Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null>;
 
 type UploadedAudio = {
 	readonly name: string;
@@ -71,7 +76,7 @@ export async function handleCoachTranscribe(
 		return NextResponse.json({ code: "INVALID_INCIDENT_ID" }, { status: 400 });
 	}
 
-	const session = await resolveSession(request);
+	const session = await resolveSession(request, options.sessionValidator);
 
 	if (!session) {
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
@@ -151,6 +156,19 @@ export async function handleCoachTranscribe(
 		}
 
 		if (error instanceof CoachTranscribeProviderError) {
+			console.warn("[ii-coach-transcribe] provider failed:", {
+				audioBytes: buffer.byteLength,
+				message: error.message,
+				mimeType,
+				status: error.status ?? null,
+			});
+			if (error.status === 400) {
+				return NextResponse.json(
+					{ code: "AUDIO_UNREADABLE" },
+					{ status: 422 },
+				);
+			}
+
 			return NextResponse.json({ code: "PROVIDER_FAILED" }, { status: 502 });
 		}
 
@@ -160,8 +178,9 @@ export async function handleCoachTranscribe(
 
 async function resolveSession(
 	request: NextRequest,
+	sessionValidator: SessionValidator = validateSession,
 ): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return sessionValidator(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
 function isMultipartRequest(request: Request): boolean {

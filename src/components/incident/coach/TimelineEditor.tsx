@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
 import { ensureCsrfToken } from "../../../lib/auth/csrf-client";
+import type { ManualIncidentRecordChange } from "../../../lib/incident/coach-consistency";
 import type { CoachCopy } from "./copy";
 import type { RecordFact, RecordTimelineEvent } from "./types";
 
@@ -12,6 +13,7 @@ type TimelineEditorProps = {
 	readonly timeline: RecordTimelineEvent[];
 	readonly copy: CoachCopy;
 	readonly onRecordChange?: () => void;
+	readonly onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 };
 
 type PhaseValue = "before" | "event" | "after" | "none";
@@ -69,6 +71,7 @@ export default function TimelineEditor({
 	timeline,
 	copy,
 	onRecordChange,
+	onManualRecordChange,
 }: TimelineEditorProps) {
 	const phaseOptions = buildPhaseOptions(copy);
 	const phaseHeadings = buildPhaseHeadings(copy);
@@ -164,6 +167,10 @@ export default function TimelineEditor({
 
 		if (saved) {
 			setEditing(null);
+			onManualRecordChange?.({
+				area: "facts",
+				summary: `Edited fact: ${truncateForReview(text, 120)}`,
+			});
 		}
 	}
 
@@ -184,12 +191,20 @@ export default function TimelineEditor({
 
 		if (added) {
 			setAdding(null);
+			onManualRecordChange?.({
+				area: "facts",
+				summary: `Added fact: ${truncateForReview(text, 120)}`,
+			});
 		}
 	}
 
 	async function removeEvent(eventId: string) {
 		if (await mutate({ _action: "delete", eventId })) {
 			setConfirmingDeleteId(null);
+			onManualRecordChange?.({
+				area: "facts",
+				summary: "Deleted a fact or timeline event",
+			});
 		}
 	}
 
@@ -424,7 +439,9 @@ export default function TimelineEditor({
 						className={textareaClassName}
 						onChange={(event) => {
 							const text = event.currentTarget.value;
-							setAdding((current) => (current ? { ...current, text } : current));
+							setAdding((current) =>
+								current ? { ...current, text } : current,
+							);
 						}}
 						placeholder={copy.timeline.whatHappened}
 						rows={2}
@@ -547,4 +564,8 @@ function userSafeError(caught: unknown, copy: CoachCopy): string {
 	}
 
 	return copy.timeline.errorGeneric;
+}
+
+function truncateForReview(value: string, maxLength: number): string {
+	return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 }

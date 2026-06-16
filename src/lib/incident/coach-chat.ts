@@ -38,6 +38,10 @@ import {
 	type CauseTreeDigestAction,
 	type CauseTreeDigestCause,
 } from "./cause-tree";
+import {
+	type FlueIncidentCoachProgressEvent,
+	runIncidentCoachTurnViaFlueWithProgress,
+} from "./coach-flue-runtime";
 import { PiCoachProvider } from "./coach-pi-runtime";
 import {
 	buildCoachTurnPrompt,
@@ -67,6 +71,19 @@ export type CoachChatTurnResult = {
 	readonly userMessage: CoachChatMessage;
 	readonly assistantMessage: CoachChatMessage;
 };
+
+export type CoachChatTurnProgressEvent =
+	| {
+			readonly type: "flue";
+			readonly event: FlueIncidentCoachProgressEvent;
+	  }
+	| {
+			readonly type: "dispatch_started";
+	  }
+	| {
+			readonly type: "assistant_parsed";
+			readonly operationCount: number;
+	  };
 
 export class CoachIncidentNotFoundError extends Error {
 	constructor() {
@@ -135,6 +152,8 @@ export async function runCoachChatTurn(input: {
 	readonly message: string;
 	readonly locale: string;
 	readonly dispatchOptions?: DispatchOptions;
+	readonly onProgress?: (event: CoachChatTurnProgressEvent) => void;
+	readonly signal?: AbortSignal;
 }): Promise<CoachChatTurnResult | null> {
 	const runId = randomUUID();
 	const now = new Date();
@@ -197,50 +216,100 @@ export async function runCoachChatTurn(input: {
 		potentialSeverity: sections.incident?.potentialSeverity ?? null,
 	});
 
-	const prompt = buildCoachTurnPrompt({
-		causeMethod: sections.incident?.causeMethod ?? "FIVE_WHYS",
-		causeTreeDigest,
-		context,
-		locale: input.locale,
-		phaseSignal,
-		transcript,
-		userMessage: input.message,
-	});
+	let responseText: string;
+	let contextDigestSource: string;
 
-	let result: DispatchResult;
+	if (shouldUseFlueCoachRuntime(input.dispatchOptions)) {
+		try {
+			const flueTurn = await runIncidentCoachTurnViaFlueWithProgress({
+				incidentId: input.incidentId,
+				locale: input.locale,
+				message: input.message,
+				onProgress: (event) =>
+					emitCoachProgress(input.onProgress, { event, type: "flue" }),
+				signal: input.signal,
+				tenantId: input.tenantId,
+				userId: input.userId,
+			});
+			responseText = flueTurn.text;
+			contextDigestSource = JSON.stringify({
+				agentName: flueTurn.agentName,
+				instanceId: flueTurn.instanceId,
+				message: input.message,
+				offset: flueTurn.offset,
+				streamUrl: flueTurn.streamUrl,
+				submissionId: flueTurn.submissionId,
+			});
+		} catch (error) {
+			await deleteCoachMessage(
+				input.tenantId,
+				input.incidentId,
+				userMessage.id,
+			);
+			throw new CoachProviderError(error);
+		}
+	} else {
+		const prompt = buildCoachTurnPrompt({
+			causeMethod: sections.incident?.causeMethod ?? "FIVE_WHYS",
+			causeTreeDigest,
+			context,
+			locale: input.locale,
+			phaseSignal,
+			transcript,
+			userMessage: input.message,
+		});
 
-	try {
-		result = await dispatch(
-			{
-				prompt,
-				options: {
-					kind: KindEnum.Authoring,
-					locale: input.locale,
-					promptPurpose: II_COACH_PROMPT_PURPOSE,
-					requiresVision: false,
-					tenantId: input.tenantId,
-					userId: input.userId,
-					workflowId: input.incidentId,
+		let result: DispatchResult;
+
+		try {
+			emitCoachProgress(input.onProgress, { type: "dispatch_started" });
+			result = await dispatch(
+				{
+					prompt,
+					options: {
+						kind: KindEnum.Authoring,
+						locale: input.locale,
+						promptPurpose: II_COACH_PROMPT_PURPOSE,
+						requiresVision: false,
+						tenantId: input.tenantId,
+						userId: input.userId,
+						workflowId: input.incidentId,
+					},
 				},
-			},
-			input.dispatchOptions ?? coachDispatchOptionsFromEnv(),
-		);
-	} catch (error) {
-		await deleteCoachMessage(input.tenantId, input.incidentId, userMessage.id);
-		throw new CoachProviderError(error);
-	}
+				input.dispatchOptions ?? coachDispatchOptionsFromEnv(),
+			);
+		} catch (error) {
+			await deleteCoachMessage(
+				input.tenantId,
+				input.incidentId,
+				userMessage.id,
+			);
+			throw new CoachProviderError(error);
+		}
 
-	if (!result.ok) {
-		await deleteCoachMessage(input.tenantId, input.incidentId, userMessage.id);
-		throw new CoachDispatchError(result);
+		if (!result.ok) {
+			await deleteCoachMessage(
+				input.tenantId,
+				input.incidentId,
+				userMessage.id,
+			);
+			throw new CoachDispatchError(result);
+		}
+
+		responseText = result.response.text;
+		contextDigestSource = prompt;
 	}
 
 	const parsed = parseCoachResponse(
-		result.response.text,
+		responseText,
 		runId,
 		skill,
 		input.incidentId,
 	);
+	emitCoachProgress(input.onProgress, {
+		operationCount: parsed.operations.length,
+		type: "assistant_parsed",
+	});
 
 	const assistantMessage = await insertCoachMessage(input.tenantId, {
 		caseId: input.incidentId,
@@ -254,7 +323,7 @@ export async function runCoachChatTurn(input: {
 	try {
 		await incidentCoachTraceStore.create({
 			contextDigest: createHash("sha256")
-				.update(prompt)
+				.update(contextDigestSource)
 				.digest("hex")
 				.slice(0, 16),
 			metadata,
@@ -577,6 +646,29 @@ export function readCoachMockProviderFromEnv(
 	const provider = new SequentialCoachMockProvider(fixture);
 	mockProvidersByFixturePath.set(resolvedPath, provider);
 	return provider;
+}
+
+function shouldUseFlueCoachRuntime(
+	dispatchOptions: DispatchOptions | undefined,
+	env: Pick<NodeJS.ProcessEnv, string> = process.env,
+): boolean {
+	return !dispatchOptions && env.SSFW_II_COACH_RUNTIME === "flue";
+}
+
+function emitCoachProgress(
+	onProgress: ((event: CoachChatTurnProgressEvent) => void) | undefined,
+	event: CoachChatTurnProgressEvent,
+): void {
+	if (!onProgress) {
+		return;
+	}
+
+	try {
+		onProgress(event);
+	} catch {
+		// Progress delivery is best effort. The durable app record is written
+		// after the model result; a dropped browser stream must not poison it.
+	}
 }
 
 function coachDispatchOptionsFromEnv(): DispatchOptions {

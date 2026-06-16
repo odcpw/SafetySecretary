@@ -49,6 +49,7 @@ const {
 	transcribeCoachAudio,
 	CoachTranscribeNoProviderKeyError,
 	CoachTranscribeMonthlyCapError,
+	CoachTranscribeProviderError,
 } = (await import(
 	moduleUrl("src/lib/incident/coach-transcribe.ts")
 )) as typeof import("../../../src/lib/incident/coach-transcribe");
@@ -89,6 +90,7 @@ test("transcribe route returns 400 when no audio field is present", async () => 
 		multipartRequest({ csrf, form }),
 		{ params: { id: incidentId } },
 		{
+			sessionValidator: testSessionValidator,
 			transcribe: async () => {
 				throw new Error("transcribe should not run when audio is missing");
 			},
@@ -113,6 +115,7 @@ test("transcribe route returns the mocked transcript without hitting the network
 		multipartRequest({ csrf, form }),
 		{ params: { id: incidentId } },
 		{
+			sessionValidator: testSessionValidator,
 			transcribe: async (input) => {
 				assert.equal(input.incidentId, incidentId);
 				assert.equal(input.tenantId, tenantId);
@@ -154,6 +157,7 @@ test("transcribe route accepts a MediaRecorder codec-suffixed MIME type", async 
 		multipartRequest({ csrf, form }),
 		{ params: { id: incidentId } },
 		{
+			sessionValidator: testSessionValidator,
 			transcribe: async (input) => {
 				observedMimeType = input.mimeType;
 				return { text: "codec ok" };
@@ -177,6 +181,7 @@ test("transcribe route maps a missing provider key to 503 NO_PROVIDER_KEY", asyn
 		multipartRequest({ csrf, form: audioForm() }),
 		{ params: { id: incidentId } },
 		{
+			sessionValidator: testSessionValidator,
 			transcribe: async () => {
 				throw new CoachTranscribeNoProviderKeyError();
 			},
@@ -194,6 +199,7 @@ test("transcribe route maps an exhausted cap to 503 MONTHLY_CAP_EXCEEDED", async
 		multipartRequest({ csrf, form: audioForm() }),
 		{ params: { id: incidentId } },
 		{
+			sessionValidator: testSessionValidator,
 			transcribe: async () => {
 				throw new CoachTranscribeMonthlyCapError();
 			},
@@ -202,6 +208,42 @@ test("transcribe route maps an exhausted cap to 503 MONTHLY_CAP_EXCEEDED", async
 
 	assert.equal(response.status, 503);
 	assert.equal(record(await response.json()).code, "MONTHLY_CAP_EXCEEDED");
+});
+
+test("transcribe route maps provider 400 to AUDIO_UNREADABLE", async () => {
+	const csrf = randomUUID();
+
+	const response = await transcribeRoute.handleCoachTranscribe(
+		multipartRequest({ csrf, form: audioForm() }),
+		{ params: { id: incidentId } },
+		{
+			sessionValidator: testSessionValidator,
+			transcribe: async () => {
+				throw new CoachTranscribeProviderError("Audio could not be decoded.", 400);
+			},
+		},
+	);
+
+	assert.equal(response.status, 422);
+	assert.equal(record(await response.json()).code, "AUDIO_UNREADABLE");
+});
+
+test("transcribe route maps non-decode provider failures to PROVIDER_FAILED", async () => {
+	const csrf = randomUUID();
+
+	const response = await transcribeRoute.handleCoachTranscribe(
+		multipartRequest({ csrf, form: audioForm() }),
+		{ params: { id: incidentId } },
+		{
+			sessionValidator: testSessionValidator,
+			transcribe: async () => {
+				throw new CoachTranscribeProviderError("Provider unavailable.", 500);
+			},
+		},
+	);
+
+	assert.equal(response.status, 502);
+	assert.equal(record(await response.json()).code, "PROVIDER_FAILED");
 });
 
 test("transcribeCoachAudio throws NO_PROVIDER_KEY when no key resolves", async () => {
@@ -309,6 +351,46 @@ test("transcribeCoachAudio posts multipart to OpenAI and returns trimmed text", 
 	assert.equal(hadFile, true);
 });
 
+test("transcribeCoachAudio falls back to whisper when the primary model is unavailable", async () => {
+	const capturedModels: string[] = [];
+
+	const result = await transcribeCoachAudio({
+		audio: Buffer.from([9, 8, 7, 6]),
+		dispatchOptions: {
+			env: { NODE_ENV: "production" } as NodeJS.ProcessEnv,
+			checkCap: () => ({ ok: true }),
+			resolveApiKey: () => "sk-test-key",
+			recordCost: (async () => ({})) as never,
+			fetch: (async (_url: string, init?: RequestInit) => {
+				const form = init?.body as FormData;
+				const model = String(form.get("model") ?? "");
+				capturedModels.push(model);
+
+				if (model === "gpt-4o-transcribe") {
+					return new Response(
+						JSON.stringify({ error: { message: "model unavailable" } }),
+						{ status: 404, headers: { "content-type": "application/json" } },
+					);
+				}
+
+				return new Response(JSON.stringify({ text: "  fallback words  " }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}) as unknown as typeof fetch,
+		},
+		filename: "speech.webm",
+		incidentId,
+		locale: "en",
+		mimeType: "audio/webm",
+		tenantId,
+		userId,
+	});
+
+	assert.equal(result.text, "fallback words");
+	assert.deepEqual(capturedModels, ["gpt-4o-transcribe", "whisper-1"]);
+});
+
 function audioForm(): FormData {
 	const form = new FormData();
 	form.set(
@@ -334,6 +416,10 @@ function multipartRequest(input: { csrf: string; form: FormData }) {
 			method: "POST",
 		},
 	);
+}
+
+async function testSessionValidator() {
+	return { tenantId, userId };
 }
 
 function record(value: unknown): Record<string, unknown> {

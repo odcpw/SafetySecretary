@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import { existsSync } from "node:fs";
+import {
+	createServer,
+	type IncomingMessage,
+	type ServerResponse,
+} from "node:http";
 import { registerHooks } from "node:module";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 registerHooks({
@@ -47,6 +54,18 @@ const { listCoachMessages, parseCoachResponse, runCoachChatTurn } =
 	(await import(
 		moduleUrl("src/lib/incident/coach-chat.ts")
 	)) as typeof import("../../../src/lib/incident/coach-chat");
+const { NextRequest } = (await import(
+	"next/server.js"
+)) as typeof import("next/server");
+const coachChatStreamRoute = (await import(
+	moduleUrl("src/app/api/incidents/[id]/coach/chat/stream/route.ts")
+)) as typeof import("../../../src/app/api/incidents/[id]/coach/chat/stream/route");
+const { SESSION_COOKIE_NAME } = (await import(
+	moduleUrl("src/lib/auth/cookies.ts")
+)) as typeof import("../../../src/lib/auth/cookies");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
 const { applyIncidentCoachOperation } = (await import(
 	moduleUrl("src/lib/agent/incident-investigation/apply-operation.ts")
 )) as typeof import("../../../src/lib/agent/incident-investigation/apply-operation");
@@ -356,6 +375,159 @@ test("applying the same cause_node text twice yields one node, not a duplicate",
 	]);
 });
 
+test("coach chat stream route emits progress and final persisted messages", {
+	skip: !databaseUrl,
+}, async (t) => {
+	const { tenantId, userId } = await seedTenant();
+	const incidentId = randomUUID();
+	await insertIncidentCase({ caseId: incidentId, tenantId, userId });
+	const session = await issueSession(userId, tenantId);
+
+	t.after(async () => {
+		await dropTenantSchema(tenantId).catch(() => undefined);
+		await prisma.session.deleteMany({ where: { tenantId } });
+		await prisma.tenantMembership.deleteMany({ where: { tenantId } });
+		await prisma.tenant.deleteMany({ where: { id: tenantId } });
+		await prisma.user.deleteMany({ where: { id: userId } });
+	});
+
+	const response = await coachChatStreamRoute.POST(
+		new NextRequest(
+			`https://app.example.test/api/incidents/${incidentId}/coach/chat/stream`,
+			{
+				body: JSON.stringify({
+					locale: "en",
+					message:
+						"Forklift nearly hit a pedestrian at gate 3 while reversing out of the bay.",
+				}),
+				headers: {
+					"content-type": "application/json",
+					cookie: `${SESSION_COOKIE_NAME}=${session.cookieValue}`,
+				},
+				method: "POST",
+			},
+		),
+		{ params: { id: incidentId } },
+	);
+
+	assert.equal(response.status, 200);
+	assert.match(
+		response.headers.get("content-type") ?? "",
+		/text\/event-stream/,
+	);
+	const events = parseSse(await response.text());
+	assert.ok(
+		events.some(
+			(event) =>
+				event.name === "progress" &&
+				record(event.data).label === "Contacting the language model",
+		),
+	);
+	const final = events.find((event) => event.name === "final");
+	assert.ok(final);
+	const finalData = record(final.data);
+	assert.equal(record(finalData.userMessage).role, "user");
+	assert.equal(record(finalData.assistantMessage).role, "assistant");
+
+	const persisted = await listCoachMessages(tenantId, incidentId);
+	assert.ok(persisted);
+	assert.equal(persisted.length, 2);
+});
+
+test("coach chat stream route aborts upstream flue work when the client disconnects", {
+	skip: !databaseUrl,
+}, async (t) => {
+	const { tenantId, userId } = await seedTenant();
+	const incidentId = randomUUID();
+	await insertIncidentCase({ caseId: incidentId, tenantId, userId });
+	const session = await issueSession(userId, tenantId);
+	const originalRuntime = process.env.SSFW_II_COACH_RUNTIME;
+	const originalFlueBaseUrl = process.env.SSFW_FLUE_BASE_URL;
+	const originalFlueToken = process.env.SSFW_FLUE_TOKEN;
+	let resolvePostStarted: () => void = () => undefined;
+	let resolvePostClosed: () => void = () => undefined;
+	const postStarted = new Promise<void>((resolve) => {
+		resolvePostStarted = resolve;
+	});
+	const postClosed = new Promise<void>((resolve) => {
+		resolvePostClosed = resolve;
+	});
+	const flueServer = createServer(
+		(request: IncomingMessage, response: ServerResponse) => {
+			if (
+				request.method === "POST" &&
+				request.url?.startsWith("/agents/incident-investigation/")
+			) {
+				resolvePostStarted();
+				request.on("close", resolvePostClosed);
+				response.on("close", resolvePostClosed);
+				return;
+			}
+
+			response.writeHead(404, { "content-type": "application/json" });
+			response.end(JSON.stringify({ error: "unexpected request" }));
+		},
+	);
+	flueServer.listen(0, "127.0.0.1");
+	await once(flueServer, "listening");
+	const address = flueServer.address();
+	assert.ok(address && typeof address === "object");
+
+	process.env.SSFW_II_COACH_RUNTIME = "flue";
+	process.env.SSFW_FLUE_BASE_URL = `http://127.0.0.1:${address.port}`;
+	process.env.SSFW_FLUE_TOKEN = "test-token";
+
+	t.after(async () => {
+		restoreEnv("SSFW_II_COACH_RUNTIME", originalRuntime);
+		restoreEnv("SSFW_FLUE_BASE_URL", originalFlueBaseUrl);
+		restoreEnv("SSFW_FLUE_TOKEN", originalFlueToken);
+		flueServer.closeAllConnections();
+		flueServer.close();
+		await once(flueServer, "close").catch(() => undefined);
+		await dropTenantSchema(tenantId).catch(() => undefined);
+		await prisma.session.deleteMany({ where: { tenantId } });
+		await prisma.tenantMembership.deleteMany({ where: { tenantId } });
+		await prisma.tenant.deleteMany({ where: { id: tenantId } });
+		await prisma.user.deleteMany({ where: { id: userId } });
+	});
+
+	const response = await coachChatStreamRoute.POST(
+		new NextRequest(
+			`https://app.example.test/api/incidents/${incidentId}/coach/chat/stream`,
+			{
+				body: JSON.stringify({
+					locale: "en",
+					message:
+						"Review the manual edits after a forklift reversing near miss.",
+				}),
+				headers: {
+					"content-type": "application/json",
+					cookie: `${SESSION_COOKIE_NAME}=${session.cookieValue}`,
+				},
+				method: "POST",
+			},
+		),
+		{ params: { id: incidentId } },
+	);
+
+	assert.equal(response.status, 200);
+	assert.ok(response.body);
+	const reader = response.body.getReader();
+	const firstChunk = await reader.read();
+	assert.equal(firstChunk.done, false);
+	assert.match(
+		new TextDecoder().decode(firstChunk.value),
+		/Preparing the incident coach/,
+	);
+	await withTimeout(postStarted, 3000, "Flue request did not start");
+	await reader.cancel();
+	await withTimeout(postClosed, 3000, "Flue request was not aborted");
+	await eventually(async () => {
+		const persisted = await listCoachMessages(tenantId, incidentId);
+		assert.deepEqual(persisted, []);
+	});
+});
+
 async function seedTenant(): Promise<{ tenantId: string; userId: string }> {
 	const tenant = await prisma.tenant.create({
 		data: {
@@ -470,10 +642,91 @@ function sqlString(value: string): string {
 	return `'${value.replaceAll("'", "''")}'`;
 }
 
+function restoreEnv(key: string, value: string | undefined): void {
+	if (value === undefined) {
+		delete process.env[key];
+		return;
+	}
+
+	process.env[key] = value;
+}
+
+function record(value: unknown): Record<string, unknown> {
+	assert.ok(value && typeof value === "object" && !Array.isArray(value));
+	return value as Record<string, unknown>;
+}
+
+function parseSse(text: string): Array<{ name: string; data: unknown }> {
+	return text
+		.split(/\n\n/)
+		.map((block) => block.trim())
+		.filter(Boolean)
+		.map((block) => {
+			let name = "message";
+			const dataLines: string[] = [];
+
+			for (const line of block.split(/\r?\n/)) {
+				if (line.startsWith("event:")) {
+					name = line.slice("event:".length).trim();
+				}
+
+				if (line.startsWith("data:")) {
+					dataLines.push(line.slice("data:".length).trimStart());
+				}
+			}
+
+			return {
+				data: JSON.parse(dataLines.join("\n")),
+				name,
+			};
+		});
+}
+
 function moduleUrl(relativePath: string): string {
 	return pathToFileURL(relativePath).href;
 }
 
 function isLocalImport(specifier: string): boolean {
 	return specifier.startsWith("./") || specifier.startsWith("../");
+}
+
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	message: string,
+): Promise<T> {
+	let timeout: NodeJS.Timeout | undefined;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+	});
+
+	try {
+		return await Promise.race([promise, timeoutPromise]);
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+	}
+}
+
+async function eventually(
+	assertion: () => Promise<void> | void,
+	timeoutMs = 3000,
+): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	let lastError: unknown;
+
+	while (Date.now() < deadline) {
+		try {
+			await assertion();
+			return;
+		} catch (error) {
+			lastError = error;
+			await delay(25);
+		}
+	}
+
+	if (lastError) {
+		throw lastError;
+	}
 }

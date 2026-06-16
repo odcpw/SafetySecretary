@@ -9,6 +9,7 @@ import {
 } from "react";
 import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
 import { ensureCsrfToken } from "../../../lib/auth/csrf-client";
+import type { ManualIncidentRecordChange } from "../../../lib/incident/coach-consistency";
 import Badge from "../../ui/Badge";
 import type { CoachCopy } from "./copy";
 import type {
@@ -23,6 +24,7 @@ type CauseTreeEditorProps = {
 	readonly actions: RecordAction[];
 	readonly copy: CoachCopy;
 	readonly onRecordChange?: () => void;
+	readonly onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 };
 
 type TreeNode = {
@@ -79,6 +81,7 @@ export default function CauseTreeEditor({
 	actions,
 	copy,
 	onRecordChange,
+	onManualRecordChange,
 }: CauseTreeEditorProps) {
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -197,6 +200,10 @@ export default function CauseTreeEditor({
 
 		if (await mutate(updateBody(cause, { statement }), "PATCH")) {
 			setEditing(null);
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Edited cause: ${truncate(statement, 120)}`,
+			});
 		}
 	}
 
@@ -210,12 +217,20 @@ export default function CauseTreeEditor({
 
 		if (await mutate({ parentId, statement }, "POST")) {
 			setAdding(null);
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Added cause: ${truncate(statement, 120)}`,
+			});
 		}
 	}
 
 	async function removeCause(nodeId: string) {
 		if (await mutate({ _action: "delete", nodeId }, "POST")) {
 			setConfirmingDeleteId(null);
+			onManualRecordChange?.({
+				area: "causes",
+				summary: "Deleted a cause branch",
+			});
 		}
 	}
 
@@ -233,6 +248,10 @@ export default function CauseTreeEditor({
 
 		if (marked) {
 			setMarkingId(null);
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Marked cause as ${branchStatus}`,
+			});
 		}
 	}
 
@@ -248,6 +267,10 @@ export default function CauseTreeEditor({
 
 		if (await mutate(updateBody(cause, { parentId }), "PATCH")) {
 			setMovingId(null);
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Moved cause: ${truncate(cause.statement, 120)}`,
+			});
 		}
 	}
 

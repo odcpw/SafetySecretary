@@ -4,6 +4,8 @@ case-backups/
 .data/
 coverage/
 dist/
+.flue-dist/
+data/flue*.db*
 .env
 .env.*
 !.env.example

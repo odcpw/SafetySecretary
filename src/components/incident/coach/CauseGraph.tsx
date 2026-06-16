@@ -9,6 +9,7 @@ import {
 	NODE_H,
 	NODE_W,
 } from "../../../lib/incident/cause-tree-layout";
+import type { ManualIncidentRecordChange } from "../../../lib/incident/coach-consistency";
 import type {
 	IncidentRecord,
 	RecordCauseBranchStatus,
@@ -203,12 +204,14 @@ export default function CauseGraph({
 	method,
 	incidentId,
 	onRecordChange,
+	onManualRecordChange,
 }: {
 	readonly record: IncidentRecord;
 	readonly locale: string;
 	readonly method?: string;
 	readonly incidentId?: string;
 	readonly onRecordChange?: () => void;
+	readonly onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 }) {
 	const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
 	// Editing state (only used when incidentId is present). `menuId` is the
@@ -296,6 +299,10 @@ export default function CauseGraph({
 		}
 
 		if (await mutate(updateBody(cause, { statement }), "PATCH")) {
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Edited cause in graph: ${truncate(statement, 120)}`,
+			});
 			closeMenus();
 		}
 	}
@@ -308,12 +315,20 @@ export default function CauseGraph({
 		}
 
 		if (await mutate({ parentId, statement }, "POST")) {
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Added cause in graph: ${truncate(statement, 120)}`,
+			});
 			closeMenus();
 		}
 	}
 
 	async function removeCause(nodeId: string) {
 		if (await mutate({ _action: "delete", nodeId }, "POST")) {
+			onManualRecordChange?.({
+				area: "causes",
+				summary: "Deleted a cause branch in graph",
+			});
 			closeMenus();
 		}
 	}
@@ -331,6 +346,10 @@ export default function CauseGraph({
 				"PATCH",
 			)
 		) {
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Marked cause in graph as ${branchStatus}`,
+			});
 			closeMenus();
 		}
 	}
@@ -347,6 +366,10 @@ export default function CauseGraph({
 		}
 
 		if (await mutate(updateBody(cause, { parentId }), "PATCH")) {
+			onManualRecordChange?.({
+				area: "causes",
+				summary: `Moved cause in graph: ${truncate(cause.statement, 120)}`,
+			});
 			closeMenus();
 		}
 	}

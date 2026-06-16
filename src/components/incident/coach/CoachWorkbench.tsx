@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type PointerEvent as ReactPointerEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import type { AgentStructuredOperation } from "../../../lib/agent/types";
 import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
 import { ensureCsrfToken } from "../../../lib/auth/csrf-client";
@@ -8,6 +15,10 @@ import type {
 	CoachChatMessage,
 	CoachOperationDecision,
 } from "../../../lib/incident/coach-chat";
+import {
+	buildManualEditConsistencyReviewMessage,
+	type ManualIncidentRecordChange,
+} from "../../../lib/incident/coach-consistency";
 import {
 	controlFailureLabel,
 	dateTimeLabel,
@@ -51,6 +62,18 @@ type ConversationFeedbackPayload = {
 	readonly updatedAt: string;
 };
 
+type CoachStreamProgress = {
+	readonly label: string;
+	readonly detail?: string;
+	readonly kind?: string;
+	readonly phase?: "start" | "end";
+	readonly isError?: boolean;
+};
+
+type CoachActivityItem = CoachStreamProgress & {
+	readonly id: string;
+};
+
 export default function CoachWorkbench({
 	incidentId,
 	locale,
@@ -80,8 +103,33 @@ export default function CoachWorkbench({
 	const [feedbackSaved, setFeedbackSaved] = useState(false);
 	const [feedbackError, setFeedbackError] = useState<string | null>(null);
 	const [feedbackOpen, setFeedbackOpen] = useState(false);
+	const [activityItems, setActivityItems] = useState<CoachActivityItem[]>([]);
+	const [activityOpen, setActivityOpen] = useState(false);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const composerRef = useRef<HTMLTextAreaElement | null>(null);
+	const workbenchRef = useRef<HTMLDivElement | null>(null);
+	const chatSectionRef = useRef<HTMLElement | null>(null);
+	const sendingRef = useRef(false);
+	const consistencyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+		null,
+	);
+	const pendingConsistencyChangesRef = useRef<ManualIncidentRecordChange[]>([]);
+	const [leftPanePercent, setLeftPanePercent] = useState(55);
+	const [isPaneResizing, setIsPaneResizing] = useState(false);
+	const [composerPaneHeight, setComposerPaneHeight] = useState(180);
+	const [isComposerResizing, setIsComposerResizing] = useState(false);
+
+	useEffect(() => {
+		sendingRef.current = sending;
+	}, [sending]);
+
+	useEffect(() => {
+		return () => {
+			if (consistencyTimerRef.current) {
+				clearTimeout(consistencyTimerRef.current);
+			}
+		};
+	}, []);
 
 	const refreshRecord = useCallback(async () => {
 		const response = await fetch(
@@ -176,17 +224,94 @@ export default function CoachWorkbench({
 			behavior: "smooth",
 			top: scrollRef.current.scrollHeight,
 		});
-	}, [messages, sending]);
+	}, [messages.length, sending]);
 
-	async function submitMessage(rawMessage: string): Promise<boolean> {
-		const message = rawMessage.trim();
+	useEffect(() => {
+		if (!isPaneResizing) {
+			return;
+		}
 
-		if (!message || sending) {
+		function onPointerMove(event: PointerEvent) {
+			const rect = workbenchRef.current?.getBoundingClientRect();
+
+			if (!rect || rect.width === 0) {
+				return;
+			}
+
+			const nextPercent = ((event.clientX - rect.left) / rect.width) * 100;
+			setLeftPanePercent(Math.min(70, Math.max(35, nextPercent)));
+		}
+
+		function onPointerUp() {
+			setIsPaneResizing(false);
+		}
+
+		window.addEventListener("pointermove", onPointerMove);
+		window.addEventListener("pointerup", onPointerUp, { once: true });
+
+		return () => {
+			window.removeEventListener("pointermove", onPointerMove);
+			window.removeEventListener("pointerup", onPointerUp);
+		};
+	}, [isPaneResizing]);
+
+	useEffect(() => {
+		if (!isComposerResizing) {
+			return;
+		}
+
+		function onPointerMove(event: PointerEvent) {
+			const rect = chatSectionRef.current?.getBoundingClientRect();
+
+			if (!rect || rect.height === 0) {
+				return;
+			}
+
+			const nextHeight = rect.bottom - event.clientY;
+			setComposerPaneHeight(Math.min(360, Math.max(130, nextHeight)));
+		}
+
+		function onPointerUp() {
+			setIsComposerResizing(false);
+		}
+
+		window.addEventListener("pointermove", onPointerMove);
+		window.addEventListener("pointerup", onPointerUp, { once: true });
+
+		return () => {
+			window.removeEventListener("pointermove", onPointerMove);
+			window.removeEventListener("pointerup", onPointerUp);
+		};
+	}, [isComposerResizing]);
+
+	function beginSending(): boolean {
+		if (sendingRef.current) {
 			return false;
 		}
 
+		sendingRef.current = true;
 		setSending(true);
+		return true;
+	}
+
+	function finishSending() {
+		sendingRef.current = false;
+		setSending(false);
+	}
+
+	async function submitMessage(
+		rawMessage: string,
+		options?: { focusComposer?: boolean },
+	): Promise<boolean> {
+		const message = rawMessage.trim();
+
+		if (!message || !beginSending()) {
+			return false;
+		}
+
 		setError(null);
+		setActivityItems([]);
+		setActivityOpen(false);
 
 		const optimistic: CoachChatMessage = {
 			content: message,
@@ -200,7 +325,7 @@ export default function CoachWorkbench({
 
 		try {
 			const response = await fetch(
-				`/api/incidents/${encodeURIComponent(incidentId)}/coach/chat`,
+				`/api/incidents/${encodeURIComponent(incidentId)}/coach/chat/stream`,
 				{
 					body: JSON.stringify({ locale: coachReplyLocale, message }),
 					credentials: "same-origin",
@@ -211,18 +336,17 @@ export default function CoachWorkbench({
 					method: "POST",
 				},
 			);
-			const body = (await response.json().catch(() => ({}))) as {
-				userMessage?: CoachChatMessage;
-				assistantMessage?: CoachChatMessage;
-				code?: string;
-			};
 
-			if (!response.ok || !body.assistantMessage || !body.userMessage) {
-				throw new Error(body.code ?? `COACH_FAILED_${response.status}`);
-			}
-
-			const userMessage = body.userMessage;
-			const assistantMessage = body.assistantMessage;
+			const body = await readCoachStreamTurn(response, (progress) => {
+				setActivityItems((current) => [
+					...current.slice(-11),
+					{
+						...progress,
+						id: `activity-${Date.now()}-${current.length}`,
+					},
+				]);
+			});
+			const { userMessage, assistantMessage } = body;
 			setMessages((current) => [
 				...current.filter((candidate) => candidate.id !== optimistic.id),
 				userMessage,
@@ -236,15 +360,17 @@ export default function CoachWorkbench({
 			setError(userSafeError(caught, copy));
 			return false;
 		} finally {
-			setSending(false);
-			composerRef.current?.focus();
+			finishSending();
+			if (options?.focusComposer !== false) {
+				composerRef.current?.focus();
+			}
 		}
 	}
 
 	async function send() {
 		const message = input.trim();
 
-		if (!message || sending) {
+		if (!message || sendingRef.current) {
 			return;
 		}
 
@@ -305,11 +431,63 @@ export default function CoachWorkbench({
 	// Empty cases stay silent: nothing to re-cast, the method just shapes the
 	// questioning from here on.
 	function handleMethodSwitch(nextMethod: string) {
-		if (!record || record.causes.length === 0 || sending) {
+		if (!record || record.causes.length === 0 || sendingRef.current) {
 			return;
 		}
 
-		void submitMessage(methodSwitchMessage(coachReplyLocale, nextMethod));
+		void submitMessage(methodSwitchMessage(coachReplyLocale, nextMethod), {
+			focusComposer: false,
+		});
+	}
+
+	function handleManualRecordChange(change: ManualIncidentRecordChange) {
+		pendingConsistencyChangesRef.current = [
+			...pendingConsistencyChangesRef.current,
+			change,
+		].slice(-8);
+
+		if (consistencyTimerRef.current) {
+			clearTimeout(consistencyTimerRef.current);
+		}
+
+		consistencyTimerRef.current = setTimeout(flushConsistencyReview, 1400);
+	}
+
+	function flushConsistencyReview() {
+		consistencyTimerRef.current = null;
+
+		if (sendingRef.current) {
+			consistencyTimerRef.current = setTimeout(flushConsistencyReview, 2000);
+			return;
+		}
+
+		const changes = pendingConsistencyChangesRef.current;
+		pendingConsistencyChangesRef.current = [];
+
+		if (changes.length === 0) {
+			return;
+		}
+
+		void submitMessage(
+			buildManualEditConsistencyReviewMessage({
+				changes,
+				locale: coachReplyLocale,
+			}),
+			{ focusComposer: false },
+		).then((accepted) => {
+			if (accepted) {
+				return;
+			}
+
+			pendingConsistencyChangesRef.current = [
+				...changes,
+				...pendingConsistencyChangesRef.current,
+			].slice(-8);
+
+			if (!consistencyTimerRef.current) {
+				consistencyTimerRef.current = setTimeout(flushConsistencyReview, 2000);
+			}
+		});
 	}
 
 	async function decide(
@@ -421,11 +599,42 @@ export default function CoachWorkbench({
 		}
 	}
 
+	function startPaneResize(event: ReactPointerEvent<HTMLElement>) {
+		event.preventDefault();
+		setIsPaneResizing(true);
+	}
+
+	function startComposerResize(event: ReactPointerEvent<HTMLElement>) {
+		event.preventDefault();
+		setIsComposerResizing(true);
+	}
+
+	function resizePaneBy(delta: number) {
+		setLeftPanePercent((current) =>
+			Math.min(70, Math.max(35, current + delta)),
+		);
+	}
+
+	function resizeComposerBy(delta: number) {
+		setComposerPaneHeight((current) =>
+			Math.min(360, Math.max(130, current + delta)),
+		);
+	}
+
+	const workbenchStyle = {
+		"--coach-left-pane": `${leftPanePercent}%`,
+	} as CSSProperties;
+
 	return (
-		<div className="grid min-h-0 gap-4 lg:max-h-[calc(100dvh-7rem)] lg:grid-cols-[minmax(0,11fr)_minmax(0,9fr)]">
+		<div
+			className="grid min-h-0 gap-4 lg:max-h-[calc(100dvh-7rem)] lg:grid-cols-[minmax(18rem,var(--coach-left-pane))_0.5rem_minmax(18rem,1fr)] lg:gap-2"
+			ref={workbenchRef}
+			style={workbenchStyle}
+		>
 			<section
 				aria-label={copy.conversation.ariaLabel}
 				className="flex min-h-[28rem] min-w-0 flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] lg:min-h-0"
+				ref={chatSectionRef}
 			>
 				<header className="flex min-h-12 items-center justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3">
 					<div className="min-w-0">
@@ -513,9 +722,12 @@ export default function CoachWorkbench({
 							/>
 						))}
 						{sending ? (
-							<div className="justify-self-start rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elev)] px-3 py-2 text-sm text-[var(--color-muted)]">
-								{copy.conversation.thinking}
-							</div>
+							<CoachActivity
+								copy={copy}
+								expanded={activityOpen}
+								items={activityItems}
+								onToggle={() => setActivityOpen((current) => !current)}
+							/>
 						) : null}
 					</div>
 				</div>
@@ -524,48 +736,93 @@ export default function CoachWorkbench({
 						{error}
 					</p>
 				) : null}
-				<PhotoStrip
-					copy={copy}
-					incidentId={incidentId}
-					locale={locale}
-					onChatRefresh={refreshChat}
+				<button
+					aria-label="Resize chat input area"
+					className={`h-2 shrink-0 cursor-row-resize border-y border-transparent bg-[var(--color-border)] transition hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)] ${
+						isComposerResizing
+							? "border-[var(--color-accent)] bg-[var(--color-accent)]"
+							: ""
+					}`}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowUp") {
+							event.preventDefault();
+							resizeComposerBy(24);
+						}
+						if (event.key === "ArrowDown") {
+							event.preventDefault();
+							resizeComposerBy(-24);
+						}
+					}}
+					onPointerDown={(event) => startComposerResize(event)}
+					type="button"
 				/>
-				<div className="border-t border-[var(--color-border)] p-3">
-					<div className="flex items-end gap-2">
-						<textarea
-							className="min-h-[2.75rem] max-h-40 flex-1 resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
-							onChange={(event) => setInput(event.currentTarget.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" && !event.shiftKey) {
-									event.preventDefault();
-									void send();
-								}
-							}}
-							placeholder={copy.conversation.composerPlaceholder}
-							ref={composerRef}
-							rows={2}
-							value={input}
-						/>
-						<PushToTalkButton
-							copy={copy}
-							disabled={sending}
-							incidentId={incidentId}
-							onTranscript={appendTranscript}
-						/>
-						<button
-							className="inline-flex min-h-[2.75rem] items-center justify-center rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-							disabled={sending || !input.trim()}
-							onClick={() => void send()}
-							type="button"
-						>
-							{copy.conversation.send}
-						</button>
+				<div
+					className="shrink-0 overflow-y-auto"
+					style={{ height: composerPaneHeight }}
+				>
+					<PhotoStrip
+						copy={copy}
+						incidentId={incidentId}
+						locale={locale}
+						onChatRefresh={refreshChat}
+					/>
+					<div className="border-t border-[var(--color-border)] p-3">
+						<div className="flex items-end gap-2">
+							<textarea
+								className="min-h-[2.75rem] max-h-56 flex-1 resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+								onChange={(event) => setInput(event.currentTarget.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter" && !event.shiftKey) {
+										event.preventDefault();
+										void send();
+									}
+								}}
+								placeholder={copy.conversation.composerPlaceholder}
+								ref={composerRef}
+								rows={2}
+								value={input}
+							/>
+							<PushToTalkButton
+								copy={copy}
+								disabled={sending}
+								incidentId={incidentId}
+								onTranscript={appendTranscript}
+							/>
+							<button
+								className="inline-flex min-h-[2.75rem] items-center justify-center rounded-md bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+								disabled={sending || !input.trim()}
+								onClick={() => void send()}
+								type="button"
+							>
+								{copy.conversation.send}
+							</button>
+						</div>
+						<p className="m-0 mt-1 text-xs text-[var(--color-muted)]">
+							{copy.conversation.composerHint}
+						</p>
 					</div>
-					<p className="m-0 mt-1 text-xs text-[var(--color-muted)]">
-						{copy.conversation.composerHint}
-					</p>
 				</div>
 			</section>
+			<button
+				aria-label="Resize chat and record panes"
+				className={`hidden cursor-col-resize rounded-full border border-transparent bg-[var(--color-border)] transition hover:border-[var(--color-accent)] hover:bg-[var(--color-accent)] lg:block ${
+					isPaneResizing
+						? "border-[var(--color-accent)] bg-[var(--color-accent)]"
+						: ""
+				}`}
+				onKeyDown={(event) => {
+					if (event.key === "ArrowLeft") {
+						event.preventDefault();
+						resizePaneBy(-5);
+					}
+					if (event.key === "ArrowRight") {
+						event.preventDefault();
+						resizePaneBy(5);
+					}
+				}}
+				onPointerDown={(event) => startPaneResize(event)}
+				type="button"
+			/>
 			<section
 				aria-label={copy.conversation.recordAriaLabel}
 				className="min-h-0 min-w-0 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:max-h-[calc(100dvh-7rem)]"
@@ -574,6 +831,7 @@ export default function CoachWorkbench({
 					<RecordPanel
 						copy={copy}
 						locale={locale}
+						onManualRecordChange={handleManualRecordChange}
 						onMethodSwitch={handleMethodSwitch}
 						onRecordChange={() => void refreshRecord()}
 						record={record}
@@ -740,6 +998,56 @@ function ConversationFeedback({
 	);
 }
 
+function CoachActivity({
+	copy,
+	expanded,
+	items,
+	onToggle,
+}: {
+	copy: CoachCopy;
+	expanded: boolean;
+	items: readonly CoachActivityItem[];
+	onToggle: () => void;
+}) {
+	const latest = items.at(-1);
+
+	return (
+		<div className="grid max-w-[88%] justify-self-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-elev)] px-3 py-2 text-sm text-[var(--color-muted)]">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<span>
+					{copy.conversation.activityTitle}:{" "}
+					{latest?.label ?? copy.conversation.thinking}
+				</span>
+				{items.length > 0 ? (
+					<button
+						aria-expanded={expanded}
+						className="rounded-md border border-[var(--color-border)] px-2 py-1 text-xs font-medium text-[var(--color-text)] transition hover:border-[var(--color-accent)]"
+						onClick={onToggle}
+						type="button"
+					>
+						{expanded
+							? copy.conversation.activityHide
+							: copy.conversation.activityShow}
+					</button>
+				) : null}
+			</div>
+			{expanded && items.length > 0 ? (
+				<ul className="m-0 grid list-none gap-1 p-0 text-xs">
+					{items.map((item) => (
+						<li
+							className={item.isError ? "text-[var(--color-danger)]" : ""}
+							key={item.id}
+						>
+							{item.label}
+							{item.detail ? ` · ${item.detail}` : ""}
+						</li>
+					))}
+				</ul>
+			) : null}
+		</div>
+	);
+}
+
 function MessageBubble({
 	message,
 	busyOperationIds,
@@ -771,6 +1079,11 @@ function MessageBubble({
 	const pendingOperations = message.operations.filter(
 		(operation) => !message.operationDecisions[operation.id],
 	);
+	const hasLongProposalList = message.operations.length > 3;
+	const [operationsExpanded, setOperationsExpanded] = useState(
+		!hasLongProposalList,
+	);
+	const proposalCountLabel = `${copy.conversation.proposalGroupTitle} (${message.operations.length})`;
 
 	return (
 		<div
@@ -781,24 +1094,56 @@ function MessageBubble({
 			    question always sits nearest the composer. */}
 			{message.operations.length > 0 ? (
 				<div className="grid w-full max-w-[88%] gap-2">
-					{message.operations.map((operation) => (
-						<OperationCard
-							busy={busyOperationIds.has(operation.id)}
-							causeStatements={causeStatements}
-							copy={copy}
-							decision={message.operationDecisions[operation.id]}
-							editing={editing?.operationId === operation.id ? editing : null}
-							key={operation.id}
-							locale={locale}
-							onApply={(editedText) => onApply(operation, editedText)}
-							onDismiss={() => onDismiss(operation)}
-							onEdit={() => onEdit(operation)}
-							onEditChange={onEditChange}
-							onEditCancel={onEditCancel}
-							operation={operation}
-						/>
-					))}
-					{pendingOperations.length > 1 ? (
+					{hasLongProposalList ? (
+						<div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+							<span className="text-xs font-medium uppercase tracking-wide text-[var(--color-accent)]">
+								{proposalCountLabel}
+							</span>
+							<div className="flex flex-wrap gap-2">
+								{pendingOperations.length > 1 ? (
+									<button
+										className={cardPrimaryButton}
+										onClick={onApplyAll}
+										type="button"
+									>
+										{copy.conversation.acceptAll} {pendingOperations.length}
+									</button>
+								) : null}
+								<button
+									aria-expanded={operationsExpanded}
+									className={cardSecondaryButton}
+									onClick={() => setOperationsExpanded((current) => !current)}
+									type="button"
+								>
+									{operationsExpanded
+										? copy.conversation.hideProposals
+										: copy.conversation.reviewProposals}
+								</button>
+							</div>
+						</div>
+					) : null}
+					{operationsExpanded
+						? message.operations.map((operation) => (
+								<OperationCard
+									busy={busyOperationIds.has(operation.id)}
+									causeStatements={causeStatements}
+									copy={copy}
+									decision={message.operationDecisions[operation.id]}
+									editing={
+										editing?.operationId === operation.id ? editing : null
+									}
+									key={operation.id}
+									locale={locale}
+									onApply={(editedText) => onApply(operation, editedText)}
+									onDismiss={() => onDismiss(operation)}
+									onEdit={() => onEdit(operation)}
+									onEditChange={onEditChange}
+									onEditCancel={onEditCancel}
+									operation={operation}
+								/>
+							))
+						: null}
+					{pendingOperations.length > 1 && !hasLongProposalList ? (
 						<button
 							className="justify-self-start rounded-md border border-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition hover:bg-[var(--color-accent)] hover:text-white"
 							onClick={onApplyAll}
@@ -1079,6 +1424,172 @@ function valueLabel(
 		default:
 			return text;
 	}
+}
+
+async function readCoachStreamTurn(
+	response: Response,
+	onProgress: (progress: CoachStreamProgress) => void,
+): Promise<{
+	userMessage: CoachChatMessage;
+	assistantMessage: CoachChatMessage;
+}> {
+	if (!response.ok) {
+		const body = (await response.json().catch(() => ({}))) as {
+			code?: string;
+		};
+		throw new Error(body.code ?? `COACH_FAILED_${response.status}`);
+	}
+
+	const contentType = response.headers.get("content-type") ?? "";
+
+	if (!response.body || !contentType.includes("text/event-stream")) {
+		const body = (await response.json().catch(() => ({}))) as {
+			userMessage?: CoachChatMessage;
+			assistantMessage?: CoachChatMessage;
+			code?: string;
+		};
+
+		if (!body.userMessage || !body.assistantMessage) {
+			throw new Error(body.code ?? "COACH_FAILED");
+		}
+
+		return {
+			assistantMessage: body.assistantMessage,
+			userMessage: body.userMessage,
+		};
+	}
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let final: {
+		userMessage: CoachChatMessage;
+		assistantMessage: CoachChatMessage;
+	} | null = null;
+
+	while (true) {
+		const { done, value } = await reader.read();
+		buffer += decoder.decode(value, { stream: !done });
+
+		let boundary = buffer.indexOf("\n\n");
+		while (boundary !== -1) {
+			const block = buffer.slice(0, boundary);
+			buffer = buffer.slice(boundary + 2);
+			const event = parseSseBlock(block);
+
+			if (event) {
+				if (event.name === "progress") {
+					const progress = progressPayload(event.data);
+					if (progress) {
+						onProgress(progress);
+					}
+				}
+
+				if (event.name === "final") {
+					final = finalPayload(event.data);
+				}
+
+				if (event.name === "error") {
+					const code =
+						event.data &&
+						typeof event.data === "object" &&
+						typeof (event.data as { code?: unknown }).code === "string"
+							? (event.data as { code: string }).code
+							: "COACH_FAILED";
+					throw new Error(code);
+				}
+			}
+
+			boundary = buffer.indexOf("\n\n");
+		}
+
+		if (done) {
+			break;
+		}
+	}
+
+	if (!final) {
+		throw new Error("COACH_FAILED");
+	}
+
+	return final;
+}
+
+function parseSseBlock(block: string): { name: string; data: unknown } | null {
+	let name = "message";
+	const dataLines: string[] = [];
+
+	for (const rawLine of block.split(/\r?\n/)) {
+		if (!rawLine || rawLine.startsWith(":")) {
+			continue;
+		}
+
+		if (rawLine.startsWith("event:")) {
+			name = rawLine.slice("event:".length).trim();
+			continue;
+		}
+
+		if (rawLine.startsWith("data:")) {
+			dataLines.push(rawLine.slice("data:".length).trimStart());
+		}
+	}
+
+	if (dataLines.length === 0) {
+		return null;
+	}
+
+	try {
+		return { data: JSON.parse(dataLines.join("\n")), name };
+	} catch {
+		return null;
+	}
+}
+
+function progressPayload(value: unknown): CoachStreamProgress | null {
+	if (!value || typeof value !== "object") {
+		return null;
+	}
+
+	const record = value as Record<string, unknown>;
+	const label = typeof record.label === "string" ? record.label : "";
+
+	if (!label) {
+		return null;
+	}
+
+	return {
+		detail: typeof record.detail === "string" ? record.detail : undefined,
+		isError: typeof record.isError === "boolean" ? record.isError : undefined,
+		kind: typeof record.kind === "string" ? record.kind : undefined,
+		label,
+		phase:
+			record.phase === "start" || record.phase === "end"
+				? record.phase
+				: undefined,
+	};
+}
+
+function finalPayload(value: unknown): {
+	userMessage: CoachChatMessage;
+	assistantMessage: CoachChatMessage;
+} | null {
+	if (!value || typeof value !== "object") {
+		return null;
+	}
+
+	const record = value as {
+		assistantMessage?: CoachChatMessage;
+		userMessage?: CoachChatMessage;
+	};
+
+	if (!record.userMessage || !record.assistantMessage) {
+		return null;
+	}
+
+	return {
+		assistantMessage: record.assistantMessage,
+		userMessage: record.userMessage,
+	};
 }
 
 function recordMapFromMessages(

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
 import { ensureCsrfToken } from "../../../lib/auth/csrf-client";
+import type { ManualIncidentRecordChange } from "../../../lib/incident/coach-consistency";
 import Badge from "../../ui/Badge";
 import type { CoachCopy } from "./copy";
 import type { RecordAction, RecordCauseNode } from "./types";
@@ -13,6 +14,7 @@ type ActionPlanEditorProps = {
 	readonly causes: RecordCauseNode[];
 	readonly copy: CoachCopy;
 	readonly onRecordChange?: () => void;
+	readonly onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 };
 
 type ActionTypeValue = "SUBSTITUTION" | "TECHNICAL" | "ORGANIZATIONAL" | "PPE";
@@ -55,7 +57,12 @@ function buildStatusOptions(
 		{ label: copy.actions.statusComplete, value: "COMPLETE" },
 	];
 }
-const actionTypeSet = new Set<string>(["SUBSTITUTION", "TECHNICAL", "ORGANIZATIONAL", "PPE"]);
+const actionTypeSet = new Set<string>([
+	"SUBSTITUTION",
+	"TECHNICAL",
+	"ORGANIZATIONAL",
+	"PPE",
+]);
 const statusSet = new Set<string>(["OPEN", "IN_PROGRESS", "COMPLETE"]);
 
 const inputClassName =
@@ -77,6 +84,7 @@ export default function ActionPlanEditor({
 	causes,
 	copy,
 	onRecordChange,
+	onManualRecordChange,
 }: ActionPlanEditorProps) {
 	const actionTypeOptions = buildActionTypeOptions(copy);
 	const statusOptions = buildStatusOptions(copy);
@@ -113,7 +121,9 @@ export default function ActionPlanEditor({
 				const payload = (await response.json().catch(() => ({}))) as {
 					code?: string;
 				};
-				throw new Error(payload.code ?? `ACTION_SAVE_FAILED_${response.status}`);
+				throw new Error(
+					payload.code ?? `ACTION_SAVE_FAILED_${response.status}`,
+				);
 			}
 
 			onRecordChange?.();
@@ -144,6 +154,10 @@ export default function ActionPlanEditor({
 
 		if (saved) {
 			setEditing(null);
+			onManualRecordChange?.({
+				area: "actions",
+				summary: `Edited measure: ${truncate(draft.description.trim(), 120)}`,
+			});
 		}
 	}
 
@@ -169,12 +183,20 @@ export default function ActionPlanEditor({
 
 		if (added) {
 			setAdding(null);
+			onManualRecordChange?.({
+				area: "actions",
+				summary: `Added measure: ${truncate(draft.description.trim(), 120)}`,
+			});
 		}
 	}
 
 	async function removeAction(actionId: string) {
 		if (await mutate({ _action: "delete", actionId })) {
 			setConfirmingDeleteId(null);
+			onManualRecordChange?.({
+				area: "actions",
+				summary: "Deleted a measure",
+			});
 		}
 	}
 
@@ -186,7 +208,9 @@ export default function ActionPlanEditor({
 			<>
 				<textarea
 					className={textareaClassName}
-					onChange={(event) => update({ description: event.currentTarget.value })}
+					onChange={(event) =>
+						update({ description: event.currentTarget.value })
+					}
 					placeholder={copy.actions.whatWillBeDone}
 					rows={2}
 					value={draft.description}
@@ -194,7 +218,9 @@ export default function ActionPlanEditor({
 				<div className="flex flex-wrap items-center gap-2">
 					<input
 						className={inputClassName}
-						onChange={(event) => update({ ownerRole: event.currentTarget.value })}
+						onChange={(event) =>
+							update({ ownerRole: event.currentTarget.value })
+						}
 						placeholder={copy.actions.ownerRole}
 						type="text"
 						value={draft.ownerRole}
@@ -203,7 +229,9 @@ export default function ActionPlanEditor({
 						{copy.actions.due}
 						<input
 							className={inputClassName}
-							onChange={(event) => update({ dueDate: event.currentTarget.value })}
+							onChange={(event) =>
+								update({ dueDate: event.currentTarget.value })
+							}
 							type="date"
 							value={draft.dueDate}
 						/>
@@ -215,7 +243,9 @@ export default function ActionPlanEditor({
 						<select
 							className={selectClassName}
 							onChange={(event) =>
-								update({ actionType: event.currentTarget.value as ActionTypeValue })
+								update({
+									actionType: event.currentTarget.value as ActionTypeValue,
+								})
 							}
 							value={draft.actionType}
 						>
@@ -231,7 +261,9 @@ export default function ActionPlanEditor({
 						<select
 							className={selectClassName}
 							onChange={(event) =>
-								update({ status: event.currentTarget.value as ActionStatusValue })
+								update({
+									status: event.currentTarget.value as ActionStatusValue,
+								})
 							}
 							value={draft.status}
 						>
@@ -258,7 +290,9 @@ export default function ActionPlanEditor({
 					key={action.id}
 				>
 					{renderFields(editing, (changes) =>
-						setEditing((current) => (current ? { ...current, ...changes } : current)),
+						setEditing((current) =>
+							current ? { ...current, ...changes } : current,
+						),
 					)}
 					<div className="flex gap-2">
 						<button
@@ -403,12 +437,16 @@ export default function ActionPlanEditor({
 						</select>
 					</label>
 					{renderFields(adding, (changes) =>
-						setAdding((current) => (current ? { ...current, ...changes } : current)),
+						setAdding((current) =>
+							current ? { ...current, ...changes } : current,
+						),
 					)}
 					<div className="flex gap-2">
 						<button
 							className={primaryButton}
-							disabled={busy || !adding.description.trim() || !adding.causeNodeId}
+							disabled={
+								busy || !adding.description.trim() || !adding.causeNodeId
+							}
 							onClick={() => void addAction(adding)}
 							type="button"
 						>

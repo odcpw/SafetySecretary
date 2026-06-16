@@ -125,6 +125,138 @@ export class ResendEmailTransport implements EmailTransport {
 	}
 }
 
+export class PostmarkEmailTransport implements EmailTransport {
+	private readonly endpoint: string;
+	private readonly fetchImpl: FetchLike;
+	private readonly messageStream?: string;
+	private readonly serverToken: string;
+	private readonly userAgent: string;
+
+	constructor(config: {
+		endpoint?: string;
+		fetchImpl?: FetchLike;
+		messageStream?: string;
+		serverToken?: string;
+		userAgent?: string;
+	}) {
+		const serverToken = config.serverToken?.trim();
+
+		if (!serverToken) {
+			throw new Error(
+				"POSTMARK_SERVER_TOKEN is required when EMAIL_TRANSPORT=postmark.",
+			);
+		}
+
+		this.endpoint = config.endpoint ?? "https://api.postmarkapp.com/email";
+		this.fetchImpl = config.fetchImpl ?? fetch;
+		this.messageStream = config.messageStream?.trim() || undefined;
+		this.serverToken = serverToken;
+		this.userAgent = config.userAgent ?? "SafetySecretaryNext/0.1.0";
+	}
+
+	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
+		const response = await this.fetchImpl(this.endpoint, {
+			body: JSON.stringify({
+				From: email.from,
+				HtmlBody: magicLinkHtml(email),
+				MessageStream: this.messageStream,
+				Subject: "Sign in to Safety Secretary",
+				TextBody: magicLinkText(email),
+				To: email.to,
+				TrackLinks: "None",
+				TrackOpens: false,
+			}),
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+				"user-agent": this.userAgent,
+				"x-postmark-server-token": this.serverToken,
+			},
+			method: "POST",
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Postmark email send failed with status ${response.status}.`,
+			);
+		}
+	}
+}
+
+export class MailgunEmailTransport implements EmailTransport {
+	private readonly apiKey: string;
+	private readonly baseUrl: string;
+	private readonly domain: string;
+	private readonly fetchImpl: FetchLike;
+	private readonly userAgent: string;
+
+	constructor(config: {
+		apiKey?: string;
+		baseUrl?: string;
+		domain?: string;
+		fetchImpl?: FetchLike;
+		userAgent?: string;
+	}) {
+		const apiKey = config.apiKey?.trim();
+		const domain = config.domain?.trim();
+
+		if (!apiKey) {
+			throw new Error(
+				"MAILGUN_API_KEY is required when EMAIL_TRANSPORT=mailgun.",
+			);
+		}
+
+		if (!domain) {
+			throw new Error(
+				"MAILGUN_DOMAIN is required when EMAIL_TRANSPORT=mailgun.",
+			);
+		}
+
+		this.apiKey = apiKey;
+		this.baseUrl = (config.baseUrl ?? "https://api.mailgun.net").replace(
+			/\/+$/,
+			"",
+		);
+		this.domain = domain;
+		this.fetchImpl = config.fetchImpl ?? fetch;
+		this.userAgent = config.userAgent ?? "SafetySecretaryNext/0.1.0";
+	}
+
+	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
+		const body = new URLSearchParams({
+			from: email.from,
+			html: magicLinkHtml(email),
+			"o:tracking": "no",
+			"o:tracking-clicks": "no",
+			"o:tracking-opens": "no",
+			subject: "Sign in to Safety Secretary",
+			text: magicLinkText(email),
+			to: email.to,
+		});
+
+		const response = await this.fetchImpl(
+			`${this.baseUrl}/v3/${encodeURIComponent(this.domain)}/messages`,
+			{
+				body,
+				headers: {
+					authorization: `Basic ${Buffer.from(
+						`api:${this.apiKey}`,
+					).toString("base64")}`,
+					"content-type": "application/x-www-form-urlencoded",
+					"user-agent": this.userAgent,
+				},
+				method: "POST",
+			},
+		);
+
+		if (!response.ok) {
+			throw new Error(
+				`Mailgun email send failed with status ${response.status}.`,
+			);
+		}
+	}
+}
+
 export function createEmailTransport(
 	env: EnvLike = process.env,
 ): EmailTransport {
@@ -134,6 +266,21 @@ export function createEmailTransport(
 	if (transport === "resend") {
 		return new ResendEmailTransport({
 			apiKey: env.RESEND_API_KEY,
+		});
+	}
+
+	if (transport === "postmark") {
+		return new PostmarkEmailTransport({
+			messageStream: env.POSTMARK_MESSAGE_STREAM,
+			serverToken: env.POSTMARK_SERVER_TOKEN,
+		});
+	}
+
+	if (transport === "mailgun") {
+		return new MailgunEmailTransport({
+			apiKey: env.MAILGUN_API_KEY,
+			baseUrl: env.MAILGUN_BASE_URL,
+			domain: env.MAILGUN_DOMAIN,
 		});
 	}
 

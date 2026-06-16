@@ -5,6 +5,7 @@ import {
 	deriveActualSeverityFromOutcome,
 	parseActualInjuryOutcome,
 } from "../../../lib/incident/classification";
+import type { ManualIncidentRecordChange } from "../../../lib/incident/coach-consistency";
 import {
 	incidentFieldHeading,
 	outcomeLabel,
@@ -45,6 +46,7 @@ type RecordPanelProps = {
 	readonly copy: CoachCopy;
 	readonly locale: string;
 	readonly onRecordChange?: () => void;
+	readonly onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 	readonly onMethodSwitch?: (next: string) => void;
 };
 
@@ -67,6 +69,7 @@ export default function RecordPanel({
 	copy,
 	locale,
 	onRecordChange,
+	onManualRecordChange,
 	onMethodSwitch,
 }: RecordPanelProps) {
 	const [activeTab, setActiveTab] = useState("overview");
@@ -83,6 +86,7 @@ export default function RecordPanel({
 				<OverviewTab
 					copy={copy}
 					locale={locale}
+					onManualRecordChange={onManualRecordChange}
 					onRecordChange={onRecordChange}
 					record={record}
 				/>
@@ -96,6 +100,7 @@ export default function RecordPanel({
 					copy={copy}
 					facts={record.facts}
 					incidentId={incident.id}
+					onManualRecordChange={onManualRecordChange}
 					onRecordChange={onRecordChange}
 					timeline={visibleTimeline}
 				/>
@@ -110,6 +115,7 @@ export default function RecordPanel({
 					causes={record.causes}
 					copy={copy}
 					incidentId={incident.id}
+					onManualRecordChange={onManualRecordChange}
 					onRecordChange={onRecordChange}
 				/>
 			),
@@ -129,6 +135,7 @@ export default function RecordPanel({
 						incidentId={incident.id}
 						locale={locale}
 						method={incident.causeMethod ?? undefined}
+						onManualRecordChange={onManualRecordChange}
 						onRecordChange={onRecordChange}
 						record={record}
 					/>
@@ -143,6 +150,7 @@ export default function RecordPanel({
 					causes={record.causes}
 					copy={copy}
 					incidentId={incident.id}
+					onManualRecordChange={onManualRecordChange}
 					onRecordChange={onRecordChange}
 				/>
 			),
@@ -279,11 +287,13 @@ function OverviewTab({
 	copy,
 	locale,
 	onRecordChange,
+	onManualRecordChange,
 }: {
 	record: IncidentRecord;
 	copy: CoachCopy;
 	locale: string;
 	onRecordChange?: () => void;
+	onManualRecordChange?: (change: ManualIncidentRecordChange) => void;
 }) {
 	const { incident } = record;
 
@@ -293,6 +303,7 @@ function OverviewTab({
 				copy={copy}
 				incident={incident}
 				locale={locale}
+				onManualRecordChange={onManualRecordChange}
 				onRecordChange={onRecordChange}
 			/>
 			{record.people.length > 0 ? (

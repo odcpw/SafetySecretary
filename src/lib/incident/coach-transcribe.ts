@@ -11,8 +11,9 @@ import { KindEnum, type LLMRequest } from "../llm/types";
 
 export const II_COACH_TRANSCRIBE_PROMPT_PURPOSE = "ii_coach_transcribe";
 export const II_COACH_TRANSCRIBE_MOCK_ENV = "SSFW_II_TRANSCRIBE_MOCK";
+export const II_COACH_TRANSCRIBE_MODEL_ENV = "SSFW_II_TRANSCRIBE_MODEL";
 const DEFAULT_MOCK_TRANSCRIPT = "mock transcript";
-const TRANSCRIBE_MODEL = "gpt-4o-transcribe";
+const DEFAULT_TRANSCRIBE_MODELS = ["gpt-4o-transcribe", "whisper-1"] as const;
 const TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions";
 
 /**
@@ -204,9 +205,47 @@ async function postTranscription(args: {
 }): Promise<string> {
 	const { apiKey, input, options } = args;
 	const fetchFn = options.fetch ?? fetch;
+	const env = options.env ?? process.env;
+	const models = transcriptionModelCandidates(env);
+	let lastProviderError: CoachTranscribeProviderError | null = null;
 
+	for (const [index, model] of models.entries()) {
+		try {
+			return await postTranscriptionWithModel({
+				apiKey,
+				fetchFn,
+				input,
+				model,
+			});
+		} catch (error) {
+			if (
+				error instanceof CoachTranscribeProviderError &&
+				canFallbackFromTranscriptionStatus(error.status) &&
+				index < models.length - 1
+			) {
+				lastProviderError = error;
+				continue;
+			}
+
+			throw error;
+		}
+	}
+
+	throw (
+		lastProviderError ??
+		new CoachTranscribeProviderError("No transcription model was configured.")
+	);
+}
+
+async function postTranscriptionWithModel(args: {
+	apiKey: string;
+	fetchFn: typeof fetch;
+	input: TranscribeCoachAudioInput;
+	model: string;
+}): Promise<string> {
+	const { apiKey, fetchFn, input, model } = args;
 	const form = new FormData();
-	form.set("model", TRANSCRIBE_MODEL);
+	form.set("model", model);
 	form.set("response_format", "json");
 
 	const languageHint = twoLetterLanguage(input.locale);
@@ -259,6 +298,29 @@ async function postTranscription(args: {
 	}
 
 	return body.text.trim();
+}
+
+function transcriptionModelCandidates(
+	env: Pick<NodeJS.ProcessEnv, string>,
+): readonly string[] {
+	const configured = env[II_COACH_TRANSCRIBE_MODEL_ENV]?.trim();
+
+	if (!configured) {
+		return DEFAULT_TRANSCRIBE_MODELS;
+	}
+
+	const models = configured
+		.split(",")
+		.map((model) => model.trim())
+		.filter(Boolean);
+
+	return models.length > 0 ? models : DEFAULT_TRANSCRIBE_MODELS;
+}
+
+function canFallbackFromTranscriptionStatus(
+	status: number | undefined,
+): boolean {
+	return status === 400 || status === 404;
 }
 
 /**

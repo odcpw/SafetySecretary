@@ -291,6 +291,7 @@ function transcribeErrorMessage(
 	const map: Record<string, string> = {
 		AUDIO_REQUIRED: copy.mic.errAudioRequired,
 		AUDIO_TOO_LARGE: copy.mic.errAudioTooLarge,
+		AUDIO_UNREADABLE: copy.mic.didNotCatch,
 		MONTHLY_CAP_EXCEEDED: copy.mic.errMonthlyCap,
 		NO_PROVIDER_KEY: copy.mic.errNoProviderKey,
 		PROVIDER_FAILED: copy.mic.errProviderFailed,

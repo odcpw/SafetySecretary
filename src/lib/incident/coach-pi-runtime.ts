@@ -23,12 +23,9 @@ import type {
 const defaultPiModuleSpecifier = "@earendil-works/pi-coding-agent";
 const defaultPiModel = "openai/gpt-5.5";
 
-// Keep the Pi SDK import out of Next/Turbopack static analysis.
-const runtimeImport = new Function("specifier", "return import(specifier)") as <
-	Module,
->(
-	specifier: string,
-) => Promise<Module>;
+async function runtimeImport<Module>(specifier: string): Promise<Module> {
+	return import(/* webpackIgnore: true */ specifier) as Promise<Module>;
+}
 
 interface PiSdk {
 	readonly AuthStorage: { create(): unknown };
@@ -80,13 +77,9 @@ export async function runCoachPromptViaPi(
 	}
 
 	const [provider, modelId] = splitModel(env.SSFW_PI_MODEL ?? defaultPiModel);
-	const moduleTarget = env.SSFW_PI_SDK_MODULE_PATH ?? defaultPiModuleSpecifier;
-	// A filesystem path is imported as a file URL; a bare package specifier is
-	// passed through so Node resolves it from node_modules.
-	const importSpecifier =
-		moduleTarget.startsWith("/") || moduleTarget.startsWith(".")
-			? pathToFileURL(moduleTarget).href
-			: moduleTarget;
+	const importSpecifier = resolvePiSdkImportSpecifier(
+		env.SSFW_PI_SDK_MODULE_PATH,
+	);
 	const sdk = await runtimeImport<PiSdk>(importSpecifier).catch((error) => {
 		throw new CoachPiUnavailableError(
 			`SDK import failed: ${error instanceof Error ? error.message : "unknown"}`,
@@ -192,4 +185,30 @@ function splitModel(value: string): [string, string] {
 		value.slice(0, slash) || "openai",
 		value.slice(slash + 1) || "gpt-5.5",
 	];
+}
+
+export function resolvePiSdkImportSpecifier(
+	override: string | undefined,
+): string {
+	const moduleTarget = override?.trim();
+
+	if (!moduleTarget) {
+		return defaultPiModuleSpecifier;
+	}
+
+	if (moduleTarget === defaultPiModuleSpecifier) {
+		return moduleTarget;
+	}
+
+	if (moduleTarget.startsWith("file://")) {
+		return moduleTarget;
+	}
+
+	if (moduleTarget.startsWith("/")) {
+		return pathToFileURL(moduleTarget).href;
+	}
+
+	throw new CoachPiUnavailableError(
+		"SSFW_PI_SDK_MODULE_PATH must be the default package name, a file:// URL, or an absolute filesystem path",
+	);
 }

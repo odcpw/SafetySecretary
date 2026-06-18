@@ -2,6 +2,7 @@
 
 import { Suspense, type FormEvent, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { ensureCsrfToken } from "../../lib/auth/csrf-client";
 import { CSRF_COOKIE_NAME } from "../../lib/auth/cookies";
 import { normalizeLocalReturnTo } from "../../lib/auth/return-to";
 import { acknowledgementText } from "../../lib/legal/disclaimer";
@@ -102,27 +103,4 @@ function parseLocale(value: string | undefined): Locale {
 
 function safeReturnTo(value: string | undefined): string {
   return normalizeLocalReturnTo(value);
-}
-
-// The token is server-minted, session-bound, and re-issued by the proxy, so the
-// client only reads it (preferring the __Host- carrier) and never mints.
-function ensureCsrfToken(name: string): string {
-  const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
-
-  if (!token) {
-    throw new Error("ACKNOWLEDGEMENT_CSRF_COOKIE_MISSING");
-  }
-
-  return decodeURIComponent(token);
-}
-
-function readCookie(name: string): string {
-  const prefix = `${name}=`;
-  return (
-    document.cookie
-      .split(";")
-      .map((value) => value.trim())
-      .find((value) => value.startsWith(prefix))
-      ?.slice(prefix.length) ?? ""
-  );
 }

@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import { INVITATIONS_PAGE_COPY } from "../../../../lib/auth/invitation-copy";
+import { ensureCsrfToken } from "../../../../lib/auth/csrf-client";
 
 type InvitationListItem = {
 	id: string;
@@ -194,27 +195,6 @@ export default function InvitationsSettingsPage() {
 			</section>
 		</section>
 	);
-}
-
-// The token is server-minted, session-bound, and re-issued by the proxy, so the
-// client only reads it (preferring the __Host- carrier) and never mints.
-function ensureCsrfToken(cookieName: string): string {
-	const token = readCookie("__Host-ssfw_csrf") ?? readCookie(cookieName);
-	if (!token) {
-		throw new Error("CSRF_COOKIE_MISSING");
-	}
-
-	return token;
-}
-
-function readCookie(name: string): string | null {
-	const prefix = `${name}=`;
-	const value = document.cookie
-		.split(";")
-		.map((part) => part.trim())
-		.find((part) => part.startsWith(prefix));
-
-	return value ? decodeURIComponent(value.slice(prefix.length)) : null;
 }
 
 function formatDate(value: string): string {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ensureCsrfToken } from "../../lib/auth/csrf-client";
 import { CSRF_COOKIE_NAME } from "../../lib/auth/cookies";
 import type { WorkflowVisionConsent } from "../../lib/llm/consent";
 import { LLMProviderErrorCode } from "../../lib/llm/errors";
@@ -160,26 +161,4 @@ const primaryButtonClassName =
 	"inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)] px-3 py-2 text-sm font-medium text-[var(--color-bg)] disabled:cursor-wait disabled:opacity-70";
 const secondaryButtonClassName =
 	"inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elev)] px-3 py-2 text-sm font-medium text-[var(--color-text)] disabled:cursor-wait disabled:opacity-70";
-
-// The token is server-minted, session-bound, and re-issued by the proxy, so the
-// client only reads it (preferring the __Host- carrier) and never mints.
-export function ensureCsrfToken(name: string): string {
-	const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
-
-	if (!token) {
-		throw new Error("CSRF_COOKIE_MISSING");
-	}
-
-	return decodeURIComponent(token);
-}
-
-function readCookie(name: string): string {
-	const prefix = `${name}=`;
-	return (
-		document.cookie
-			.split(";")
-			.map((value) => value.trim())
-			.find((value) => value.startsWith(prefix))
-			?.slice(prefix.length) ?? ""
-	);
-}
+export { ensureCsrfToken };

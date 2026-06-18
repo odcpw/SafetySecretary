@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ensureCsrfToken } from "../../lib/auth/csrf-client";
 
 const csrfHeaderName = "x-ssfw-csrf";
 
@@ -134,28 +135,6 @@ function formDataObject(
 	}
 
 	return output;
-}
-
-// The token is server-minted, session-bound, and re-issued by the proxy, so the
-// client only reads it (preferring the __Host- carrier) and never mints.
-function ensureCsrfToken(name: string): string {
-	const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
-
-	if (!token) {
-		throw new Error("CSRF_COOKIE_MISSING");
-	}
-
-	return decodeURIComponent(token);
-}
-
-function readCookie(name: string): string {
-	const prefix = `${name}=`;
-	const cookie = document.cookie
-		.split(";")
-		.map((value) => value.trim())
-		.find((value) => value.startsWith(prefix));
-
-	return cookie ? cookie.slice(prefix.length) : "";
 }
 
 function setStatus(form: HTMLFormElement, message: string): void {

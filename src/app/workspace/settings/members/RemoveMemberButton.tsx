@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { ensureCsrfToken } from "../../../../lib/auth/csrf-client";
 
 type RemoveMemberButtonProps = {
 	errorLabel: string;
@@ -75,28 +76,5 @@ export function RemoveMemberButton({
 				</p>
 			) : null}
 		</div>
-	);
-}
-
-// The token is server-minted, session-bound, and re-issued by the proxy, so the
-// client only reads it (preferring the __Host- carrier) and never mints.
-function ensureCsrfToken(name: string): string {
-	const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
-
-	if (!token) {
-		throw new Error("CSRF_COOKIE_MISSING");
-	}
-
-	return decodeURIComponent(token);
-}
-
-function readCookie(name: string): string {
-	const prefix = `${name}=`;
-	return (
-		document.cookie
-			.split(";")
-			.map((value) => value.trim())
-			.find((value) => value.startsWith(prefix))
-			?.slice(prefix.length) ?? ""
 	);
 }

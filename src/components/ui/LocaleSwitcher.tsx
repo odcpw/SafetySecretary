@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { ensureCsrfToken } from "../../lib/auth/csrf-client";
 import { t } from "../../lib/i18n/t";
 import { LOCALES, type Locale } from "../../lib/i18n/types";
 import Select from "./Select";
@@ -105,28 +106,5 @@ function localeLabel(locale: Locale, displayLocale: Locale): string {
 	return (
 		new Intl.DisplayNames([displayLocale], { type: "language" }).of(locale) ??
 		locale.toUpperCase()
-	);
-}
-
-// The token is server-minted, session-bound, and re-issued by the proxy, so the
-// client only reads it (preferring the __Host- carrier) and never mints.
-function ensureCsrfToken(name: string): string {
-	const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
-
-	if (!token) {
-		throw new Error("CSRF_COOKIE_MISSING");
-	}
-
-	return decodeURIComponent(token);
-}
-
-function readCookie(name: string): string {
-	const prefix = `${name}=`;
-	return (
-		document.cookie
-			.split(";")
-			.map((value) => value.trim())
-			.find((value) => value.startsWith(prefix))
-			?.slice(prefix.length) ?? ""
 	);
 }

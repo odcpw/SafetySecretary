@@ -79,6 +79,10 @@ const approveFormScript = `
 		form.onsubmit = async (event) => {
 			event.preventDefault();
 
+			if (form.dataset.submitting === "true") {
+				return;
+			}
+
 			const csrfCookieName = form.dataset.csrfCookie || "ssfw_csrf";
 			let csrfToken = "";
 
@@ -99,6 +103,7 @@ const approveFormScript = `
 			if (submitButton) {
 				submitButton.disabled = true;
 			}
+			form.dataset.submitting = "true";
 
 			try {
 				const response = await fetch(form.action, {
@@ -139,6 +144,7 @@ const approveFormScript = `
 
 				window.location.assign(nextUrl.toString());
 			} catch (error) {
+				delete form.dataset.submitting;
 				setStatus(
 					form,
 					error instanceof Error

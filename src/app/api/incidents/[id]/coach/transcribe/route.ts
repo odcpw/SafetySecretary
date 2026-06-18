@@ -136,12 +136,17 @@ export async function handleCoachTranscribe(
 			incidentId: id,
 			locale: localeValue,
 			mimeType,
+			signal: request.signal,
 			tenantId: session.tenantId,
 			userId: session.userId,
 		});
 
 		return NextResponse.json({ text: result.text });
 	} catch (error) {
+		if (request.signal.aborted || isAbortError(error)) {
+			return new NextResponse(null, { status: 499 });
+		}
+
 		if (error instanceof CoachTranscribeNoProviderKeyError) {
 			return NextResponse.json({ code: "NO_PROVIDER_KEY" }, { status: 503 });
 		}
@@ -216,4 +221,10 @@ function mimeEssence(value: string | null | undefined): string {
 
 function isUuid(value: string | null | undefined): value is string {
 	return typeof value === "string" && uuidPattern.test(value);
+}
+
+function isAbortError(error: unknown): boolean {
+	return error instanceof DOMException
+		? error.name === "AbortError"
+		: error instanceof Error && error.name === "AbortError";
 }

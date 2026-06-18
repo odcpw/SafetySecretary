@@ -128,6 +128,72 @@ test("approval page submit path reads and sends the server-bound CSRF token", as
 	dom.window.close();
 });
 
+test("approval page submit path ignores duplicate submits while a request is pending", async () => {
+	const { JSDOM } = requireFromTest("jsdom") as {
+		JSDOM: new (
+			html: string,
+			options: { runScripts: "dangerously"; url: string },
+		) => TestDom;
+	};
+	const caseId = "00000000-0000-4000-8000-000000000002";
+	const script = approvalFormScriptFromPageSource();
+	const dom = new JSDOM(
+		`<!doctype html>
+		<html>
+			<body>
+				<form
+					action="/api/incidents/${caseId}/approve"
+					data-csrf-cookie="ssfw_csrf"
+					data-no-redirect="true"
+					data-ssfw-approval-form="true"
+					data-success-url="/incidents/${caseId}/approval"
+					method="post"
+				>
+					<button type="submit">Approve</button>
+					<p data-ssfw-approval-status hidden></p>
+				</form>
+				<script>${script}</script>
+			</body>
+		</html>`,
+		{
+			runScripts: "dangerously",
+			url: `https://app.example.test/incidents/${caseId}/approval`,
+		},
+	);
+	let releaseFetch: (() => void) | undefined;
+	const fetchCalls: FetchCall[] = [];
+
+	dom.window.document.cookie = "ssfw_csrf=server-bound-approval-csrf; Path=/";
+	dom.window.fetch = (async (input, init) => {
+		fetchCalls.push({ init, input });
+		await new Promise<void>((resolve) => {
+			releaseFetch = () => resolve();
+		});
+		return new Response(JSON.stringify({ snapshot: { versionLabel: "v01" } }), {
+			headers: { "content-type": "application/json" },
+			status: 201,
+		});
+	}) as typeof dom.window.fetch;
+
+	const form = dom.window.document.querySelector("form");
+	assert.ok(form);
+	const submitEvent = () =>
+		new dom.window.Event("submit", { bubbles: true, cancelable: true });
+
+	form.dispatchEvent(submitEvent());
+	form.dispatchEvent(submitEvent());
+
+	await waitFor(() => fetchCalls.length === 1);
+	await waitFor(() => form.dataset.submitting === "true");
+	assert.equal(fetchCalls.length, 1);
+	if (!releaseFetch) {
+		throw new Error("expected approval fetch to remain pending");
+	}
+	releaseFetch();
+
+	dom.window.close();
+});
+
 if (!databaseUrl) {
 	test("II approval snapshot route integration", {
 		skip: "DATABASE_URL is required",

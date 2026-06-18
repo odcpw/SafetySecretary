@@ -83,6 +83,7 @@ export type TranscribeCoachAudioInput = {
 	readonly mimeType: string;
 	readonly filename: string;
 	readonly locale: string;
+	readonly signal?: AbortSignal;
 	readonly dispatchOptions?: CoachTranscribeDispatchOptions;
 };
 
@@ -262,11 +263,16 @@ async function postTranscriptionWithModel(args: {
 
 	try {
 		response = await fetchFn(TRANSCRIPTIONS_URL, {
-			method: "POST",
-			headers: { authorization: `Bearer ${apiKey}` },
 			body: form,
+			headers: { authorization: `Bearer ${apiKey}` },
+			method: "POST",
+			signal: input.signal,
 		});
-	} catch {
+	} catch (error) {
+		if (isAbortError(error)) {
+			throw error;
+		}
+
 		throw new CoachTranscribeProviderError(
 			"OpenAI transcription request failed.",
 		);
@@ -352,4 +358,10 @@ async function recordTranscribeCost(
 function twoLetterLanguage(locale: string): string | null {
 	const code = locale.trim().slice(0, 2).toLowerCase();
 	return /^[a-z]{2}$/.test(code) ? code : null;
+}
+
+function isAbortError(error: unknown): boolean {
+	return error instanceof DOMException
+		? error.name === "AbortError"
+		: error instanceof Error && error.name === "AbortError";
 }

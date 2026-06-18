@@ -41,8 +41,10 @@ export default function PushToTalkButton({
 
 	const recorderRef = useRef<MediaRecorder | null>(null);
 	const streamRef = useRef<MediaStream | null>(null);
+	const transcribeAbortRef = useRef<AbortController | null>(null);
 	const chunksRef = useRef<Blob[]>([]);
 	const mimeRef = useRef<string>("audio/webm");
+	const mountedRef = useRef(true);
 	// Guards against a pointerleave firing after pointerup already stopped us.
 	const activeRef = useRef(false);
 
@@ -55,7 +57,12 @@ export default function PushToTalkButton({
 	}, []);
 
 	useEffect(() => {
+		mountedRef.current = true;
+
 		return () => {
+			mountedRef.current = false;
+			transcribeAbortRef.current?.abort();
+			transcribeAbortRef.current = null;
 			stopTracks(streamRef.current);
 			streamRef.current = null;
 		};
@@ -63,6 +70,9 @@ export default function PushToTalkButton({
 
 	const transcribe = useCallback(
 		async (blob: Blob) => {
+			const controller = new AbortController();
+			transcribeAbortRef.current?.abort();
+			transcribeAbortRef.current = controller;
 			setState("transcribing");
 			setHint(null);
 
@@ -81,8 +91,14 @@ export default function PushToTalkButton({
 						credentials: "same-origin",
 						headers: { "x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME) },
 						method: "POST",
+						signal: controller.signal,
 					},
 				);
+
+				if (!mountedRef.current || controller.signal.aborted) {
+					return;
+				}
+
 				const body = (await response.json().catch(() => ({}))) as {
 					text?: string;
 					code?: string;
@@ -99,10 +115,20 @@ export default function PushToTalkButton({
 				} else {
 					setHint(copy.mic.didNotCatch);
 				}
-			} catch {
+			} catch (error) {
+				if (!mountedRef.current || isAbortError(error)) {
+					return;
+				}
+
 				setHint(copy.mic.couldNotTranscribe);
 			} finally {
-				setState("idle");
+				if (transcribeAbortRef.current === controller) {
+					transcribeAbortRef.current = null;
+				}
+
+				if (mountedRef.current && !controller.signal.aborted) {
+					setState("idle");
+				}
 			}
 		},
 		[copy, incidentId, onTranscript],
@@ -299,4 +325,10 @@ function transcribeErrorMessage(
 	};
 
 	return map[code ?? ""] ?? copy.mic.errGeneric;
+}
+
+function isAbortError(error: unknown): boolean {
+	return error instanceof DOMException
+		? error.name === "AbortError"
+		: error instanceof Error && error.name === "AbortError";
 }

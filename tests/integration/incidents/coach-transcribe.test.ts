@@ -141,6 +141,28 @@ test("transcribe route returns the mocked transcript without hitting the network
 	assert.equal(record(await response.json()).text, "hello from the mic");
 });
 
+test("transcribe route forwards the request abort signal to transcription", async () => {
+	const csrf = csrfToken;
+	const request = multipartRequest({ csrf, form: audioForm() });
+	let observedSignal: AbortSignal | undefined;
+
+	const response = await transcribeRoute.handleCoachTranscribe(
+		request,
+		{ params: { id: incidentId } },
+		{
+			sessionValidator: testSessionValidator,
+			transcribe: async (input) => {
+				observedSignal = input.signal;
+				return { text: "abort wired" };
+			},
+		},
+	);
+
+	assert.equal(response.status, 200);
+	assert.equal(record(await response.json()).text, "abort wired");
+	assert.equal(observedSignal, request.signal);
+});
+
 test("transcribe route accepts a MediaRecorder codec-suffixed MIME type", async () => {
 	const csrf = csrfToken;
 	const form = new FormData();
@@ -312,7 +334,9 @@ test("transcribeCoachAudio posts multipart to OpenAI and returns trimmed text", 
 	let capturedModel: FormDataEntryValue | null = null;
 	let capturedLanguage: FormDataEntryValue | null = null;
 	let capturedFormat: FormDataEntryValue | null = null;
+	let capturedSignal: AbortSignal | null | undefined = undefined;
 	let hadFile = false;
+	const controller = new AbortController();
 
 	const result = await transcribeCoachAudio({
 		audio: Buffer.from([9, 8, 7, 6]),
@@ -326,6 +350,7 @@ test("transcribeCoachAudio posts multipart to OpenAI and returns trimmed text", 
 				capturedAuth = String(
 					(init?.headers as Record<string, string>)?.authorization ?? "",
 				);
+				capturedSignal = init?.signal;
 				const form = init?.body as FormData;
 				capturedModel = form.get("model");
 				capturedLanguage = form.get("language");
@@ -342,6 +367,7 @@ test("transcribeCoachAudio posts multipart to OpenAI and returns trimmed text", 
 		incidentId,
 		locale: "de-CH",
 		mimeType: "audio/webm",
+		signal: controller.signal,
 		tenantId,
 		userId,
 	});
@@ -352,6 +378,7 @@ test("transcribeCoachAudio posts multipart to OpenAI and returns trimmed text", 
 	assert.equal(capturedModel, "gpt-4o-transcribe");
 	assert.equal(capturedLanguage, "de");
 	assert.equal(capturedFormat, "json");
+	assert.equal(capturedSignal, controller.signal);
 	assert.equal(hadFile, true);
 });
 

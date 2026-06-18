@@ -110,6 +110,9 @@ export default function CoachWorkbench({
 	const workbenchRef = useRef<HTMLDivElement | null>(null);
 	const chatSectionRef = useRef<HTMLElement | null>(null);
 	const sendingRef = useRef(false);
+	const sendAbortRef = useRef<AbortController | null>(null);
+	const busyOperationIdsRef = useRef<ReadonlySet<string>>(new Set());
+	const mountedRef = useRef(true);
 	const consistencyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
 		null,
 	);
@@ -124,7 +127,16 @@ export default function CoachWorkbench({
 	}, [sending]);
 
 	useEffect(() => {
+		busyOperationIdsRef.current = busyOperationIds;
+	}, [busyOperationIds]);
+
+	useEffect(() => {
+		mountedRef.current = true;
+
 		return () => {
+			mountedRef.current = false;
+			sendAbortRef.current?.abort();
+			sendAbortRef.current = null;
 			if (consistencyTimerRef.current) {
 				clearTimeout(consistencyTimerRef.current);
 			}
@@ -299,6 +311,25 @@ export default function CoachWorkbench({
 		setSending(false);
 	}
 
+	function claimBusyOperation(operationId: string): boolean {
+		if (busyOperationIdsRef.current.has(operationId)) {
+			return false;
+		}
+
+		const next = new Set(busyOperationIdsRef.current);
+		next.add(operationId);
+		busyOperationIdsRef.current = next;
+		setBusyOperationIds(next);
+		return true;
+	}
+
+	function releaseBusyOperation(operationId: string) {
+		const next = new Set(busyOperationIdsRef.current);
+		next.delete(operationId);
+		busyOperationIdsRef.current = next;
+		setBusyOperationIds(next);
+	}
+
 	async function submitMessage(
 		rawMessage: string,
 		options?: { focusComposer?: boolean },
@@ -312,6 +343,8 @@ export default function CoachWorkbench({
 		setError(null);
 		setActivityItems([]);
 		setActivityOpen(false);
+		const controller = new AbortController();
+		sendAbortRef.current = controller;
 
 		const optimistic: CoachChatMessage = {
 			content: message,
@@ -334,10 +367,19 @@ export default function CoachWorkbench({
 						"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 					},
 					method: "POST",
+					signal: controller.signal,
 				},
 			);
 
+			if (!mountedRef.current || controller.signal.aborted) {
+				return false;
+			}
+
 			const body = await readCoachStreamTurn(response, (progress) => {
+				if (!mountedRef.current || controller.signal.aborted) {
+					return;
+				}
+
 				setActivityItems((current) => [
 					...current.slice(-11),
 					{
@@ -354,15 +396,25 @@ export default function CoachWorkbench({
 			]);
 			return true;
 		} catch (caught) {
+			if (!mountedRef.current || isAbortError(caught)) {
+				return false;
+			}
+
 			setMessages((current) =>
 				current.filter((candidate) => candidate.id !== optimistic.id),
 			);
 			setError(userSafeError(caught, copy));
 			return false;
 		} finally {
-			finishSending();
-			if (options?.focusComposer !== false) {
-				composerRef.current?.focus();
+			if (sendAbortRef.current === controller) {
+				sendAbortRef.current = null;
+			}
+
+			if (mountedRef.current) {
+				finishSending();
+				if (!controller.signal.aborted && options?.focusComposer !== false) {
+					composerRef.current?.focus();
+				}
 			}
 		}
 	}
@@ -496,7 +548,10 @@ export default function CoachWorkbench({
 		action: "apply" | "dismiss",
 		editedText?: string,
 	) {
-		setBusyOperationIds((current) => new Set(current).add(operation.id));
+		if (!claimBusyOperation(operation.id)) {
+			return;
+		}
+
 		setError(null);
 
 		try {
@@ -559,11 +614,7 @@ export default function CoachWorkbench({
 		} catch (caught) {
 			setError(userSafeError(caught, copy));
 		} finally {
-			setBusyOperationIds((current) => {
-				const next = new Set(current);
-				next.delete(operation.id);
-				return next;
-			});
+			releaseBusyOperation(operation.id);
 			setEditing((current) =>
 				current?.operationId === operation.id ? null : current,
 			);
@@ -1079,6 +1130,9 @@ function MessageBubble({
 	const pendingOperations = message.operations.filter(
 		(operation) => !message.operationDecisions[operation.id],
 	);
+	const hasPendingBusyOperation = pendingOperations.some((operation) =>
+		busyOperationIds.has(operation.id),
+	);
 	const hasLongProposalList = message.operations.length > 3;
 	const [operationsExpanded, setOperationsExpanded] = useState(
 		!hasLongProposalList,
@@ -1103,6 +1157,7 @@ function MessageBubble({
 								{pendingOperations.length > 1 ? (
 									<button
 										className={cardPrimaryButton}
+										disabled={hasPendingBusyOperation}
 										onClick={onApplyAll}
 										type="button"
 									>
@@ -1146,6 +1201,7 @@ function MessageBubble({
 					{pendingOperations.length > 1 && !hasLongProposalList ? (
 						<button
 							className="justify-self-start rounded-md border border-[var(--color-accent)] px-3 py-1.5 text-xs font-medium text-[var(--color-accent)] transition hover:bg-[var(--color-accent)] hover:text-white"
+							disabled={hasPendingBusyOperation}
 							onClick={onApplyAll}
 							type="button"
 						>
@@ -1467,45 +1523,49 @@ async function readCoachStreamTurn(
 		assistantMessage: CoachChatMessage;
 	} | null = null;
 
-	while (true) {
-		const { done, value } = await reader.read();
-		buffer += decoder.decode(value, { stream: !done });
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			buffer += decoder.decode(value, { stream: !done });
 
-		let boundary = buffer.indexOf("\n\n");
-		while (boundary !== -1) {
-			const block = buffer.slice(0, boundary);
-			buffer = buffer.slice(boundary + 2);
-			const event = parseSseBlock(block);
+			let boundary = buffer.indexOf("\n\n");
+			while (boundary !== -1) {
+				const block = buffer.slice(0, boundary);
+				buffer = buffer.slice(boundary + 2);
+				const event = parseSseBlock(block);
 
-			if (event) {
-				if (event.name === "progress") {
-					const progress = progressPayload(event.data);
-					if (progress) {
-						onProgress(progress);
+				if (event) {
+					if (event.name === "progress") {
+						const progress = progressPayload(event.data);
+						if (progress) {
+							onProgress(progress);
+						}
+					}
+
+					if (event.name === "final") {
+						final = finalPayload(event.data);
+					}
+
+					if (event.name === "error") {
+						const code =
+							event.data &&
+							typeof event.data === "object" &&
+							typeof (event.data as { code?: unknown }).code === "string"
+								? (event.data as { code: string }).code
+								: "COACH_FAILED";
+						throw new Error(code);
 					}
 				}
 
-				if (event.name === "final") {
-					final = finalPayload(event.data);
-				}
-
-				if (event.name === "error") {
-					const code =
-						event.data &&
-						typeof event.data === "object" &&
-						typeof (event.data as { code?: unknown }).code === "string"
-							? (event.data as { code: string }).code
-							: "COACH_FAILED";
-					throw new Error(code);
-				}
+				boundary = buffer.indexOf("\n\n");
 			}
 
-			boundary = buffer.indexOf("\n\n");
+			if (done) {
+				break;
+			}
 		}
-
-		if (done) {
-			break;
-		}
+	} finally {
+		await reader.cancel().catch(() => undefined);
 	}
 
 	if (!final) {
@@ -1629,4 +1689,10 @@ function userSafeError(caught: unknown, copy: CoachCopy): string {
 	}
 
 	return copy.chatErrors.generic;
+}
+
+function isAbortError(error: unknown): boolean {
+	return error instanceof DOMException
+		? error.name === "AbortError"
+		: error instanceof Error && error.name === "AbortError";
 }

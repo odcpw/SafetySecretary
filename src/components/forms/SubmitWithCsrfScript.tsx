@@ -41,6 +41,10 @@ async function submitWithCsrf(
 	form: HTMLFormElement,
 	submitter: HTMLElement | null,
 ): Promise<void> {
+	if (form.dataset.submitting === "true") {
+		return;
+	}
+
 	const submitButton =
 		submitter instanceof HTMLButtonElement
 			? submitter
@@ -57,6 +61,7 @@ async function submitWithCsrf(
 	if (submitButton) {
 		submitButton.disabled = true;
 	}
+	form.dataset.submitting = "true";
 
 	try {
 		const response = await fetch(form.action, {
@@ -104,6 +109,7 @@ async function submitWithCsrf(
 
 		window.location.assign(form.dataset.successUrl || window.location.href);
 	} catch {
+		delete form.dataset.submitting;
 		setStatus(form, form.dataset.errorMessage ?? "");
 
 		if (submitButton) {

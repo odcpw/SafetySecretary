@@ -142,14 +142,7 @@ export default function StructuredOperationReview({
 					</p>
 					{payload.details.length > 0 && (
 						<dl className="mt-3 grid gap-2 text-xs text-[var(--color-muted)] sm:grid-cols-2">
-							{payload.details.map((detail) => (
-								<div key={detail.label} className="min-w-0">
-									<dt className="font-medium text-[var(--color-text)]">
-										{detail.label}
-									</dt>
-									<dd className="m-0 break-words">{detail.value}</dd>
-								</div>
-							))}
+							{renderDetailRows(payload.details)}
 						</dl>
 					)}
 				</div>
@@ -243,24 +236,18 @@ function TraceabilityDetails({
 			</summary>
 			<div className="mt-3 grid gap-3 text-xs text-[var(--color-muted)]">
 				<dl className="m-0 grid gap-2 sm:grid-cols-2">
-					<div className="min-w-0">
-						<dt className="font-medium text-[var(--color-text)]">Skill</dt>
-						<dd className="m-0 break-words">{identityLabel}</dd>
-					</div>
-					<div className="min-w-0">
-						<dt className="font-medium text-[var(--color-text)]">Run</dt>
-						<dd className="m-0 break-words">{operation.runId}</dd>
-					</div>
-					<div className="min-w-0 sm:col-span-2">
-						<dt className="font-medium text-[var(--color-text)]">Operation</dt>
-						<dd className="m-0 break-words">{operation.id}</dd>
-					</div>
-					{targetLabel ? (
-						<div className="min-w-0">
-							<dt className="font-medium text-[var(--color-text)]">Target</dt>
-							<dd className="m-0 break-words">{targetLabel}</dd>
-						</div>
-					) : null}
+					{renderDetailRows([
+						{ label: "Skill", value: identityLabel },
+						{ label: "Run", value: operation.runId },
+						{
+							className: "min-w-0 sm:col-span-2",
+							label: "Operation",
+							value: operation.id,
+						},
+						...(targetLabel
+							? [{ label: "Target", value: targetLabel }]
+							: []),
+					])}
 				</dl>
 				{sourceRefs.length > 0 && (
 					<SourceReferenceList sourceRefs={sourceRefs} />
@@ -307,10 +294,22 @@ function SourceReferenceList({
 interface OperationSummary {
 	readonly title: string;
 	readonly primaryText: string;
-	readonly details: readonly {
-		readonly label: string;
-		readonly value: string;
-	}[];
+	readonly details: readonly DetailRow[];
+}
+
+type DetailRow = {
+	readonly label: string;
+	readonly value: string;
+	readonly className?: string;
+};
+
+function renderDetailRows(details: readonly DetailRow[]) {
+	return details.map((detail) => (
+		<div className={detail.className ?? "min-w-0"} key={detail.label}>
+			<dt className="font-medium text-[var(--color-text)]">{detail.label}</dt>
+			<dd className="m-0 break-words">{detail.value}</dd>
+		</div>
+	));
 }
 
 function summarizeOperation(

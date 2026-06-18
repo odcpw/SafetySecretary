@@ -61,11 +61,7 @@ const port = Number(process.env.SSFW_FLUE_STORY_PORT ?? "3593");
 const baseUrl = `http://127.0.0.1:${port}`;
 const sqlitePath =
 	process.env.SSFW_FLUE_SQLITE_PATH ?? `.tmp/flue-story-${runId}.db`;
-const model =
-	process.env.SSFW_FLUE_MODEL ??
-	process.env.SSFW_PI_MODEL ??
-	process.env.LLM_TEXT_MODEL ??
-	"openai/gpt-4o-mini";
+const model = process.env.SSFW_FLUE_MODEL?.trim() || "openai/gpt-5.5";
 
 process.env.SSFW_II_COACH_RUNTIME = "flue";
 process.env.SSFW_FLUE_BASE_URL = baseUrl;

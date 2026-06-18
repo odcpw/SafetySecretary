@@ -89,6 +89,47 @@ test("ResendEmailTransport sends magic links through the email API", async () =>
 	assert.match(String(body.html), /token=a&amp;next=\/workspace/);
 });
 
+test("ResendEmailTransport sends invitation emails through the email API", async () => {
+	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+	const fetchImpl: typeof fetch = async (input, init) => {
+		calls.push({ init, input });
+		return new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+	};
+	const transport = new ResendEmailTransport({
+		apiKey: "re_test",
+		endpoint: "https://resend.example.test/emails",
+		fetchImpl,
+		userAgent: "SafetySecretaryNext/test",
+	});
+
+	await transport.sendInvitation({
+		expiresAt: new Date("2026-06-20T20:15:00.000Z"),
+		from: "Safety Secretary <invite@example.test>",
+		inviteUrl: "https://app.example.test/invite/token-a",
+		tenantName: "Alpha Safety AG",
+		to: "user@example.test",
+	});
+
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0]?.input, "https://resend.example.test/emails");
+	assert.equal(calls[0]?.init?.method, "POST");
+	assert.deepEqual(calls[0]?.init?.headers, {
+		authorization: "Bearer re_test",
+		"content-type": "application/json",
+		"user-agent": "SafetySecretaryNext/test",
+	});
+
+	const body = JSON.parse(String(calls[0]?.init?.body)) as Record<
+		string,
+		unknown
+	>;
+	assert.equal(body.from, "Safety Secretary <invite@example.test>");
+	assert.equal(body.to, "user@example.test");
+	assert.equal(body.subject, "Invitation to Alpha Safety AG on Safety Secretary");
+	assert.match(String(body.text), /https:\/\/app\.example\.test\/invite\/token-a/);
+	assert.match(String(body.html), /Accept invitation/);
+});
+
 test("ResendEmailTransport fails loudly when the API rejects a send", async () => {
 	const transport = new ResendEmailTransport({
 		apiKey: "re_test",

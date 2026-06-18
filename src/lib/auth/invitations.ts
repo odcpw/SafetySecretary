@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { appendFile, mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import {
 	DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG,
+	DevFileEmailTransport,
 	type EmailTransport,
+	type InvitationEmail as TransportInvitationEmail,
+	createEmailTransport,
 } from "../email/transport";
 import {
 	MAGIC_LINK_TTL_MS,
@@ -37,57 +38,26 @@ type GlobalState = typeof globalThis & {
 
 const globalState = globalThis as GlobalState;
 
-export type InvitationEmail = {
-	to: string;
-	from: string;
-	inviteUrl: string;
-	tenantName: string;
-	expiresAt: Date;
-};
+export type InvitationEmail = TransportInvitationEmail;
 
 export interface InvitationEmailTransport {
 	sendInvitation(email: InvitationEmail): Promise<void>;
 }
 
 export class DevFileInvitationEmailTransport
-	implements InvitationEmailTransport
-{
-	private readonly logPath: string;
-
-	constructor(logPath: string = DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG) {
-		this.logPath = logPath;
-	}
-
-	async sendInvitation(email: InvitationEmail): Promise<void> {
-		const absoluteLogPath = resolve(this.logPath);
-		await mkdir(dirname(absoluteLogPath), { recursive: true });
-
-		const payload = {
-			kind: "invitation",
-			to: email.to,
-			from: email.from,
-			subject: `Invitation to ${email.tenantName} on Safety Secretary`,
-			inviteUrl: email.inviteUrl,
-			tenantName: email.tenantName,
-			expiresAt: email.expiresAt.toISOString(),
-			sentAt: new Date().toISOString(),
-		};
-
-		await appendFile(absoluteLogPath, `${JSON.stringify(payload)}\n`, {
-			encoding: "utf8",
-			mode: 0o600,
-		});
-	}
-}
+	extends DevFileEmailTransport
+	implements InvitationEmailTransport {}
 
 export function createInvitationEmailTransport(
 	env: Pick<NodeJS.ProcessEnv, string> = process.env,
 ): InvitationEmailTransport {
-	return new DevFileInvitationEmailTransport(
-		env.INVITATION_DEV_EMAIL_LOG ??
+	return createEmailTransport({
+		...env,
+		MAGIC_LINK_DEV_EMAIL_LOG:
+			env.INVITATION_DEV_EMAIL_LOG ??
 			env.MAGIC_LINK_DEV_EMAIL_LOG ??
 			DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG,
-	);
+	});
 }
 
 export type InvitationRecord = {

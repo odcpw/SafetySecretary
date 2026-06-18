@@ -56,7 +56,9 @@ const {
 	INVITATION_EMAIL_MISMATCH_MESSAGE,
 	INVITATION_EXPIRED_MESSAGE,
 	INVITATION_INVALID_MESSAGE,
+	DevFileInvitationEmailTransport,
 	createInvitation,
+	createInvitationEmailTransport,
 	hashInvitationToken,
 	readInvitationLanding,
 	redeemInvitationToken,
@@ -64,6 +66,9 @@ const {
 } = (await import(
 	invitationsModulePath
 )) as typeof import("../../../src/lib/auth/invitations");
+const { ResendEmailTransport } = (await import(
+	"../../../src/lib/email/transport"
+)) as typeof import("../../../src/lib/email/transport");
 
 const tenantA = "11111111-1111-4111-8111-111111111111";
 const tenantB = "22222222-2222-4222-8222-222222222222";
@@ -366,6 +371,17 @@ test("peer member creates recipient-bound invite, email payload, and tenant land
 	assert.equal(landing.ok, true);
 	assert.equal(landing.ok ? landing.tenantName : "", "Alpha Safety AG");
 	assert.equal(landing.ok ? landing.recipientEmail : "", "bob@example.test");
+});
+
+test("invitation transport factory uses configured provider in production", () => {
+	const transport = createInvitationEmailTransport({
+		EMAIL_TRANSPORT: "resend",
+		NODE_ENV: "production",
+		RESEND_API_KEY: "re_test",
+	});
+
+	assert.ok(transport instanceof ResendEmailTransport);
+	assert.equal(transport instanceof DevFileInvitationEmailTransport, false);
 });
 
 test("listing returns only current tenant invitations", async () => {

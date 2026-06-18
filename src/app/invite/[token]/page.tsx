@@ -1,8 +1,19 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { authBaseUrlForRequest } from "../../../lib/auth/base-url";
-import { SESSION_COOKIE_NAME } from "../../../lib/auth/cookies";
+import {
+	type AuthCookieSecurityContext,
+	buildSessionCookieOptions,
+	CSRF_COOKIE_NAME,
+	CSRF_HOST_COOKIE_NAME,
+	SESSION_COOKIE_NAME,
+	shouldUseSecureAuthCookies,
+} from "../../../lib/auth/cookies";
+import {
+	CSRF_COOKIE_MAX_AGE_SECONDS,
+	mintCsrfToken,
+} from "../../../lib/auth/csrf";
 import { INVITE_PAGE_COPY } from "../../../lib/auth/invitation-copy";
 import {
 	INVITATION_ALREADY_USED_MESSAGE,
@@ -14,7 +25,7 @@ import {
 	redeemInvitationToken,
 	requestInvitationMagicLink,
 } from "../../../lib/auth/invitations";
-import { validateSession } from "../../../lib/auth/session";
+import { issueSession, validateSession } from "../../../lib/auth/session";
 import { createEmailTransport } from "../../../lib/email/transport";
 
 type InvitePageProps = {
@@ -122,12 +133,78 @@ async function acceptInviteAction(formData: FormData) {
 		redirect(inviteRedirect(token, result.reason));
 	}
 
+	await switchInviteSession({
+		tenantId: result.tenantId,
+		userId: result.userId,
+	});
+
 	redirect("/incidents");
 }
 
 async function resolveSession() {
 	const requestCookies = await cookies();
 	return validateSession(requestCookies.get(SESSION_COOKIE_NAME)?.value);
+}
+
+async function switchInviteSession(input: {
+	tenantId: string;
+	userId: string;
+}): Promise<void> {
+	const requestHeaders = await headers();
+	const session = await issueSession(
+		input.userId,
+		input.tenantId,
+		requestHeaders.get("user-agent"),
+	);
+	const cookieSecurity = cookieSecurityFromHeaders(requestHeaders);
+	const cookieStore = await cookies();
+
+	cookieStore.set(
+		SESSION_COOKIE_NAME,
+		session.cookieValue,
+		buildSessionCookieOptions(session.maxAgeSeconds, cookieSecurity),
+	);
+	setInviteCsrfCookie(cookieStore, session.cookieValue, cookieSecurity);
+}
+
+function setInviteCsrfCookie(
+	cookieStore: Pick<Awaited<ReturnType<typeof cookies>>, "set">,
+	sessionId: string,
+	context: AuthCookieSecurityContext,
+): void {
+	const secure = shouldUseSecureAuthCookies(context);
+	const token = mintCsrfToken(sessionId);
+
+	if (secure) {
+		cookieStore.set(CSRF_HOST_COOKIE_NAME, token, {
+			httpOnly: false,
+			maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
+			path: "/",
+			sameSite: "lax",
+			secure: true,
+		});
+	}
+
+	cookieStore.set(CSRF_COOKIE_NAME, token, {
+		httpOnly: false,
+		maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
+		path: "/",
+		sameSite: "lax",
+		secure,
+	});
+}
+
+function cookieSecurityFromHeaders(
+	requestHeaders: Pick<Headers, "get">,
+): AuthCookieSecurityContext {
+	const forwardedProto = requestHeaders.get("x-forwarded-proto");
+	const host = requestHeaders.get("host");
+	const protocol = forwardedProto?.split(",")[0]?.trim() || "http";
+
+	return {
+		forwardedProto,
+		requestUrl: host ? `${protocol}://${host}` : null,
+	};
 }
 
 function InviteShell({

@@ -11,7 +11,7 @@ import {
 // Domain-separation label so the CSRF subkey can never collide with any other
 // use of MASTER_ENCRYPTION_KEY (BYOK ciphertext etc.).
 const CSRF_HMAC_CONTEXT = "ssfw-csrf:v1";
-const CSRF_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+export const CSRF_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 // Stable fallback used only in non-production when MASTER_ENCRYPTION_KEY is not
 // configured (the key is mandatory for BYOK, but auth/dev runs without it). It
 // keeps CSRF deterministic across requests in dev/test. Production never reaches

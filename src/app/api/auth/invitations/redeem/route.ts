@@ -1,8 +1,17 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
-import { verifyCsrfToken } from "../../../../../lib/auth/csrf";
+import {
+	authCookieSecurityContextFromRequest,
+	SESSION_COOKIE_NAME,
+	setSessionCookie,
+} from "../../../../../lib/auth/cookies";
+import {
+	setCsrfCookie,
+	verifyCsrfToken,
+} from "../../../../../lib/auth/csrf";
 import { redeemInvitationToken } from "../../../../../lib/auth/invitations";
 import {
+	issueSession,
+	SessionTenantMembershipError,
 	type ValidatedSession,
 	validateSession,
 } from "../../../../../lib/auth/session";
@@ -37,7 +46,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		);
 	}
 
-	return NextResponse.json(
+	let inviteSession: Awaited<ReturnType<typeof issueSession>>;
+
+	try {
+		inviteSession = await issueSession(
+			result.userId,
+			result.tenantId,
+			request.headers.get("user-agent"),
+		);
+	} catch (error) {
+		if (error instanceof SessionTenantMembershipError) {
+			return NextResponse.json({ code: error.code }, { status: 400 });
+		}
+
+		throw error;
+	}
+
+	const response = NextResponse.json(
 		{
 			message: result.message,
 			tenantId: result.tenantId,
@@ -45,6 +70,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		},
 		{ status: 200 },
 	);
+	const cookieSecurity = authCookieSecurityContextFromRequest(request);
+	setSessionCookie(response, inviteSession, cookieSecurity);
+	setCsrfCookie(response, inviteSession.cookieValue, cookieSecurity);
+
+	return response;
 }
 
 async function resolveSession(

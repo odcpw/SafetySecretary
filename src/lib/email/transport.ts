@@ -8,8 +8,20 @@ export type MagicLinkEmail = {
 	expiresAt: Date;
 };
 
+export type InvitationEmail = {
+	to: string;
+	from: string;
+	inviteUrl: string;
+	tenantName: string;
+	expiresAt: Date;
+};
+
 export interface EmailTransport {
 	sendMagicLink(email: MagicLinkEmail): Promise<void>;
+}
+
+export interface TransactionalEmailTransport extends EmailTransport {
+	sendInvitation(email: InvitationEmail): Promise<void>;
 }
 
 export const DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG =
@@ -17,7 +29,7 @@ export const DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG =
 
 type EnvLike = Pick<NodeJS.ProcessEnv, string>;
 
-export class DevFileEmailTransport implements EmailTransport {
+export class DevFileEmailTransport implements TransactionalEmailTransport {
 	private readonly logPath: string;
 
 	constructor(logPath: string = DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG) {
@@ -25,10 +37,7 @@ export class DevFileEmailTransport implements EmailTransport {
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
-		const absoluteLogPath = resolve(this.logPath);
-		await mkdir(dirname(absoluteLogPath), { recursive: true });
-
-		const payload = {
+		await appendEmailPayload(this.logPath, {
 			kind: "magic-link",
 			to: email.to,
 			from: email.from,
@@ -36,19 +45,40 @@ export class DevFileEmailTransport implements EmailTransport {
 			magicLinkUrl: email.magicLinkUrl,
 			expiresAt: email.expiresAt.toISOString(),
 			sentAt: new Date().toISOString(),
-		};
-
-		await appendFile(absoluteLogPath, `${JSON.stringify(payload)}\n`, {
-			encoding: "utf8",
-			mode: 0o600,
 		});
 	}
+
+	async sendInvitation(email: InvitationEmail): Promise<void> {
+		await appendEmailPayload(this.logPath, {
+			kind: "invitation",
+			to: email.to,
+			from: email.from,
+			subject: invitationSubject(email),
+			inviteUrl: email.inviteUrl,
+			tenantName: email.tenantName,
+			expiresAt: email.expiresAt.toISOString(),
+			sentAt: new Date().toISOString(),
+		});
+	}
+}
+
+async function appendEmailPayload(
+	logPath: string,
+	payload: Record<string, unknown>,
+): Promise<void> {
+	const absoluteLogPath = resolve(logPath);
+	await mkdir(dirname(absoluteLogPath), { recursive: true });
+
+	await appendFile(absoluteLogPath, `${JSON.stringify(payload)}\n`, {
+		encoding: "utf8",
+		mode: 0o600,
+	});
 }
 
 export const EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE =
 	"Email transport not configured: set EMAIL_TRANSPORT to a supported provider (resend, postmark, or mailgun) and its credentials (e.g. RESEND_API_KEY).";
 
-export class SmtpEmailTransport implements EmailTransport {
+export class SmtpEmailTransport implements TransactionalEmailTransport {
 	constructor(_config: {
 		host?: string;
 		port?: string;
@@ -62,11 +92,15 @@ export class SmtpEmailTransport implements EmailTransport {
 	async sendMagicLink(): Promise<void> {
 		throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
 	}
+
+	async sendInvitation(): Promise<void> {
+		throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
+	}
 }
 
 type FetchLike = typeof fetch;
 
-export class ResendEmailTransport implements EmailTransport {
+export class ResendEmailTransport implements TransactionalEmailTransport {
 	private readonly apiKey: string;
 	private readonly endpoint: string;
 	private readonly fetchImpl: FetchLike;
@@ -115,9 +149,33 @@ export class ResendEmailTransport implements EmailTransport {
 			);
 		}
 	}
+
+	async sendInvitation(email: InvitationEmail): Promise<void> {
+		const response = await this.fetchImpl(this.endpoint, {
+			body: JSON.stringify({
+				from: email.from,
+				html: invitationHtml(email),
+				subject: invitationSubject(email),
+				text: invitationText(email),
+				to: email.to,
+			}),
+			headers: {
+				authorization: `Bearer ${this.apiKey}`,
+				"content-type": "application/json",
+				"user-agent": this.userAgent,
+			},
+			method: "POST",
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Resend email send failed with status ${response.status}.`,
+			);
+		}
+	}
 }
 
-export class PostmarkEmailTransport implements EmailTransport {
+export class PostmarkEmailTransport implements TransactionalEmailTransport {
 	private readonly endpoint: string;
 	private readonly fetchImpl: FetchLike;
 	private readonly messageStream?: string;
@@ -173,9 +231,37 @@ export class PostmarkEmailTransport implements EmailTransport {
 			);
 		}
 	}
+
+	async sendInvitation(email: InvitationEmail): Promise<void> {
+		const response = await this.fetchImpl(this.endpoint, {
+			body: JSON.stringify({
+				From: email.from,
+				HtmlBody: invitationHtml(email),
+				MessageStream: this.messageStream,
+				Subject: invitationSubject(email),
+				TextBody: invitationText(email),
+				To: email.to,
+				TrackLinks: "None",
+				TrackOpens: false,
+			}),
+			headers: {
+				accept: "application/json",
+				"content-type": "application/json",
+				"user-agent": this.userAgent,
+				"x-postmark-server-token": this.serverToken,
+			},
+			method: "POST",
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Postmark email send failed with status ${response.status}.`,
+			);
+		}
+	}
 }
 
-export class MailgunEmailTransport implements EmailTransport {
+export class MailgunEmailTransport implements TransactionalEmailTransport {
 	private readonly apiKey: string;
 	private readonly baseUrl: string;
 	private readonly domain: string;
@@ -247,11 +333,45 @@ export class MailgunEmailTransport implements EmailTransport {
 			);
 		}
 	}
+
+	async sendInvitation(email: InvitationEmail): Promise<void> {
+		const body = new URLSearchParams({
+			from: email.from,
+			html: invitationHtml(email),
+			"o:tracking": "no",
+			"o:tracking-clicks": "no",
+			"o:tracking-opens": "no",
+			subject: invitationSubject(email),
+			text: invitationText(email),
+			to: email.to,
+		});
+
+		const response = await this.fetchImpl(
+			`${this.baseUrl}/v3/${encodeURIComponent(this.domain)}/messages`,
+			{
+				body,
+				headers: {
+					authorization: `Basic ${Buffer.from(
+						`api:${this.apiKey}`,
+					).toString("base64")}`,
+					"content-type": "application/x-www-form-urlencoded",
+					"user-agent": this.userAgent,
+				},
+				method: "POST",
+			},
+		);
+
+		if (!response.ok) {
+			throw new Error(
+				`Mailgun email send failed with status ${response.status}.`,
+			);
+		}
+	}
 }
 
 export function createEmailTransport(
 	env: EnvLike = process.env,
-): EmailTransport {
+): TransactionalEmailTransport {
 	const transport = env.EMAIL_TRANSPORT?.trim();
 
 	if (!transport) {
@@ -331,6 +451,35 @@ function magicLinkHtml(email: MagicLinkEmail): string {
 		`<p><a href="${url}">Sign in to Safety Secretary</a></p>`,
 		`<p>This link expires at ${expiresAt}.</p>`,
 		"<p>If you did not request this link, you can ignore this email.</p>",
+	].join("");
+}
+
+function invitationSubject(email: InvitationEmail): string {
+	return `Invitation to ${email.tenantName} on Safety Secretary`;
+}
+
+function invitationText(email: InvitationEmail): string {
+	return [
+		invitationSubject(email),
+		"",
+		"Use this link to join the workspace:",
+		email.inviteUrl,
+		"",
+		`This invitation expires at ${email.expiresAt.toISOString()}.`,
+		"If you did not expect this invitation, you can ignore this email.",
+	].join("\n");
+}
+
+function invitationHtml(email: InvitationEmail): string {
+	const inviteUrl = escapeHtml(email.inviteUrl);
+	const tenantName = escapeHtml(email.tenantName);
+	const expiresAt = escapeHtml(email.expiresAt.toISOString());
+
+	return [
+		`<p>You have been invited to ${tenantName} on Safety Secretary.</p>`,
+		`<p><a href="${inviteUrl}">Accept invitation</a></p>`,
+		`<p>This invitation expires at ${expiresAt}.</p>`,
+		"<p>If you did not expect this invitation, you can ignore this email.</p>",
 	].join("");
 }
 

@@ -197,11 +197,7 @@ export default createAgent((ctx) => {
 		throw new Error(`[ii-flue] Invalid incident agent instance id: ${ctx.id}`);
 	}
 
-	const model =
-		process.env.SSFW_FLUE_MODEL?.trim() ||
-		process.env.SSFW_PI_MODEL?.trim() ||
-		process.env.LLM_TEXT_MODEL?.trim() ||
-		"openai/gpt-5.5";
+	const model = process.env.SSFW_FLUE_MODEL?.trim() || "openai/gpt-5.5";
 
 	return {
 		instructions: [

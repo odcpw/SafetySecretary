@@ -1,6 +1,11 @@
 import {
+	type AgentCauseNodePayload,
+	type AgentCauseUpdatePayload,
+	type AgentFactPayload,
+	type AgentHiraFollowupPayload,
 	type AgentIncidentFieldUpdatePayload,
 	AgentOperationKind,
+	type AgentTimelineEventPayload,
 	INCIDENT_COACH_UPDATABLE_FIELDS,
 } from "../agent/types";
 import {
@@ -15,11 +20,26 @@ import {
 	SEVERITY_CODES,
 } from "../taxonomy/schema";
 
-export type FlueRawOperation = {
-	readonly kind: string;
-	readonly payload: Record<string, unknown>;
+type FlueRawOperationPayloadByKind = {
+	readonly [AgentOperationKind.IncidentFieldUpdate]: AgentIncidentFieldUpdatePayload;
+	readonly [AgentOperationKind.Fact]: AgentFactPayload;
+	readonly [AgentOperationKind.TimelineEvent]: AgentTimelineEventPayload;
+	readonly [AgentOperationKind.CauseNode]: AgentCauseNodePayload;
+	readonly [AgentOperationKind.CauseUpdate]: AgentCauseUpdatePayload;
+	readonly [AgentOperationKind.HiraFollowupNote]: AgentHiraFollowupPayload;
+};
+
+type FlueRawOperationKind = keyof FlueRawOperationPayloadByKind;
+
+type FlueRawOperationOf<Kind extends FlueRawOperationKind> = {
+	readonly kind: Kind;
+	readonly payload: FlueRawOperationPayloadByKind[Kind];
 	readonly ref?: string;
 };
+
+export type FlueRawOperation = {
+	readonly [Kind in FlueRawOperationKind]: FlueRawOperationOf<Kind>;
+}[FlueRawOperationKind];
 
 export type FlueProposalResult =
 	| {

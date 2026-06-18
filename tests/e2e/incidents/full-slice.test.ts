@@ -91,7 +91,7 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 	page,
 }, testInfo) => {
 	const runId = randomUUID();
-	const email = `ssfw-mpk-${runId}@example.invalid`;
+	const email = `ssfw-mpk-${runId}@mpk-${runId}.example.invalid`;
 	const fixture = await fiveWhysFixture();
 	const tenant: { tenantId: string; userId: string } = {
 		tenantId: "",
@@ -99,43 +99,34 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 	};
 
 	try {
-		await page.goto(`${appBaseUrl}/signup`);
-		await expect(
-			page.getByRole("heading", { name: "Create workspace" }),
-		).toBeVisible();
+		await page.goto(`${appBaseUrl}/signin`);
+		await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 		await page.locator('input[name="email"]').fill(email);
-		await page.locator('input[name="companyName"]').fill(`SSFW MPK ${runId}`);
-		await page.locator('select[name="defaultLanguage"]').selectOption("fr");
-		await page.getByRole("button", { name: "Create workspace" }).click();
+		await page.getByRole("button", { name: "Send sign-in link" }).click();
 		await expect(
-			page.getByText("Workspace created. Check your email for a sign-in link."),
+			page.getByText("Check your email for a sign-in link."),
 		).toBeVisible();
-		await screenshot(page, testInfo, "01-signup");
+		await screenshot(page, testInfo, "01-signin-link");
 
 		const magicLinkUrl = await readMagicLinkUrl(email);
-		const verifyResponse = await page.goto(magicLinkUrl);
-		expect(verifyResponse?.ok()).toBe(true);
-		const verifyPayload = JSON.parse(
-			await page.locator("body").innerText(),
-		) as {
-			tenantId: string;
-			userId: string;
-		};
-		tenant.tenantId = verifyPayload.tenantId;
-		tenant.userId = verifyPayload.userId;
-
-		await page.goto(`${appBaseUrl}/incidents/new`);
+		await page.goto(magicLinkUrl);
+		await page.getByRole("button", { name: "Sign in" }).click();
 		await expect(page).toHaveURL(/\/disclaimer\?/);
+		const signedInTenant = await lookupTenantForEmail(email);
+		tenant.tenantId = signedInTenant.tenantId;
+		tenant.userId = signedInTenant.userId;
+
 		await page.locator('input[name="acknowledge"]').check();
 		await page.getByRole("button", { name: "Continue" }).click();
-		await expect(page).toHaveURL(/\/incidents\/new$/);
+		await expect(page).toHaveURL(/\/incidents$/);
 		await screenshot(page, testInfo, "02-disclaimer-accepted");
 
 		await createIncident(page);
 		const incidentId = incidentIdFromUrl(page.url());
+		await updateIncidentBasics(page, incidentId);
+		await page.goto(`${appBaseUrl}/incidents/${incidentId}/coach`);
 		await expect(page.getByText("Mixer guard bypass near miss")).toBeVisible();
 		await screenshot(page, testInfo, "03-incident-created");
-		await editIncidentBasics(page, incidentId);
 
 		await addPerson(page, incidentId, {
 			name: "Anna Witness",
@@ -148,10 +139,9 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 			otherInfo: "Supervisor for the late shift.",
 			role: "supervisor",
 		});
-		await savePersonAccount(page, incidentId, "Anna Witness");
 		await screenshot(page, testInfo, "04-persons");
 
-		await addTimelineEvent(page, incidentId, {
+		const firstEvent = await addTimelineEvent(page, incidentId, {
 			confidence: "LIKELY",
 			eventAt: "2026-05-05T07:10",
 			text: fixture.entries[0].parentStatement,
@@ -163,26 +153,31 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 			text: "The supervisor stopped the line and isolated the mixer.",
 			timeLabel: "Event",
 		});
-		await attachTimelinePhoto(page, fixture.entries[0].parentStatement);
+		await attachTimelinePhoto(page, incidentId, firstEvent.id);
 		await screenshot(page, testInfo, "05-timeline-photo");
 
-		await addFiveWhysTurn(page, incidentId, {
-			answer: fixture.entries[0].userAnswer,
-			timelineOptionIndex: 1,
+		const firstCause = await addCauseNode(page, incidentId, {
+			statement: fixture.entries[0].userAnswer,
+			timelineEventId: firstEvent.id,
 		});
-		await addFiveWhysTurn(page, incidentId, {
-			answer: fixture.entries[1].userAnswer,
-			parentStatement: fixture.entries[0].userAnswer,
+		const secondCause = await addCauseNode(page, incidentId, {
+			parentId: firstCause.id,
+			statement: fixture.entries[1].userAnswer,
 		});
-		await addFiveWhysTurn(page, incidentId, {
-			answer: fixture.entries[2].userAnswer,
-			parentStatement: fixture.entries[1].userAnswer,
+		const rootCause = await addCauseNode(page, incidentId, {
+			parentId: secondCause.id,
+			statement: fixture.entries[2].userAnswer,
 		});
-		await markRootCause(page, fixture.entries[2].userAnswer);
+		await markRootCause(
+			page,
+			incidentId,
+			rootCause.id,
+			fixture.entries[2].userAnswer,
+		);
 		await screenshot(page, testInfo, "06-five-whys");
 
 		await addCorrectiveAction(page, incidentId, {
-			causeStatement: fixture.entries[2].userAnswer,
+			causeNodeId: rootCause.id,
 			description: "Create escalation path for cancelled maintenance windows.",
 			dueDate: "2026-05-22",
 			ownerRole: "Maintenance planner",
@@ -200,7 +195,7 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 
 		const fullReport = await downloadBytes(
 			page,
-			`${appBaseUrl}/incidents/${incidentId}/exports/full-report?format=docx&locale=en`,
+			`${appBaseUrl}/api/incidents/${incidentId}/export?report=full-report&format=docx&locale=en`,
 		);
 		const fullReportText = await docxText(fullReport);
 		for (const section of II_FULL_REPORT_SECTIONS) {
@@ -210,7 +205,7 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 
 		const comms = await downloadBytes(
 			page,
-			`${appBaseUrl}/incidents/${incidentId}/exports/comms?format=docx&locale=en`,
+			`${appBaseUrl}/api/incidents/${incidentId}/export?report=comms&format=docx&locale=en`,
 		);
 		const commsText = await docxText(comms);
 		const commsMedia = await docxMedia(comms);
@@ -241,71 +236,36 @@ test("II vertical slice happy path signs up, investigates, approves, and exports
 });
 
 async function createIncident(page: Page): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/new`);
-	await waitForCsrfFormHandler(page);
-	await page
-		.locator('input[name="title"]')
-		.fill("Mixer guard bypass near miss");
-	await page.locator('select[name="contentLanguage"]').selectOption("fr");
-	await page.locator('input[name="incidentAt"]').fill("2026-05-05T07:10");
-	await page
-		.locator('select[name="incidentTimeZone"]')
-		.selectOption("europe/zurich");
-	await page.locator('select[name="incidentType"]').selectOption("NEAR_MISS");
-	await page
-		.locator('textarea[name="potentialOutcomeText"]')
-		.fill("A worker could have been caught by the mixer guard.");
-	await page.locator('select[name="potentialSeverityCode"]').selectOption("B");
-	await page
-		.locator('select[name="potentialLikelihoodCode"]')
-		.selectOption("3");
-	await page.locator('input[name="location"]').fill("Line 2 packing area");
-	await page.locator('input[name="coordinatorRole"]').fill("Safety lead");
-	await page
-		.locator('input[name="coordinatorName"]')
-		.fill("Claire Coordinator");
-	await submitNavigating(page, () =>
-		page.locator('form[action="/api/incidents"] button[type="submit"]').click(),
-	);
+	await page.goto(`${appBaseUrl}/incidents`);
+	await page.getByRole("button", { name: "New incident" }).click();
 	await expect(page).toHaveURL(/\/incidents\/[0-9a-f-]{36}\/coach$/);
-	await page.goto(
-		`${appBaseUrl}/incidents/${incidentIdFromUrl(page.url())}/investigation`,
-	);
 }
 
-async function editIncidentBasics(
+async function updateIncidentBasics(
 	page: Page,
 	incidentId: string,
 ): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/edit`);
-	await waitForCsrfFormHandler(page);
-	await page.locator('select[name="incidentType"]').selectOption("ACCIDENT");
-	await page
-		.locator('select[name="actualInjuryOutcome"]')
-		.selectOption("FIRST_AID");
-	await page.locator('input[name="departmentText"]').fill("Packing");
-	await page
-		.locator('select[name="hazardCategoryCode"]')
-		.selectOption("MECHANICAL");
-	await page
-		.locator('input[name="workActivity"]')
-		.fill("Clearing the mixer guard");
-	await page.locator('input[name="injuryNature"]').fill("Bruise");
-	await page.locator('input[name="bodyPart"]').fill("Left hand");
-	await page.locator('input[name="lostDays"]').fill("0");
-	await submitNavigating(page, () =>
-		page
-			.locator(
-				`form[action="/api/incidents/${incidentId}"] button[type="submit"]`,
-			)
-			.click(),
-	);
-	await expect(page).toHaveURL(new RegExp(`/incidents/${incidentId}$`));
-	await expect(page.getByText("Accident - First aid").first()).toBeVisible();
-	await expect(page.getByText("Packing", { exact: true })).toBeVisible();
-	await expect(page.getByText("Clearing the mixer guard")).toBeVisible();
-	await expect(page.getByText("Bruise")).toBeVisible();
-	await expect(page.getByText("Left hand")).toBeVisible();
+	await apiForm(page, `/api/incidents/${incidentId}`, {
+		actualInjuryOutcome: "FIRST_AID",
+		actualSeverityCode: "A",
+		bodyPart: "Left hand",
+		contentLanguage: "en",
+		coordinatorName: "Claire Coordinator",
+		coordinatorRole: "Safety lead",
+		departmentText: "Packing",
+		hazardCategoryCode: "MECHANICAL",
+		incidentAt: "2026-05-05T07:10",
+		incidentTimeZone: "europe/zurich",
+		incidentType: "ACCIDENT",
+		injuryNature: "Bruise",
+		location: "Line 2 packing area",
+		lostDays: "0",
+		potentialLikelihoodCode: "3",
+		potentialOutcomeText: "A worker could have been caught by the mixer guard.",
+		potentialSeverityCode: "B",
+		title: "Mixer guard bypass near miss",
+		workActivity: "Clearing the mixer guard",
+	});
 }
 
 async function addPerson(
@@ -318,49 +278,16 @@ async function addPerson(
 		yearsWithCompany?: string;
 	},
 ): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/persons`);
-	await waitForCsrfFormHandler(page);
-	const form = page
-		.locator(`form[action="/api/incidents/${incidentId}/persons"]`)
-		.first();
-	await form.locator('select[name="role"]').selectOption(input.role);
-	await form.locator('input[name="name"]').fill(input.name);
-	if (input.yearsWithCompany) {
-		await form.locator("summary").click();
-		await form
-			.locator('input[name="yearsWithCompany"]')
-			.fill(input.yearsWithCompany);
-	}
-	await form.locator('textarea[name="otherInfo"]').fill(input.otherInfo);
-	await submitNavigating(page, () =>
-		form.locator('button[type="submit"]').first().click(),
-	);
+	await apiForm(page, `/api/incidents/${incidentId}/persons`, {
+		name: input.name,
+		otherInfo: input.otherInfo,
+		role: input.role,
+		...(input.yearsWithCompany
+			? { yearsWithCompany: input.yearsWithCompany }
+			: {}),
+	});
+	await page.goto(`${appBaseUrl}/incidents/${incidentId}/coach`);
 	await expect(page.getByText(input.name)).toBeVisible();
-}
-
-async function savePersonAccount(
-	page: Page,
-	incidentId: string,
-	personName: string,
-): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/persons`);
-	const person = page
-		.locator("article")
-		.filter({ hasText: personName })
-		.first();
-	await person.getByRole("link", { name: "Statement" }).click();
-	await waitForCsrfFormHandler(page);
-	await page
-		.locator('textarea[name="rawStatement"]')
-		.fill("I saw the guard open before the stop.");
-	await submitNavigating(page, () =>
-		page.locator('button[type="submit"]').first().click(),
-	);
-	await expect(page).toHaveURL(new RegExp(`/incidents/${incidentId}/persons$`));
-	await person.getByRole("link", { name: "Statement" }).click();
-	await expect(page.locator('textarea[name="rawStatement"]')).toHaveValue(
-		"I saw the guard open before the stop.",
-	);
 }
 
 async function addTimelineEvent(
@@ -372,166 +299,114 @@ async function addTimelineEvent(
 		text: string;
 		timeLabel: string;
 	},
-): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/timeline`);
-	const form = page.locator("form[data-ssfw-timeline-form]").first();
-	await form.locator('input[name="eventAt"]').fill(input.eventAt);
-	await form.locator('select[name="timeLabel"]').selectOption(input.timeLabel);
-	await form
-		.locator('select[name="confidence"]')
-		.selectOption(input.confidence);
-	await form.locator('textarea[name="text"]').fill(input.text);
-	await submitNavigating(page, () =>
-		form.locator('button[type="submit"]').first().click(),
-	);
-	await expect(page.getByText(input.text)).toBeVisible();
+): Promise<{ id: string }> {
+	const payload = await apiForm(page, `/api/incidents/${incidentId}/timeline`, {
+		confidence: input.confidence,
+		eventAt: input.eventAt,
+		text: input.text,
+		timeLabel: input.timeLabel,
+	});
+	const eventId = stringFromPayload(payload, ["event", "id"]);
+	return { id: eventId };
 }
 
 async function attachTimelinePhoto(
 	page: Page,
-	eventText: string,
+	incidentId: string,
+	eventId: string,
 ): Promise<void> {
-	const article = page
-		.locator("article")
-		.filter({ hasText: eventText })
-		.first();
-	const form = article.locator('form[enctype="multipart/form-data"]').first();
-	await form.locator('input[name="file"]').setInputFiles({
-		buffer: pngFixture,
-		mimeType: "image/png",
-		name: "synthetic-guard.png",
-	});
-	await submitNavigating(page, () =>
-		form.locator('button[type="submit"]').click(),
+	await apiMultipart(
+		page,
+		`/api/incidents/${incidentId}/timeline/${eventId}/photos`,
+		{
+			file: {
+				bytesBase64: pngFixture.toString("base64"),
+				mimeType: "image/png",
+				name: "synthetic-guard.png",
+			},
+		},
 	);
-	await expect(page.getByText("synthetic-guard.png")).toBeVisible();
 }
 
-async function addFiveWhysTurn(
+async function addCauseNode(
 	page: Page,
 	incidentId: string,
-	input:
-		| { answer: string; timelineOptionIndex: number; parentStatement?: never }
-		| { answer: string; parentStatement: string; timelineOptionIndex?: never },
-): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/causes`);
-	let form = page.locator("form[data-ssfw-causes-form]").first();
-
-	if ("parentStatement" in input) {
-		const article = page
-			.locator("article")
-			.filter({ hasText: input.parentStatement })
-			.first();
-		form = article
-			.locator("form[data-ssfw-causes-form]")
-			.filter({ has: page.locator('input[name="parentId"]') })
-			.first();
-	} else {
-		await form.locator('select[name="timelineEventId"]').selectOption({
-			index: input.timelineOptionIndex,
-		});
-	}
-
-	await form.locator('textarea[name="answer"]').fill(input.answer);
-	await submitNavigating(page, () =>
-		form.locator('button[type="submit"]').click(),
-	);
-	await expect(page.getByText(input.answer).first()).toBeVisible();
+	input: {
+		parentId?: string;
+		statement: string;
+		timelineEventId?: string;
+	},
+): Promise<{ id: string }> {
+	const payload = await apiForm(page, `/api/incidents/${incidentId}/causes`, {
+		parentId: input.parentId ?? "",
+		statement: input.statement,
+		timelineEventId: input.timelineEventId ?? "",
+	});
+	const nodeId = stringFromPayload(payload, ["node", "id"]);
+	return { id: nodeId };
 }
 
-async function markRootCause(page: Page, statement: string): Promise<void> {
-	const article = page
-		.locator("article")
-		.filter({ hasText: statement })
-		.first();
-	const form = article
-		.locator("form[data-ssfw-causes-form]")
-		.filter({ has: page.locator('input[name="_action"][value="update"]') })
-		.first();
-	await form.locator('input[name="isRootCause"]').check();
-	await submitNavigating(page, () =>
-		form.locator('button[type="submit"]').first().click(),
-	);
-	await expect(
-		article.getByText("Key contributing factor", { exact: true }).first(),
-	).toBeVisible();
+async function markRootCause(
+	page: Page,
+	incidentId: string,
+	nodeId: string,
+	statement: string,
+): Promise<void> {
+	await apiForm(page, `/api/incidents/${incidentId}/causes`, {
+		_action: "update",
+		isRootCause: "on",
+		nodeId,
+		statement,
+	});
 }
 
 async function addCorrectiveAction(
 	page: Page,
 	incidentId: string,
 	input: {
-		causeStatement: string;
+		causeNodeId: string;
 		description: string;
 		dueDate: string;
 		ownerRole: string;
 	},
 ): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/actions`);
-	const article = page
-		.locator("article")
-		.filter({ hasText: input.causeStatement })
-		.first();
-	const form = article
-		.locator("form[data-ssfw-incident-action-form]")
-		.filter({ has: page.locator('input[name="causeNodeId"]') })
-		.first();
-	await form.locator('textarea[name="description"]').fill(input.description);
-	await form.locator('input[name="ownerRole"]').fill(input.ownerRole);
-	await form.locator('input[name="dueDate"]').fill(input.dueDate);
-	await form
-		.locator('select[name="actionType"]')
-		.selectOption("ORGANIZATIONAL");
-	await submitNavigating(page, () =>
-		form.locator('button[type="submit"]').click(),
-	);
-	await expect(page.getByText(input.description)).toBeVisible();
+	await apiForm(page, `/api/incidents/${incidentId}/actions`, {
+		actionType: "ORGANIZATIONAL",
+		causeNodeId: input.causeNodeId,
+		description: input.description,
+		dueDate: input.dueDate,
+		ownerRole: input.ownerRole,
+		status: "OPEN",
+	});
 }
 
 async function recordHiraFollowup(
 	page: Page,
 	incidentId: string,
 ): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/hira-followup`);
-	await waitForCsrfFormHandler(page);
-	await page.locator('input[name="hiraFollowupNeeded"]').check();
-	await page
-		.locator('textarea[name="hiraFollowupText"]')
-		.fill("Follow up the HIRA for the mixer guarding task.");
-	await submitNavigating(page, () =>
-		page
-			.locator('form[action$="/hira-followup"] button[type="submit"]')
-			.click(),
-	);
-	await expect(page).toHaveURL(
-		new RegExp(`/incidents/${incidentId}/investigation$`),
-	);
+	await apiForm(page, `/api/incidents/${incidentId}/hira-followup`, {
+		hiraFollowupNeeded: "on",
+		hiraFollowupText: "Follow up the HIRA for the mixer guarding task.",
+	});
 }
 
 async function reviewInvestigationWorkbench(
 	page: Page,
 	incidentId: string,
 ): Promise<void> {
-	await page.goto(`${appBaseUrl}/incidents/${incidentId}/investigation`);
-	await expect(page.getByText("Investigation workbench").first()).toBeVisible();
+	await page.goto(`${appBaseUrl}/incidents/${incidentId}/coach`);
 	await expect(
-		page.getByRole("heading", { name: "What do we know?" }),
+		page.getByRole("heading", { name: "Mixer guard bypass near miss" }),
 	).toBeVisible();
+	await expect(page.getByText("Incident investigation").first()).toBeVisible();
 	await expect(
-		page.getByRole("heading", { name: "What helped this happen?" }),
-	).toBeVisible();
+		page
+			.getByText("Create escalation path for cancelled maintenance windows.")
+			.first(),
+	).toBeAttached();
 	await expect(
-		page.getByRole("heading", { name: "What should we change?" }),
-	).toBeVisible();
-	await expect(
-		page.getByRole("heading", { name: "Ready to close?" }),
-	).toBeVisible();
-	await expect(
-		page.getByText("Create escalation path for cancelled maintenance windows."),
-	).toBeVisible();
-	await expect(
-		page.getByText("Follow up the HIRA for the mixer guarding task."),
-	).toBeVisible();
+		page.getByText("Follow up the HIRA for the mixer guarding task.").first(),
+	).toBeAttached();
 }
 
 async function approveV01(page: Page, incidentId: string): Promise<void> {
@@ -553,14 +428,6 @@ async function submitNavigating(
 	await navigation;
 	await page.waitForLoadState("networkidle").catch(() => undefined);
 	await page.waitForTimeout(150);
-}
-
-async function waitForCsrfFormHandler(page: Page): Promise<void> {
-	await page.waitForFunction(
-		() =>
-			(window as typeof window & { __ssfwCsrfFormHandlerReady?: boolean })
-				.__ssfwCsrfFormHandlerReady === true,
-	);
 }
 
 async function downloadBytes(page: Page, url: string): Promise<Buffer> {
@@ -626,6 +493,137 @@ async function readMagicLinkUrl(email: string): Promise<string> {
 	}
 
 	throw new Error(`Magic link for ${email} was not written to ${emailLogPath}`);
+}
+
+async function apiForm(
+	page: Page,
+	url: string,
+	fields: Record<string, string>,
+): Promise<unknown> {
+	const response = await page.request.post(absoluteApiUrl(url), {
+		data: fields,
+		headers: {
+			accept: "application/json",
+			"x-ssfw-csrf": await csrfTokenFromPage(page),
+		},
+	});
+	const text = await response.text();
+
+	if (!response.ok()) {
+		throw new Error(`API ${url} failed with ${response.status()}: ${text}`);
+	}
+
+	return text ? (JSON.parse(text) as unknown) : null;
+}
+
+async function apiMultipart(
+	page: Page,
+	url: string,
+	input: {
+		file: {
+			bytesBase64: string;
+			mimeType: string;
+			name: string;
+		};
+	},
+): Promise<unknown> {
+	const response = await page.request.post(absoluteApiUrl(url), {
+		headers: {
+			accept: "application/json",
+			"x-ssfw-csrf": await csrfTokenFromPage(page),
+		},
+		maxRedirects: 0,
+		multipart: {
+			file: {
+				buffer: Buffer.from(input.file.bytesBase64, "base64"),
+				mimeType: input.file.mimeType,
+				name: input.file.name,
+			},
+		},
+	});
+	const text = await response.text();
+
+	if ([302, 303].includes(response.status())) {
+		return null;
+	}
+
+	if (!response.ok()) {
+		throw new Error(`API ${url} failed with ${response.status()}: ${text}`);
+	}
+
+	return text ? (JSON.parse(text) as unknown) : null;
+}
+
+async function csrfTokenFromPage(page: Page): Promise<string> {
+	const token = await page.evaluate(() => {
+		const readCookie = (name: string): string | null => {
+			const prefix = `${name}=`;
+			const match = document.cookie
+				.split(";")
+				.map((part) => part.trim())
+				.find((part) => part.startsWith(prefix));
+
+			return match ? decodeURIComponent(match.slice(prefix.length)) : null;
+		};
+
+		return readCookie("__Host-ssfw_csrf") ?? readCookie("ssfw_csrf");
+	});
+
+	if (!token) {
+		throw new Error("CSRF cookie is missing.");
+	}
+
+	return token;
+}
+
+function absoluteApiUrl(url: string): string {
+	return new URL(url, appBaseUrl).toString();
+}
+
+function stringFromPayload(payload: unknown, path: string[]): string {
+	let value = payload;
+
+	for (const segment of path) {
+		if (typeof value !== "object" || value === null || !(segment in value)) {
+			throw new Error(`Response payload is missing ${path.join(".")}.`);
+		}
+
+		value = (value as Record<string, unknown>)[segment];
+	}
+
+	if (typeof value !== "string" || !value) {
+		throw new Error(
+			`Response payload field ${path.join(".")} is not a string.`,
+		);
+	}
+
+	return value;
+}
+
+async function lookupTenantForEmail(email: string): Promise<{
+	tenantId: string;
+	userId: string;
+}> {
+	const user = await prisma.user.findUnique({
+		where: { email },
+		select: {
+			id: true,
+			memberships: {
+				orderBy: { createdAt: "asc" },
+				select: { tenantId: true },
+			},
+		},
+	});
+	const tenantId = user?.memberships[0]?.tenantId;
+
+	if (!user || !tenantId) {
+		throw new Error(`Signed-in test user ${email} has no tenant membership.`);
+	}
+
+	return {
+		tenantId,
+		userId: user.id,
+	};
 }
 
 async function docxText(docx: Buffer): Promise<string> {

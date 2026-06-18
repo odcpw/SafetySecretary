@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { appRedirectOrigin } from "../../../../lib/auth/base-url";
 import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
 import { verifyCsrfToken } from "../../../../lib/auth/csrf";
 import {
@@ -48,7 +49,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 	const response = await DELETE(request);
 
 	if (wantsHtmlRedirect(request) && response.ok) {
-		return NextResponse.redirect(new URL("/signin", request.url), 303);
+		return NextResponse.redirect(
+			new URL("/signin", appRedirectOrigin(request.nextUrl.origin)),
+			303,
+		);
 	}
 
 	return response;

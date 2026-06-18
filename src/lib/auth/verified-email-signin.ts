@@ -1,6 +1,7 @@
 import type { Language } from "@prisma/client";
 import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "../db";
+import { appRedirectOrigin } from "./base-url";
 import {
 	authCookieSecurityContextFromRequest,
 	setSessionCookie,
@@ -80,7 +81,12 @@ export async function signInVerifiedEmail(input: {
 	}
 
 	const redirectTo = normalizeLocalReturnTo(input.returnTo);
-	const response = NextResponse.redirect(new URL(redirectTo, input.request.url), 303);
+	const response = NextResponse.redirect(
+		// Public origin (APP_BASE_URL), not request.url which is localhost:3000
+		// behind the reverse proxy.
+		new URL(redirectTo, appRedirectOrigin(input.request.nextUrl.origin)),
+		303,
+	);
 	const cookieSecurity = authCookieSecurityContextFromRequest(input.request);
 	setSessionCookie(response, session, cookieSecurity);
 	setCsrfCookie(response, session.cookieValue, cookieSecurity);

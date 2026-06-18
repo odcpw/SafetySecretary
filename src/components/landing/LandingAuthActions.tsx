@@ -76,7 +76,7 @@ export default function LandingAuthActions({ copy }: LandingAuthActionsProps) {
 				{MICROSOFT_OAUTH_ENABLED ? (
 					<a
 						className={secondaryButton}
-						href="/api/auth/oauth/microsoft/start?returnTo=/workspace"
+						href="/api/auth/oauth/microsoft/start?returnTo=/incidents"
 					>
 						Microsoft
 					</a>
@@ -84,7 +84,7 @@ export default function LandingAuthActions({ copy }: LandingAuthActionsProps) {
 				{GOOGLE_OAUTH_ENABLED ? (
 					<a
 						className={secondaryButton}
-						href="/api/auth/oauth/google/start?returnTo=/workspace"
+						href="/api/auth/oauth/google/start?returnTo=/incidents"
 					>
 						Google
 					</a>

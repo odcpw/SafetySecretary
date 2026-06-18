@@ -1,4 +1,5 @@
-const DEFAULT_RETURN_TO = "/workspace";
+// The incident register is the real authenticated home; /workspace is a stub.
+const DEFAULT_RETURN_TO = "/incidents";
 
 export function normalizeLocalReturnTo(
 	value: string | null | undefined,

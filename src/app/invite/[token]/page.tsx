@@ -122,7 +122,7 @@ async function acceptInviteAction(formData: FormData) {
 		redirect(inviteRedirect(token, result.reason));
 	}
 
-	redirect("/workspace");
+	redirect("/incidents");
 }
 
 async function resolveSession() {

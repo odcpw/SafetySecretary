@@ -4,7 +4,10 @@ import {
 	authCookieSecurityContextFromRequest,
 	setSessionCookie,
 } from "../../../../../lib/auth/cookies";
-import { hasTrustedAuthRequestOrigin } from "../../../../../lib/auth/base-url";
+import {
+	appRedirectOrigin,
+	hasTrustedAuthRequestOrigin,
+} from "../../../../../lib/auth/base-url";
 import { setCsrfCookie } from "../../../../../lib/auth/csrf";
 import { pickInitialUiLocale } from "../../../../../lib/auth/locale";
 import {
@@ -113,7 +116,12 @@ async function verifyMagicLink(
 		throw error;
 	}
 	const response = wantsHtmlRedirect(request)
-		? NextResponse.redirect(new URL("/workspace", request.url), 303)
+		? NextResponse.redirect(
+				// Build the post-sign-in target from the public origin (APP_BASE_URL)
+				// — request.url is the internal http://localhost:3000 behind the proxy.
+				new URL("/incidents", appRedirectOrigin(request.nextUrl.origin)),
+				303,
+			)
 		: NextResponse.json(
 				{
 					message: "Signed in.",
@@ -161,12 +169,59 @@ function wantsHtmlRedirect(request: NextRequest): boolean {
 }
 
 function confirmSignInHtml(token: string): string {
+	// Standalone interstitial served directly from the API route (it never passes
+	// through the App Router layout/Tailwind), so styling is inlined to keep it
+	// branded instead of raw browser-default HTML.
 	return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Sign in to Safety Secretary</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #f4f5f7;
+      color: #1a1d23;
+    }
+    main {
+      width: 100%;
+      max-width: 24rem;
+      background: #ffffff;
+      border: 1px solid #e2e5ea;
+      border-radius: 12px;
+      padding: 32px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+      text-align: center;
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 8px; }
+    p { margin: 0 0 24px; color: #5b6472; font-size: 0.95rem; }
+    button {
+      width: 100%;
+      padding: 12px 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: #ffffff;
+      background: #1f6feb;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover { background: #1a5fd0; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f1115; color: #e6e8eb; }
+      main { background: #171a21; border-color: #2a2f3a; }
+      p { color: #9aa3b2; }
+    }
+  </style>
 </head>
 <body>
   <main>

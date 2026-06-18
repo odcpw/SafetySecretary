@@ -72,7 +72,7 @@ const registerCopyByLocale: Record<Locale, RegisterCopy> = {
 		rowMenuLabel: "Case actions",
 		rowMenuOpen: "Open",
 		rowMenuDelete: "Delete",
-		rowMenuConfirm: "Delete this case? You can restore it later.",
+		rowMenuConfirm: "Delete this case? It will be removed from the register.",
 		rowMenuError: "Could not delete. Please try again.",
 	},
 	de: {
@@ -89,8 +89,7 @@ const registerCopyByLocale: Record<Locale, RegisterCopy> = {
 		rowMenuLabel: "Fallaktionen",
 		rowMenuOpen: "Öffnen",
 		rowMenuDelete: "Löschen",
-		rowMenuConfirm:
-			"Diesen Fall löschen? Sie können ihn später wiederherstellen.",
+		rowMenuConfirm: "Diesen Fall löschen? Er wird aus dem Register entfernt.",
 		rowMenuError: "Löschen fehlgeschlagen. Bitte erneut versuchen.",
 	},
 	fr: {
@@ -108,7 +107,7 @@ const registerCopyByLocale: Record<Locale, RegisterCopy> = {
 		rowMenuLabel: "Actions du cas",
 		rowMenuOpen: "Ouvrir",
 		rowMenuDelete: "Supprimer",
-		rowMenuConfirm: "Supprimer ce cas ? Vous pourrez le restaurer plus tard.",
+		rowMenuConfirm: "Supprimer ce cas ? Il sera retiré du registre.",
 		rowMenuError: "Suppression impossible. Veuillez réessayer.",
 	},
 	it: {
@@ -126,7 +125,7 @@ const registerCopyByLocale: Record<Locale, RegisterCopy> = {
 		rowMenuLabel: "Azioni del caso",
 		rowMenuOpen: "Apri",
 		rowMenuDelete: "Elimina",
-		rowMenuConfirm: "Eliminare questo caso? Potrai ripristinarlo in seguito.",
+		rowMenuConfirm: "Eliminare questo caso? Verrà rimosso dal registro.",
 		rowMenuError: "Eliminazione non riuscita. Riprova.",
 	},
 };

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { appRedirectOrigin } from "../../../../../../lib/auth/base-url";
 import {
 	decodeOAuthStateCookie,
 	exchangeOAuthCode,
@@ -142,7 +143,8 @@ export async function GET(
 }
 
 function redirectToSignin(request: NextRequest, reason: string): NextResponse {
-	const url = new URL("/signin", request.url);
+	// Public origin (APP_BASE_URL), not request.url which is localhost behind the proxy.
+	const url = new URL("/signin", appRedirectOrigin(request.nextUrl.origin));
 	url.searchParams.set("oauth", reason);
 	return NextResponse.redirect(url, 303);
 }

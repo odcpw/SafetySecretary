@@ -4,7 +4,7 @@ import {
 	authCookieSecurityContextFromRequest,
 	setSessionCookie,
 } from "../../../../../lib/auth/cookies";
-import { isTrustedAuthOrigin } from "../../../../../lib/auth/base-url";
+import { hasTrustedAuthRequestOrigin } from "../../../../../lib/auth/base-url";
 import { setCsrfCookie } from "../../../../../lib/auth/csrf";
 import { pickInitialUiLocale } from "../../../../../lib/auth/locale";
 import {
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		);
 	}
 
-	if (!hasAllowedVerificationOrigin(request)) {
+	if (!hasTrustedAuthRequestOrigin(request)) {
 		return NextResponse.json(
 			{ message: MAGIC_LINK_INVALID_OR_USED_MESSAGE },
 			{ status: 403 },
@@ -158,24 +158,6 @@ function wantsHtmlRedirect(request: NextRequest): boolean {
 		contentType.includes("multipart/form-data") ||
 		accept.includes("text/html")
 	);
-}
-
-function hasAllowedVerificationOrigin(request: NextRequest): boolean {
-	const origin = request.headers.get("origin");
-	if (origin) {
-		return isTrustedAuthOrigin(origin, request.nextUrl.origin);
-	}
-
-	const referer = request.headers.get("referer");
-	if (!referer) {
-		return false;
-	}
-
-	try {
-		return isTrustedAuthOrigin(new URL(referer).origin, request.nextUrl.origin);
-	} catch {
-		return false;
-	}
 }
 
 function confirmSignInHtml(token: string): string {

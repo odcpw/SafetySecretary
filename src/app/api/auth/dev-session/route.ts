@@ -5,7 +5,7 @@ import {
 	LOCALE_COOKIE_NAME,
 	setSessionCookie,
 } from "../../../../lib/auth/cookies";
-import { isTrustedAuthOrigin } from "../../../../lib/auth/base-url";
+import { hasTrustedAuthRequestOrigin } from "../../../../lib/auth/base-url";
 import { setCsrfCookie } from "../../../../lib/auth/csrf";
 import { resolveUiLocale, type UiLocale } from "../../../../lib/auth/locale";
 import {
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 	// proxy.ts lists this path as CSRF-exempt public, so enforce a same-origin
 	// check here (mirrors magic-link/verify) to keep cross-site callers out.
-	if (!hasAllowedSessionOrigin(request)) {
+	if (!hasTrustedAuthRequestOrigin(request)) {
 		return NextResponse.json({ code: "FORBIDDEN" }, { status: 403 });
 	}
 
@@ -207,26 +207,6 @@ function normalizedDevEmail(): string {
 	return (process.env.SSFW_DEV_AUTH_EMAIL ?? defaultDevEmail)
 		.trim()
 		.toLowerCase();
-}
-
-function hasAllowedSessionOrigin(request: NextRequest): boolean {
-	const origin = request.headers.get("origin");
-	if (origin) {
-		return isTrustedAuthOrigin(origin, request.nextUrl.origin);
-	}
-
-	const referer = request.headers.get("referer");
-	if (!referer) {
-		// Fail closed: a session-minting POST with neither Origin nor Referer is
-		// not a trusted same-origin form post (mirrors magic-link/verify).
-		return false;
-	}
-
-	try {
-		return isTrustedAuthOrigin(new URL(referer).origin, request.nextUrl.origin);
-	} catch {
-		return false;
-	}
 }
 
 async function checkDevSessionRateLimit(

@@ -43,3 +43,24 @@ export function isTrustedAuthOrigin(
 		return false;
 	}
 }
+
+export function hasTrustedAuthRequestOrigin(request: {
+	headers: Pick<Headers, "get">;
+	nextUrl: { origin: string };
+}): boolean {
+	const origin = request.headers.get("origin");
+	if (origin) {
+		return isTrustedAuthOrigin(origin, request.nextUrl.origin);
+	}
+
+	const referer = request.headers.get("referer");
+	if (!referer) {
+		return false;
+	}
+
+	try {
+		return isTrustedAuthOrigin(new URL(referer).origin, request.nextUrl.origin);
+	} catch {
+		return false;
+	}
+}

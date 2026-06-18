@@ -98,11 +98,13 @@ const attachmentId = "22222222-2222-4222-8222-222222222222";
 const sessionId = "33333333-3333-4333-8333-333333333333";
 const tenantId = "44444444-4444-4444-8444-444444444444";
 const userId = "55555555-5555-4555-8555-555555555555";
-const csrfValue = "csrf-action-attachment";
-
 const { POST } = (await import(
 	routeModulePath
 )) as typeof import("../../../src/app/api/actions/[id]/attachments/route");
+const { mintCsrfToken } = (await import(
+	pathToFileURL(path.resolve("src/lib/auth/csrf.ts")).href
+)) as typeof import("../../../src/lib/auth/csrf");
+const csrfValue = mintCsrfToken(sessionId);
 
 test("action attachment POST rejects oversized file before reading it", async () => {
 	const previousMaxBytes = process.env.STORAGE_UPLOAD_MAX_BYTES;

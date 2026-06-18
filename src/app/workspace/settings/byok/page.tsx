@@ -139,7 +139,7 @@ function ByokForm({
 				</label>
 				<div className="grid gap-3 sm:grid-cols-2">
 					<ModelInput
-						defaultValue="gpt-4o-mini"
+						defaultValue="gpt-5.5"
 						label={t(messageKey("settings", "byok", "textModel"), locale)}
 						name="textModel"
 					/>

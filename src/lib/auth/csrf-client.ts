@@ -1,25 +1,20 @@
 "use client";
 
+// The CSRF token is now server-minted and session-bound (an HMAC of the session
+// id, see lib/auth/csrf.ts) and set as a cookie at sign-in and re-issued by the
+// proxy on every authed request. The client no longer mints anything; it only
+// reads the current token and echoes it in the x-ssfw-csrf header. Prefer the
+// __Host- prefixed carrier (present whenever cookies are Secure) and fall back
+// to the plain name in dev.
+const HOST_COOKIE_NAME = "__Host-ssfw_csrf";
+
 export function ensureCsrfToken(name: string): string {
-	const existing = cookieValue(name);
-	if (existing) {
-		return existing;
+	const token = cookieValue(HOST_COOKIE_NAME) ?? cookieValue(name);
+	if (!token) {
+		throw new Error("CSRF_COOKIE_MISSING");
 	}
 
-	const token = crypto.randomUUID();
-	// biome-ignore lint/suspicious/noDocumentCookie: the app proxy expects a double-submit CSRF cookie.
-	document.cookie = [
-		`${name}=${encodeURIComponent(token)}`,
-		"Path=/",
-		"SameSite=Lax",
-	].join("; ");
-
-	const stored = cookieValue(name);
-	if (!stored) {
-		throw new Error("CSRF_COOKIE_WRITE_FAILED");
-	}
-
-	return stored;
+	return token;
 }
 
 function cookieValue(name: string): string | null {

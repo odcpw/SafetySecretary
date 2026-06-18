@@ -9,7 +9,7 @@ import type {
 } from "./types";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_TEXT_MODEL = "gpt-4o-mini";
+const DEFAULT_TEXT_MODEL = "gpt-5.5";
 const DEFAULT_VISION_MODEL = "gpt-4o-mini";
 
 type Fetch = typeof fetch;

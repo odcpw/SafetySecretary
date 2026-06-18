@@ -61,6 +61,9 @@ if (!databaseUrl) {
 	const { issueSession } = (await import(
 		moduleUrl("src/lib/auth/session.ts")
 	)) as typeof import("../../../src/lib/auth/session");
+	const { mintCsrfToken } = (await import(
+		moduleUrl("src/lib/auth/csrf.ts")
+	)) as typeof import("../../../src/lib/auth/csrf");
 	const { createChemicalProfile } = (await import(
 		moduleUrl("src/lib/chemicals/queries.ts")
 	)) as typeof import("../../../src/lib/chemicals/queries");
@@ -76,8 +79,10 @@ if (!databaseUrl) {
 		const tenantA = await seedTenant("a");
 		const tenantB = await seedTenant("b");
 		const storage = new MemoryStorage();
-		const csrf = randomUUID();
+		const csrf = mintCsrfToken("tenant-a-session");
+		const tenantBCsrf = mintCsrfToken("tenant-b-session");
 		const tenantASession = await issueSession(tenantA.userId, tenantA.tenantId);
+		const detailCsrf = mintCsrfToken(tenantASession.cookieValue);
 
 		try {
 			const profile = await createChemicalProfile({
@@ -89,7 +94,7 @@ if (!databaseUrl) {
 			});
 			const crossTenantUpload = await route.handleSdsUploadAndExtraction(
 				sdsUploadRequest({
-					csrf,
+					csrf: tenantBCsrf,
 					filename: "cross-tenant-sds.txt",
 					sessionCookie: "tenant-b-session",
 					sdsText:
@@ -219,7 +224,7 @@ if (!databaseUrl) {
 						controlId: uploadedProfile.sdsControls[0].id,
 						decision: "approved",
 					},
-					csrf,
+					csrf: tenantBCsrf,
 					method: "PATCH",
 					sessionCookie: "tenant-b-session",
 					url: `https://app.example.test/api/chemicals/${profile.id}/sds`,
@@ -350,8 +355,8 @@ if (!databaseUrl) {
 						}),
 						headers: {
 							"content-type": "application/json",
-							cookie: `ssfw_session=${tenantASession.cookieValue}; ssfw_csrf=${csrf}`,
-							"x-ssfw-csrf": csrf,
+							cookie: `ssfw_session=${tenantASession.cookieValue}; ssfw_csrf=${detailCsrf}`,
+							"x-ssfw-csrf": detailCsrf,
 						},
 						method: "PATCH",
 					},
@@ -528,7 +533,7 @@ function validatorFor(tenant: SeededTenant, expectedCookie: string) {
 		return {
 			deviceHint: "desktop",
 			expiresAt: new Date("2026-05-07T08:00:00.000Z"),
-			id: randomUUID(),
+			id: expectedCookie,
 			lastSeenAt: new Date("2026-05-06T08:00:00.000Z"),
 			tenantId: tenant.tenantId,
 			userId: tenant.userId,

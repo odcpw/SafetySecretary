@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { authBaseUrlForRequest } from "../../../../../lib/auth/base-url";
 import {
 	MAGIC_LINK_RATE_LIMIT_MESSAGE,
 	MAGIC_LINK_REQUEST_SUCCESS_MESSAGE,
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		await requestMagicLink({
 			email,
 			transport: createEmailTransport(),
-			baseUrl: process.env.APP_BASE_URL ?? request.nextUrl.origin,
+			baseUrl: authBaseUrlForRequest(),
 			from: process.env.EMAIL_FROM ?? "no-reply@safetysecretary.local",
 		});
 	} catch {

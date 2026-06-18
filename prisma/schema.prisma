@@ -276,6 +276,7 @@ model Tenant {
   defaultLanguage                   Language           @map("default_language")
   workspaceKind                     String             @default("company") @map("workspace_kind")
   createdByUserId                   String?            @map("created_by_user_id") @db.Uuid
+  domainAutoJoinEnabled             Boolean            @default(false) @map("domain_auto_join_enabled")
   visionEnabled                     Boolean            @default(false) @map("vision_enabled")
   byokProviderConfigCiphertext      Bytes?             @map("byok_provider_config_ciphertext")
   byokProviderConfigMaskedIndicator String?            @map("byok_provider_config_masked_indicator")

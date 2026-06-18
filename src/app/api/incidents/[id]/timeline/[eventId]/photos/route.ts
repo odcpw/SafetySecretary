@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import {
-	CSRF_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../../../../../lib/auth/cookies";
+import { SESSION_COOKIE_NAME } from "../../../../../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -81,7 +79,7 @@ export async function handleTimelinePhotoUpload(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -244,7 +242,7 @@ async function insertIncidentAttachment(
 
 async function resolveSession(
 	request: NextRequest,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
@@ -279,34 +277,6 @@ function uploadedFileFromFormValue(
 	}
 
 	return null;
-}
-
-function hasValidCsrfToken(request: Request): boolean {
-	const cookie = parseCookieHeader(request.headers.get("cookie")).get(
-		CSRF_COOKIE_NAME,
-	);
-	const header = request.headers.get("x-ssfw-csrf");
-
-	return Boolean(cookie && header && cookie === header);
-}
-
-function parseCookieHeader(headerValue: string | null): Map<string, string> {
-	const cookies = new Map<string, string>();
-
-	if (!headerValue) {
-		return cookies;
-	}
-
-	for (const segment of headerValue.split(";")) {
-		const [rawName, ...rawValue] = segment.trim().split("=");
-		const name = rawName?.trim();
-
-		if (name) {
-			cookies.set(name, rawValue.join("=").trim());
-		}
-	}
-
-	return cookies;
 }
 
 function uploadErrorResponse(

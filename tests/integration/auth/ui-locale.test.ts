@@ -211,6 +211,7 @@ if (!databaseUrl) {
 						method: "POST",
 						headers: {
 							"accept-language": "fr",
+							origin: "https://app.example.test",
 							"user-agent": "desktop",
 						},
 					},
@@ -357,6 +358,7 @@ if (!databaseUrl) {
 					method: "POST",
 					headers: {
 						"accept-language": acceptLanguage,
+						origin: "https://app.example.test",
 						"user-agent": "desktop",
 					},
 				},

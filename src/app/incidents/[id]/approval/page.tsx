@@ -54,50 +54,14 @@ const approveFormScript = `
 		return cookie ? cookie.slice(prefix.length) : "";
 	}
 
-	function writeCookie(name, value) {
-		const attributes = [
-			name + "=" + encodeURIComponent(value),
-			"Path=/",
-			"SameSite=Lax",
-		];
-
-		if (window.location.protocol === "https:") {
-			attributes.push("Secure");
-		}
-
-		document.cookie = attributes.join("; ");
-	}
-
-	function createCsrfToken() {
-		if (window.crypto && typeof window.crypto.randomUUID === "function") {
-			return window.crypto.randomUUID();
-		}
-
-		if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
-			throw new Error("Approval needs browser cryptography. Refresh and try again.");
-		}
-
-		const bytes = Uint8Array.from({ length: 32 }, () => 0);
-		window.crypto.getRandomValues(bytes);
-		return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-	}
-
 	function ensureCsrfToken(name) {
-		const existingToken = readCookie(name);
+		const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
 
-		if (existingToken) {
-			return decodeURIComponent(existingToken);
+		if (!token) {
+			throw new Error("Approval needs a valid CSRF token. Refresh and try again.");
 		}
 
-		const token = createCsrfToken();
-		writeCookie(name, token);
-
-		const storedToken = readCookie(name);
-		if (!storedToken) {
-			throw new Error("Approval could not store a CSRF token. Refresh and try again.");
-		}
-
-		return decodeURIComponent(storedToken);
+		return decodeURIComponent(token);
 	}
 
 	function setStatus(form, message) {

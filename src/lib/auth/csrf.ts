@@ -1,0 +1,92 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+import type { NextResponse } from "next/server";
+import { resolveMasterEncryptionKey } from "../crypto/master-key";
+import {
+	type AuthCookieSecurityContext,
+	CSRF_COOKIE_NAME,
+	CSRF_HOST_COOKIE_NAME,
+	shouldUseSecureAuthCookies,
+} from "./cookies";
+
+// Domain-separation label so the CSRF subkey can never collide with any other
+// use of MASTER_ENCRYPTION_KEY (BYOK ciphertext etc.).
+const CSRF_HMAC_CONTEXT = "ssfw-csrf:v1";
+const CSRF_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
+// Stable fallback used only in non-production when MASTER_ENCRYPTION_KEY is not
+// configured (the key is mandatory for BYOK, but auth/dev runs without it). It
+// keeps CSRF deterministic across requests in dev/test. Production never reaches
+// this branch — the managed key is required there.
+const CSRF_DEV_FALLBACK_KEY = "ssfw-csrf-dev-fallback-key";
+
+// The CSRF token is a server-minted HMAC of the session id keyed by the managed
+// MASTER_ENCRYPTION_KEY. It is therefore non-forgeable (an attacker cannot
+// compute it without the secret) and bound to exactly one session, so a planted
+// cookie/header pair can never satisfy verification for someone else's session.
+export function mintCsrfToken(sessionId: string): string {
+	return createHmac("sha256", resolveCsrfKey())
+		.update(`${CSRF_HMAC_CONTEXT}:${sessionId}`, "utf8")
+		.digest("base64url");
+}
+
+function resolveCsrfKey(): Buffer | string {
+	try {
+		return resolveMasterEncryptionKey();
+	} catch (error) {
+		if (process.env.NODE_ENV === "production") {
+			throw error;
+		}
+
+		return CSRF_DEV_FALLBACK_KEY;
+	}
+}
+
+export function verifyCsrfToken(
+	submittedToken: string | null | undefined,
+	sessionId: string,
+): boolean {
+	if (!submittedToken) {
+		return false;
+	}
+
+	const expected = Buffer.from(mintCsrfToken(sessionId), "utf8");
+	const submitted = Buffer.from(submittedToken, "utf8");
+
+	return (
+		expected.byteLength === submitted.byteLength &&
+		timingSafeEqual(expected, submitted)
+	);
+}
+
+// Set the session-bound CSRF token cookie. In secure contexts the carrier is the
+// __Host- prefixed cookie (forbids Domain, requires Secure + Path=/), which a
+// subdomain attacker cannot overwrite. A non-prefixed copy is also written so
+// the existing readers keep working and dev (plain http, no Secure) has a
+// usable cookie. The proxy is the authoritative verifier and validates the
+// submitted header against the session binding, so the readable copy is never
+// trusted on its own.
+export function setCsrfCookie(
+	response: NextResponse,
+	sessionId: string,
+	context: AuthCookieSecurityContext = {},
+): void {
+	const secure = shouldUseSecureAuthCookies(context);
+	const token = mintCsrfToken(sessionId);
+
+	if (secure) {
+		response.cookies.set(CSRF_HOST_COOKIE_NAME, token, {
+			httpOnly: false,
+			maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
+			path: "/",
+			sameSite: "lax",
+			secure: true,
+		});
+	}
+
+	response.cookies.set(CSRF_COOKIE_NAME, token, {
+		httpOnly: false,
+		maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
+		path: "/",
+		sameSite: "lax",
+		secure,
+	});
+}

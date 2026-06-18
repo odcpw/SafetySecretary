@@ -93,6 +93,9 @@ const {
 const { isKeyReferencedBySnapshot } = (await import(
 	retentionModulePath
 )) as typeof import("../../../src/lib/storage/retention");
+const { mintCsrfToken } = (await import(
+	pathToFileURL(path.resolve("src/lib/auth/csrf.ts")).href
+)) as typeof import("../../../src/lib/auth/csrf");
 
 const tenantA = "11111111-1111-4111-8111-111111111111";
 const tenantB = "22222222-2222-4222-8222-222222222222";
@@ -100,7 +103,6 @@ const userA = "33333333-3333-4333-8333-333333333333";
 const userB = "55555555-5555-4555-8555-555555555555";
 const sessionA = "44444444-4444-4444-8444-444444444444";
 const sessionB = "66666666-6666-4666-8666-666666666666";
-const csrfValue = "csrf-storage-token";
 
 test("tenant A can read its own photo while tenant B's photo returns 404", async () => {
 	const storage = new MemoryStorage();
@@ -377,6 +379,7 @@ function downloadRequest(storageKey: string, sessionId: string): NextRequest {
 }
 
 function authenticatedHeaders(sessionId: string): Headers {
+	const csrfValue = mintCsrfToken(sessionId);
 	return new Headers({
 		cookie: `ssfw_session=${sessionId}; ssfw_csrf=${csrfValue}`,
 		"x-ssfw-csrf": csrfValue,

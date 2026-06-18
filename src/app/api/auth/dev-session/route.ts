@@ -1,13 +1,16 @@
-import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import {
 	authCookieSecurityContextFromRequest,
-	CSRF_COOKIE_NAME,
 	LOCALE_COOKIE_NAME,
 	setSessionCookie,
-	shouldUseSecureAuthCookies,
 } from "../../../../lib/auth/cookies";
+import { setCsrfCookie } from "../../../../lib/auth/csrf";
 import { resolveUiLocale, type UiLocale } from "../../../../lib/auth/locale";
+import {
+	magicLinkClientIpFromHeaders,
+	PrismaMagicLinkRateLimitStore,
+} from "../../../../lib/auth/magic-link";
 import { normalizeLocalReturnTo } from "../../../../lib/auth/return-to";
 import { issueSession } from "../../../../lib/auth/session";
 import { prisma, provisionTenantSchema } from "../../../../lib/db";
@@ -17,7 +20,11 @@ export const runtime = "nodejs";
 
 const defaultDevEmail = "tester@safetysecretary.local";
 const defaultDevCompanyName = "Safety Secretary Test Workspace";
-const csrfCookieMaxAgeSeconds = 30 * 24 * 60 * 60;
+// Cap credential-less demo session minting per source IP so the public "Try it"
+// button can't be used to spray sessions. Scoped separately from magic-link so
+// the two never share a bucket.
+const devSessionRateLimitPerHour = 10;
+const devSessionRateLimitWindowMs = 60 * 60 * 1000;
 
 type DevLoginBody = {
 	returnTo?: unknown;
@@ -31,6 +38,23 @@ type DevWorkspace = {
 export async function POST(request: NextRequest): Promise<NextResponse> {
 	if (!isDevAuthBypassEnabled()) {
 		return NextResponse.json({ code: "NOT_FOUND" }, { status: 404 });
+	}
+
+	// proxy.ts lists this path as CSRF-exempt public, so enforce a same-origin
+	// check here (mirrors magic-link/verify) to keep cross-site callers out.
+	if (!hasAllowedSessionOrigin(request)) {
+		return NextResponse.json({ code: "FORBIDDEN" }, { status: 403 });
+	}
+
+	const rateLimit = await checkDevSessionRateLimit(request);
+	if (!rateLimit.allowed) {
+		return NextResponse.json(
+			{ code: "RATE_LIMITED" },
+			{
+				status: 429,
+				headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+			},
+		);
 	}
 
 	const returnTo = safeReturnTo(await readReturnTo(request));
@@ -58,21 +82,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 	const cookieSecurity = authCookieSecurityContextFromRequest(request);
 	setSessionCookie(response, session, cookieSecurity);
-	setCsrfCookie(response, cookieSecurity);
+	setCsrfCookie(response, session.cookieValue, cookieSecurity);
 
 	return response;
 }
 
 function isDevAuthBypassEnabled(): boolean {
 	// Dev convenience: bypass works in non-production when SSFW_DEV_AUTH_BYPASS=1.
-	// Public test workspaces: a deliberate, explicitly-named flag also allows the
-	// "Try it" button on a live (production) demo so people can skip magic-link.
-	if (process.env.SSFW_PUBLIC_TEST_LOGIN === "1") {
-		return true;
+	if (process.env.NODE_ENV !== "production") {
+		return (
+			process.env.SSFW_PUBLIC_TEST_LOGIN === "1" ||
+			process.env.SSFW_DEV_AUTH_BYPASS === "1"
+		);
 	}
+	// Public test workspaces on a live (production) demo: SSFW_PUBLIC_TEST_LOGIN
+	// is NOT enough on its own — it mints credential-less sessions, so production
+	// requires a second, deliberate acknowledgement (SSFW_PUBLIC_TEST_LOGIN_ACK)
+	// confirming the operator understands this exposes a shared demo workspace.
+	// The session always lands in a dedicated demo tenant (ensureDevWorkspace),
+	// never a real customer tenant.
 	return (
-		process.env.NODE_ENV !== "production" &&
-		process.env.SSFW_DEV_AUTH_BYPASS === "1"
+		process.env.SSFW_PUBLIC_TEST_LOGIN === "1" &&
+		process.env.SSFW_PUBLIC_TEST_LOGIN_ACK === "1"
 	);
 }
 
@@ -95,12 +126,16 @@ async function ensureDevWorkspace(
 				},
 				where: { email },
 			});
+			// Attach ONLY to the dedicated demo tenant this route owns (matched by
+			// the demo company name), never "the first existing membership" — the
+			// demo email could otherwise have been invited into a real customer
+			// tenant, which the session must never land in.
 			const existingMembership = await tx.tenantMembership.findFirst({
 				include: { tenant: true },
 				orderBy: { createdAt: "asc" },
 				where: {
 					userId: user.id,
-					tenant: { deletedAt: null },
+					tenant: { deletedAt: null, name: companyName },
 				},
 			});
 
@@ -173,6 +208,58 @@ function normalizedDevEmail(): string {
 		.toLowerCase();
 }
 
+function hasAllowedSessionOrigin(request: NextRequest): boolean {
+	const origin = request.headers.get("origin");
+	if (origin) {
+		return origin === request.nextUrl.origin;
+	}
+
+	const referer = request.headers.get("referer");
+	if (!referer) {
+		// Fail closed: a session-minting POST with neither Origin nor Referer is
+		// not a trusted same-origin form post (mirrors magic-link/verify).
+		return false;
+	}
+
+	try {
+		return new URL(referer).origin === request.nextUrl.origin;
+	} catch {
+		return false;
+	}
+}
+
+async function checkDevSessionRateLimit(
+	request: NextRequest,
+): Promise<{ allowed: true } | { allowed: false; retryAfterSeconds: number }> {
+	const clientIp = magicLinkClientIpFromHeaders(request.headers);
+	if (!clientIp) {
+		return { allowed: true };
+	}
+
+	const now = new Date();
+	const bucketStart = new Date(
+		Math.floor(now.getTime() / devSessionRateLimitWindowMs) *
+			devSessionRateLimitWindowMs,
+	);
+	const digest = createHash("sha256")
+		.update(clientIp.trim().toLowerCase())
+		.digest("hex");
+	const scope = `dev-session:ip:${digest.slice(0, 32)}`;
+	const store = new PrismaMagicLinkRateLimitStore();
+
+	const count = await store.incrementBucket(scope, bucketStart).catch(() => 0);
+	if (count > devSessionRateLimitPerHour) {
+		const retryAfterMs =
+			bucketStart.getTime() + devSessionRateLimitWindowMs - now.getTime();
+		return {
+			allowed: false,
+			retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+		};
+	}
+
+	return { allowed: true };
+}
+
 async function readReturnTo(request: NextRequest): Promise<string | null> {
 	const contentType = request.headers.get("content-type") ?? "";
 
@@ -186,17 +273,4 @@ async function readReturnTo(request: NextRequest): Promise<string | null> {
 
 function safeReturnTo(value: string | null): string {
 	return normalizeLocalReturnTo(value);
-}
-
-function setCsrfCookie(
-	response: NextResponse,
-	cookieSecurity: ReturnType<typeof authCookieSecurityContextFromRequest>,
-): void {
-	response.cookies.set(CSRF_COOKIE_NAME, randomUUID(), {
-		httpOnly: false,
-		maxAge: csrfCookieMaxAgeSeconds,
-		path: "/",
-		sameSite: "lax",
-		secure: shouldUseSecureAuthCookies(cookieSecurity),
-	});
 }

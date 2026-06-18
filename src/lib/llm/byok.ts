@@ -11,7 +11,7 @@ import {
 import type { LLMProvider, LLMTextRequest } from "./types";
 
 const DEFAULT_BYOK_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_BYOK_TEXT_MODEL = "gpt-4o-mini";
+const DEFAULT_BYOK_TEXT_MODEL = "gpt-5.5";
 const DEFAULT_BYOK_VISION_MODEL = "gpt-4o-mini";
 
 export type ByokProviderConfigInput = {

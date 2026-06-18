@@ -652,7 +652,19 @@ function shouldUseFlueCoachRuntime(
 	dispatchOptions: DispatchOptions | undefined,
 	env: Pick<NodeJS.ProcessEnv, string> = process.env,
 ): boolean {
-	return !dispatchOptions && env.SSFW_II_COACH_RUNTIME === "flue";
+	if (dispatchOptions) {
+		return false;
+	}
+	// Flue is the live coach runtime by default. Setting SSFW_II_COACH_RUNTIME
+	// to anything else (e.g. "pi") opts back out to the dispatch/Pi path.
+	const runtime = env.SSFW_II_COACH_RUNTIME;
+	// An explicit selection is honoured as-is; otherwise a configured mock
+	// provider (test fixtures) keeps deterministic runs on the dispatch path
+	// rather than reaching the live Flue server.
+	if (runtime === undefined && readCoachMockProviderFromEnv(env)) {
+		return false;
+	}
+	return (runtime ?? "flue") === "flue";
 }
 
 function emitCoachProgress(
@@ -679,10 +691,12 @@ function coachDispatchOptionsFromEnv(): DispatchOptions {
 		return { env, mockProvider };
 	}
 
-	// Default to the Pi agent runtime for the live coach (SSFW_II_COACH_RUNTIME),
+	// The live coach defaults to the Flue runtime (handled in
+	// shouldUseFlueCoachRuntime); this dispatch path is only reached when the
+	// operator opts back out via SSFW_II_COACH_RUNTIME=pi. When selected, Pi is
 	// wired as the hosted provider so dispatch's cost-cap/consent/logging rails
 	// still wrap it. PiCoachProvider falls back to OpenAI if Pi is unavailable.
-	const runtime = env.SSFW_II_COACH_RUNTIME ?? "pi";
+	const runtime = env.SSFW_II_COACH_RUNTIME ?? "flue";
 	if (runtime === "pi" && env.OPENAI_API_KEY?.trim()) {
 		return {
 			createHostedSaaSProvider: () => new PiCoachProvider({ env }),

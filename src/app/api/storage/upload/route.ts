@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { CSRF_COOKIE_NAME } from "../../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../../lib/auth/csrf";
 import { type Storage, tenantStorage } from "../../../../lib/storage";
 import {
 	requireTenantSession,
@@ -74,7 +74,7 @@ export async function handleStorageUpload(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -200,32 +200,4 @@ function allowedContentTypes(
 	}
 
 	return allowed.size > 0 ? allowed : defaultAllowedContentTypes;
-}
-
-function hasValidCsrfToken(request: Request): boolean {
-	const cookie = parseCookieHeader(request.headers.get("cookie")).get(
-		CSRF_COOKIE_NAME,
-	);
-	const header = request.headers.get("x-ssfw-csrf");
-
-	return Boolean(cookie && header && cookie === header);
-}
-
-function parseCookieHeader(headerValue: string | null): Map<string, string> {
-	const cookies = new Map<string, string>();
-
-	if (!headerValue) {
-		return cookies;
-	}
-
-	for (const segment of headerValue.split(";")) {
-		const [rawName, ...rawValue] = segment.trim().split("=");
-		const name = rawName?.trim();
-
-		if (name) {
-			cookies.set(name, rawValue.join("=").trim());
-		}
-	}
-
-	return cookies;
 }

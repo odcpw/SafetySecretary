@@ -74,6 +74,9 @@ const actionsRoute = (await import(
 const { authorizeRequest } = (await import(
 	moduleUrl("src/proxy.ts")
 )) as typeof import("../../../src/proxy");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
@@ -136,7 +139,7 @@ test("proxied II corrective action form posts require the CSRF double-submit tok
 	);
 	assert.equal(rejected.status, 403);
 
-	const csrfToken = "ssfw-vja-csrf-token";
+	const csrfToken = mintCsrfToken(session.id);
 	const accepted = await authorizeRequest(
 		new NextRequest(url, {
 			body,

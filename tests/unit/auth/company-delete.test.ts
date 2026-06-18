@@ -87,20 +87,29 @@ registerHooks({
 const { NextRequest } = (await import(
 	"next/server.js"
 )) as typeof import("next/server");
+const { mintCsrfToken } = (await import(
+	pathToFileURL(`${process.cwd()}/src/lib/auth/csrf.ts`).href
+)) as typeof import("../../../src/lib/auth/csrf");
 const { DELETE: deleteCompany } = (await import(
 	moduleUrl("src/app/api/auth/company/route.ts")
 )) as typeof import("../../../src/app/api/auth/company/route");
 
+const SESSION_ID = "44444444-4444-4444-8444-444444444444";
+
 const csrfCookieName = "ssfw_csrf";
 const testGlobalState = globalThis as typeof globalThis & {
 	__ssfwCompanyDeleteCalls?: unknown[];
-	__ssfwCompanyDeleteSession?: { tenantId: string; userId: string } | null;
+	__ssfwCompanyDeleteSession?: {
+		id: string;
+		tenantId: string;
+		userId: string;
+	} | null;
 	__ssfwCompanyDropCalls?: unknown[];
 };
 
 test("company DELETE requires explicit confirmation before tenant deletion", async () => {
 	setCompanyDeleteState();
-	const csrfValue = "delete-csrf";
+	const csrfValue = mintCsrfToken(SESSION_ID);
 
 	const response = await deleteCompany(
 		request("/api/auth/company", {
@@ -120,7 +129,7 @@ test("company DELETE requires explicit confirmation before tenant deletion", asy
 
 test("company DELETE drops tenant schema and deletes sessions, memberships, and tenant", async () => {
 	setCompanyDeleteState();
-	const csrfValue = "delete-csrf";
+	const csrfValue = mintCsrfToken(SESSION_ID);
 
 	const response = await deleteCompany(
 		request("/api/auth/company", {
@@ -160,6 +169,7 @@ function setCompanyDeleteState(): void {
 	testGlobalState.__ssfwCompanyDeleteCalls = [];
 	testGlobalState.__ssfwCompanyDropCalls = [];
 	testGlobalState.__ssfwCompanyDeleteSession = {
+		id: SESSION_ID,
 		tenantId: "22222222-2222-4222-8222-222222222222",
 		userId: "33333333-3333-4333-8333-333333333333",
 	};

@@ -1,13 +1,11 @@
-import { randomUUID } from "node:crypto";
 import type { Language } from "@prisma/client";
 import { type NextRequest, NextResponse } from "next/server";
 import { prisma } from "../db";
 import {
 	authCookieSecurityContextFromRequest,
-	CSRF_COOKIE_NAME,
 	setSessionCookie,
-	shouldUseSecureAuthCookies,
 } from "./cookies";
+import { setCsrfCookie } from "./csrf";
 import { pickInitialUiLocale } from "./locale";
 import { normalizeLocalReturnTo } from "./return-to";
 import {
@@ -35,8 +33,6 @@ type WorkspaceResolver = (input: {
 	defaultLanguage: Language;
 	email: string;
 }) => Promise<ResolvedWorkspace>;
-
-const csrfCookieMaxAgeSeconds = 30 * 24 * 60 * 60;
 
 export async function signInVerifiedEmail(input: {
 	email: string;
@@ -87,7 +83,7 @@ export async function signInVerifiedEmail(input: {
 	const response = NextResponse.redirect(new URL(redirectTo, input.request.url), 303);
 	const cookieSecurity = authCookieSecurityContextFromRequest(input.request);
 	setSessionCookie(response, session, cookieSecurity);
-	setCsrfCookie(response, cookieSecurity);
+	setCsrfCookie(response, session.cookieValue, cookieSecurity);
 
 	return {
 		ok: true,
@@ -95,19 +91,6 @@ export async function signInVerifiedEmail(input: {
 		tenantId: workspace.tenantId,
 		userId: workspace.userId,
 	};
-}
-
-function setCsrfCookie(
-	response: NextResponse,
-	cookieSecurity: ReturnType<typeof authCookieSecurityContextFromRequest>,
-): void {
-	response.cookies.set(CSRF_COOKIE_NAME, randomUUID(), {
-		httpOnly: false,
-		maxAge: csrfCookieMaxAgeSeconds,
-		path: "/",
-		sameSite: "lax",
-		secure: shouldUseSecureAuthCookies(cookieSecurity),
-	});
 }
 
 async function captureUiLocaleOnFirstSignIn(

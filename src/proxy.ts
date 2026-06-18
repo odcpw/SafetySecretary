@@ -1,10 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import { type NextRequest, NextResponse } from "next/server.js";
 import {
+	authCookieSecurityContextFromRequest,
 	CSRF_COOKIE_NAME,
+	CSRF_HOST_COOKIE_NAME,
 	LOCALE_COOKIE_NAME,
 	SESSION_COOKIE_NAME,
+	shouldUseSecureAuthCookies,
 } from "./lib/auth/cookies";
+import { setCsrfCookie, verifyCsrfToken } from "./lib/auth/csrf";
 import { type ValidatedSession, validateSession } from "./lib/auth/session";
 import { LOCALES, type Locale } from "./lib/i18n/types";
 import { DISCLAIMER_VERSION } from "./lib/legal/disclaimer";
@@ -85,7 +89,10 @@ export async function authorizeRequest(
 		return unacknowledgedResponse(request, session, localeResolver);
 	}
 
-	if (isStateChangingMethod(request.method) && !hasValidCsrfToken(request)) {
+	if (
+		isStateChangingMethod(request.method) &&
+		!hasValidCsrfToken(request, session.id)
+	) {
 		return NextResponse.json(
 			{ message: "CSRF token required." },
 			{ status: 403 },
@@ -95,9 +102,12 @@ export async function authorizeRequest(
 	headers.set("x-ssfw-user-id", session.userId);
 	headers.set("x-ssfw-tenant-id", session.tenantId);
 
-	return NextResponse.next({
+	const response = NextResponse.next({
 		request: { headers },
 	});
+	ensureCsrfCookie(request, response, session.id);
+
+	return response;
 }
 
 export function isPublicPath(pathname: string): boolean {
@@ -117,11 +127,34 @@ export function isStateChangingMethod(method: string): boolean {
 	return STATE_CHANGING_METHODS.has(method.toUpperCase());
 }
 
-export function hasValidCsrfToken(request: NextRequest): boolean {
-	const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
+export function hasValidCsrfToken(
+	request: NextRequest,
+	sessionId: string,
+): boolean {
 	const csrfHeader = request.headers.get("x-ssfw-csrf");
 
-	return Boolean(csrfCookie && csrfHeader && csrfCookie === csrfHeader);
+	return verifyCsrfToken(csrfHeader, sessionId);
+}
+
+// Re-mint the session-bound CSRF cookie on authed requests so the client always
+// has a valid token to echo, even after the cookie's own max-age lapses while
+// the (extended) session lives on. The token is deterministic for a session, so
+// re-setting it is idempotent.
+function ensureCsrfCookie(
+	request: NextRequest,
+	response: NextResponse,
+	sessionId: string,
+): void {
+	const cookieSecurity = authCookieSecurityContextFromRequest(request);
+	const carrierName = shouldUseSecureAuthCookies(cookieSecurity)
+		? CSRF_HOST_COOKIE_NAME
+		: CSRF_COOKIE_NAME;
+
+	if (request.cookies.get(carrierName)?.value) {
+		return;
+	}
+
+	setCsrfCookie(response, sessionId, cookieSecurity);
 }
 
 function unauthenticatedResponse(request: NextRequest): NextResponse {

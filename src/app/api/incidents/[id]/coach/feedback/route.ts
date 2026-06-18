@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import {
-	CSRF_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../../../../lib/auth/cookies";
+import { SESSION_COOKIE_NAME } from "../../../../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -24,6 +22,12 @@ type CoachFeedbackRouteContext = {
 
 const uuidPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Comfortably above the 2000-char comment limit plus the small numeric/string
+// fields, while keeping an oversized or chunked body from being fully buffered.
+const maxBodyBytes = 8 * 1024;
+
+class RequestBodyTooLargeError extends Error {}
 
 export async function GET(
 	request: NextRequest,
@@ -68,7 +72,7 @@ export async function POST(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -77,6 +81,13 @@ export async function POST(
 	try {
 		payload = parseCoachFeedbackPayload(await readBody(request));
 	} catch (error) {
+		if (error instanceof RequestBodyTooLargeError) {
+			return NextResponse.json(
+				{ code: "FEEDBACK_PAYLOAD_TOO_LARGE" },
+				{ status: 413 },
+			);
+		}
+
 		if (error instanceof CoachFeedbackValidationError) {
 			return NextResponse.json(
 				{ code: "INVALID_FEEDBACK_PAYLOAD", reason: error.code },
@@ -103,18 +114,29 @@ export async function POST(
 
 async function resolveSession(
 	request: NextRequest,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
 async function readBody(request: NextRequest): Promise<Map<string, unknown>> {
+	const declaredLength = Number(request.headers.get("content-length"));
+
+	if (Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) {
+		throw new RequestBodyTooLargeError();
+	}
+
 	const contentType = request.headers.get("content-type") ?? "";
 
 	if (contentType.includes("application/json")) {
-		const body = (await request.json().catch(() => null)) as Record<
-			string,
-			unknown
-		> | null;
+		const text = await readBoundedText(request);
+		let body: Record<string, unknown> | null;
+
+		try {
+			body = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+		} catch {
+			body = null;
+		}
+
 		return new Map(Object.entries(body ?? {}));
 	}
 
@@ -122,11 +144,32 @@ async function readBody(request: NextRequest): Promise<Map<string, unknown>> {
 	return new Map(formData?.entries() ?? []);
 }
 
-function hasValidCsrfToken(request: NextRequest): boolean {
-	const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-	const csrfHeader = request.headers.get("x-ssfw-csrf");
+async function readBoundedText(request: NextRequest): Promise<string> {
+	const reader = request.body?.getReader();
 
-	return Boolean(csrfCookie && csrfHeader && csrfCookie === csrfHeader);
+	if (!reader) {
+		return "";
+	}
+
+	const decoder = new TextDecoder();
+	let text = "";
+
+	while (true) {
+		const { done, value } = await reader.read();
+
+		if (done) {
+			break;
+		}
+
+		text += decoder.decode(value, { stream: true });
+
+		if (text.length > maxBodyBytes) {
+			await reader.cancel();
+			throw new RequestBodyTooLargeError();
+		}
+	}
+
+	return text + decoder.decode();
 }
 
 function isUuid(value: string | null | undefined): value is string {

@@ -45,30 +45,22 @@ export class DevFileEmailTransport implements EmailTransport {
 	}
 }
 
-export class SmtpEmailTransport implements EmailTransport {
-	private readonly config: {
-		host?: string;
-		port?: string;
-		user?: string;
-		password?: string;
-		secure?: string;
-	};
+export const EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE =
+	"Email transport not configured: set EMAIL_TRANSPORT to a supported provider (resend, postmark, or mailgun) and its credentials (e.g. RESEND_API_KEY).";
 
-	constructor(config: {
+export class SmtpEmailTransport implements EmailTransport {
+	constructor(_config: {
 		host?: string;
 		port?: string;
 		user?: string;
 		password?: string;
 		secure?: string;
 	}) {
-		this.config = config;
+		throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
 	}
 
 	async sendMagicLink(): Promise<void> {
-		void this.config;
-		throw new Error(
-			"SMTP transport is configured but not implemented in ssfw-jl7.",
-		);
+		throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
 	}
 }
 
@@ -260,8 +252,19 @@ export class MailgunEmailTransport implements EmailTransport {
 export function createEmailTransport(
 	env: EnvLike = process.env,
 ): EmailTransport {
-	const transport =
-		env.EMAIL_TRANSPORT ?? (env.NODE_ENV === "production" ? "smtp" : "dev");
+	const transport = env.EMAIL_TRANSPORT?.trim();
+
+	if (!transport) {
+		// Fail loudly in production: an unconfigured transport must not silently
+		// drop sign-in/invite emails while the UI reports success.
+		if (env.NODE_ENV === "production") {
+			throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
+		}
+
+		return new DevFileEmailTransport(
+			env.MAGIC_LINK_DEV_EMAIL_LOG ?? DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG,
+		);
+	}
 
 	if (transport === "resend") {
 		return new ResendEmailTransport({
@@ -292,6 +295,14 @@ export function createEmailTransport(
 			password: env.SMTP_PASSWORD,
 			secure: env.SMTP_SECURE,
 		});
+	}
+
+	// An unrecognized/misspelled transport must not silently fall back to the
+	// dev file log in production while the UI reports success.
+	if (env.NODE_ENV === "production") {
+		throw new Error(
+			`Unsupported EMAIL_TRANSPORT="${transport}". Set EMAIL_TRANSPORT to one of: resend, postmark, mailgun, smtp.`,
+		);
 	}
 
 	return new DevFileEmailTransport(

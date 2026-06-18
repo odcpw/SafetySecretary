@@ -58,6 +58,9 @@ if (!databaseUrl) {
 	const { prisma, dropTenantSchema, tenantDatabaseNames } = (await import(
 		moduleUrl("src/lib/db/index.ts")
 	)) as typeof import("../../../src/lib/db");
+	const { mintCsrfToken } = (await import(
+		moduleUrl("src/lib/auth/csrf.ts")
+	)) as typeof import("../../../src/lib/auth/csrf");
 
 	test("sole-member removal is blocked and keeps the tenant membership", async () => {
 		ensureMigrated();
@@ -147,8 +150,8 @@ if (!databaseUrl) {
 		ensureMigrated();
 		const tenant = await seedTenant("delete", 2);
 		await provisionEmptyTenantSchema(tenant.tenantId);
-		const csrfToken = "delete-company-csrf";
 		const requestSession = tenant.sessions[0].id;
+		const csrfToken = mintCsrfToken(requestSession);
 
 		try {
 			assert.equal(await schemaExists(tenant.tenantId), true);

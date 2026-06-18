@@ -201,7 +201,7 @@ export default createAgent((ctx) => {
 		process.env.SSFW_FLUE_MODEL?.trim() ||
 		process.env.SSFW_PI_MODEL?.trim() ||
 		process.env.LLM_TEXT_MODEL?.trim() ||
-		"openai/gpt-4o-mini";
+		"openai/gpt-5.5";
 
 	return {
 		instructions: [

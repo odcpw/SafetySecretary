@@ -11,7 +11,7 @@ import type {
 
 const OPENAI_CHAT_COMPLETIONS_URL =
   "https://api.openai.com/v1/chat/completions";
-const DEFAULT_OPENAI_TEXT_MODEL = "gpt-4o-mini";
+const DEFAULT_OPENAI_TEXT_MODEL = "gpt-5.5";
 const DEFAULT_OPENAI_VISION_MODEL = "gpt-4o-mini";
 
 type Fetch = typeof fetch;

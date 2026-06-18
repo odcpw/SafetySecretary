@@ -3,6 +3,10 @@ import type { IssuedSession } from "./session";
 
 export const SESSION_COOKIE_NAME = "ssfw_session";
 export const CSRF_COOKIE_NAME = "ssfw_csrf";
+// __Host- prefixed carrier used wherever Secure cookies are guaranteed. The
+// prefix forbids a Domain attribute and requires Secure + Path=/, so a
+// subdomain attacker cannot overwrite it. See lib/auth/csrf.ts.
+export const CSRF_HOST_COOKIE_NAME = "__Host-ssfw_csrf";
 export const LOCALE_COOKIE_NAME = "ssfw_locale";
 
 export type SessionCookieOptions = {

@@ -1,4 +1,5 @@
 export {
+  adminPrisma,
   dropTenantSchema,
   prisma,
   provisionTenantSchema,

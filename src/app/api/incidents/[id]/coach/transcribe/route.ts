@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import {
-	CSRF_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../../../../lib/auth/cookies";
+import { SESSION_COOKIE_NAME } from "../../../../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -30,7 +28,7 @@ type CoachTranscribeRouteOptions = {
 
 type SessionValidator = (
 	cookieValue: string | null | undefined,
-) => Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null>;
+) => Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null>;
 
 type UploadedAudio = {
 	readonly name: string;
@@ -84,7 +82,7 @@ export async function handleCoachTranscribe(
 
 	// CSRF is enforced by the proxy for state-changing methods; a multipart POST
 	// still carries the double-submit header from the client.
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -179,7 +177,7 @@ export async function handleCoachTranscribe(
 async function resolveSession(
 	request: NextRequest,
 	sessionValidator: SessionValidator = validateSession,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return sessionValidator(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
@@ -204,13 +202,6 @@ function uploadedAudioFromFormValue(
 	}
 
 	return null;
-}
-
-function hasValidCsrfToken(request: NextRequest): boolean {
-	const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-	const csrfHeader = request.headers.get("x-ssfw-csrf");
-
-	return Boolean(csrfCookie && csrfHeader && csrfCookie === csrfHeader);
 }
 
 function stringValue(value: FormDataEntryValue | null | undefined): string {

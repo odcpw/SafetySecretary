@@ -12,10 +12,8 @@ import {
 	serializeActionItemDetail,
 	serializeActionItemListRow,
 } from "../../../lib/actions/queries";
-import {
-	CSRF_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../lib/auth/cookies";
+import { SESSION_COOKIE_NAME } from "../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -50,7 +48,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -105,7 +103,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 async function resolveSession(
 	request: NextRequest,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
@@ -122,13 +120,6 @@ async function readBody(request: NextRequest): Promise<Map<string, unknown>> {
 
 	const formData = await request.formData().catch(() => null);
 	return new Map(formData?.entries() ?? []);
-}
-
-function hasValidCsrfToken(request: NextRequest): boolean {
-	const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-	const csrfHeader = request.headers.get("x-ssfw-csrf");
-
-	return Boolean(csrfCookie && csrfHeader && csrfCookie === csrfHeader);
 }
 
 function stringBodyValue(

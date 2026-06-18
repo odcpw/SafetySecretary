@@ -174,11 +174,38 @@ async function resolveCompanyWorkspace(input: {
 }): Promise<ResolvedWorkspace> {
 	const existingDomain = await input.tx.tenantDomain.findUnique({
 		where: { domain: input.domain },
-		select: { tenantId: true },
+		select: {
+			tenantId: true,
+			tenant: {
+				select: {
+					createdByUserId: true,
+					domainAutoJoinEnabled: true,
+				},
+			},
+		},
 	});
 
 	if (existingDomain) {
-		await ensureMembership(input.tx, existingDomain.tenantId, input.userId);
+		// Cross-tenant safety: a matching email domain alone never grants
+		// membership. Auto-join only the tenant creator or when the tenant has
+		// explicitly opted in; every other same-domain user must redeem an
+		// invitation. When none of these hold the user resolves to the tenant
+		// without membership, and the session layer rejects the sign-in.
+		const autoJoinAllowed =
+			existingDomain.tenant.createdByUserId === input.userId ||
+			existingDomain.tenant.domainAutoJoinEnabled;
+
+		if (autoJoinAllowed) {
+			await ensureMembership(input.tx, existingDomain.tenantId, input.userId);
+		} else {
+			await acceptPendingInvitationMembership({
+				email: input.email,
+				tenantId: existingDomain.tenantId,
+				tx: input.tx,
+				userId: input.userId,
+			});
+		}
+
 		return {
 			email: input.email,
 			userId: input.userId,
@@ -216,6 +243,37 @@ async function resolveCompanyWorkspace(input: {
 		domain: input.domain,
 		createdTenant: true,
 	};
+}
+
+async function acceptPendingInvitationMembership(input: {
+	email: string;
+	tenantId: string;
+	tx: WorkspaceTransactionClient;
+	userId: string;
+}): Promise<void> {
+	const now = new Date();
+	const invitations = await input.tx.$queryRaw<Array<{ id: string }>>`
+		SELECT id::text AS "id"
+		FROM shared.invitations
+		WHERE tenant_id = ${input.tenantId}::uuid
+			AND recipient_email = ${input.email}
+			AND consumed_at IS NULL
+			AND expires_at > ${now}
+		ORDER BY expires_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`;
+	const invitation = invitations[0];
+
+	if (!invitation) {
+		return;
+	}
+
+	await ensureMembership(input.tx, input.tenantId, input.userId);
+	await input.tx.invitation.update({
+		where: { id: invitation.id },
+		data: { consumedAt: now },
+	});
 }
 
 async function ensureMembership(

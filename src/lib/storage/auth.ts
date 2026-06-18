@@ -2,7 +2,7 @@ import { SESSION_COOKIE_NAME } from "../auth/cookies";
 import { type ValidatedSession, validateSession } from "../auth/session";
 import { tenantPrefix } from "./keys";
 
-export type TenantSession = Pick<ValidatedSession, "tenantId" | "userId">;
+export type TenantSession = Pick<ValidatedSession, "id" | "tenantId" | "userId">;
 
 export type StorageSessionValidator = (
 	cookieValue: string | null | undefined,
@@ -38,6 +38,7 @@ export async function requireTenantSession(
 	}
 
 	return {
+		id: session.id,
 		tenantId: session.tenantId,
 		userId: session.userId,
 	};

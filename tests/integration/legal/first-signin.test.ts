@@ -42,6 +42,9 @@ const { NextRequest } = (await import(
 )) as typeof import("next/server");
 type NextRequestInit = ConstructorParameters<typeof NextRequest>[1];
 const { authorizeRequest } = (await import(proxyModulePath)) as typeof import("../../../src/proxy");
+const { mintCsrfToken } = (await import(
+  pathToFileURL(path.resolve("src/lib/auth/csrf.ts")).href
+)) as typeof import("../../../src/lib/auth/csrf");
 const { handleAcknowledgementPost } = (await import(
   acknowledgementRoutePath
 )) as typeof import("../../../src/app/api/legal/acknowledgement/route");
@@ -127,7 +130,8 @@ test("disclaimer page bypasses session validation", async () => {
 });
 
 test("acknowledgement API is authenticated and bypasses only the acknowledgement gate", async () => {
-  const csrfValue = "acknowledgement-csrf-token";
+  const session = validSession();
+  const csrfValue = mintCsrfToken(session.id);
   assert.equal(
     (
       await authorizeRequest(
@@ -138,7 +142,7 @@ test("acknowledgement API is authenticated and bypasses only the acknowledgement
           },
           method: "POST",
         }),
-        async () => validSession(),
+        async () => session,
         async () => false,
       )
     ).status,

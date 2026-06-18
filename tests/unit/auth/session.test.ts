@@ -140,6 +140,9 @@ const {
 const { authorizeRequest, hasValidCsrfToken, isPublicPath } = (await import(
 	proxyModulePath
 )) as typeof import("../../../src/proxy");
+const { mintCsrfToken } = (await import(
+	pathToFileURL(path.resolve("src/lib/auth/csrf.ts")).href
+)) as typeof import("../../../src/lib/auth/csrf");
 const { DELETE: deleteMember } = (await import(
 	memberRouteModulePath
 )) as typeof import("../../../src/app/api/auth/members/[memberId]/route");
@@ -639,14 +642,15 @@ test("member DELETE route requires CSRF before removing an authenticated member"
 
 test("member DELETE route maps successful removal and passes tenant-scoped ids", async () => {
 	const memberId = "11111111-1111-4111-8111-AAAAAAAAAAAA";
-	const csrfValue = "route-csrf-token";
+	const routeSession = validRouteSession();
+	const csrfValue = mintCsrfToken(routeSession.id);
 	setMemberRouteTestState({
 		removeMemberResult: {
 			deletedMemberships: 1,
 			deletedSessions: 2,
 			status: "removed",
 		},
-		routeSession: validRouteSession(),
+		routeSession,
 	});
 
 	const response = await deleteMember(
@@ -677,14 +681,15 @@ test("member DELETE route maps successful removal and passes tenant-scoped ids",
 
 test("member DELETE route maps last-member removal to stable conflict code", async () => {
 	const memberId = "11111111-1111-4111-8111-AAAAAAAAAAAA";
-	const csrfValue = "route-csrf-token";
+	const routeSession = validRouteSession();
+	const csrfValue = mintCsrfToken(routeSession.id);
 	setMemberRouteTestState({
 		removeMemberResult: {
 			deletedMemberships: 0,
 			deletedSessions: 0,
 			status: "last_member",
 		},
-		routeSession: validRouteSession(),
+		routeSession,
 	});
 
 	const response = await deleteMember(
@@ -718,8 +723,9 @@ test("proxy rejects authenticated state-changing requests without CSRF token", a
 	assert.equal(response.status, 403);
 });
 
-test("proxy accepts matching double-submit CSRF token for state-changing requests", async () => {
-	const csrfValue = ["csrf", "value", "one"].join("-");
+test("proxy accepts a session-bound CSRF token for state-changing requests", async () => {
+	const session = validSession();
+	const csrfValue = mintCsrfToken(session.id);
 	const requestWithToken = request("/workspace/actions", {
 		method: "POST",
 		headers: {
@@ -727,12 +733,27 @@ test("proxy accepts matching double-submit CSRF token for state-changing request
 			"x-ssfw-csrf": csrfValue,
 		},
 	});
-	const response = await authorizeRequest(requestWithToken, async () =>
-		validSession(),
+	const response = await authorizeRequest(requestWithToken, async () => session);
+
+	assert.equal(hasValidCsrfToken(requestWithToken, session.id), true);
+	assert.equal(response.status, 200);
+});
+
+test("proxy rejects a CSRF token bound to a different session", async () => {
+	const session = validSession();
+	const foreignToken = mintCsrfToken(randomUUID());
+	const response = await authorizeRequest(
+		request("/workspace/actions", {
+			method: "POST",
+			headers: {
+				cookie: `${SESSION_COOKIE_NAME}=${randomUUID()}; ${CSRF_COOKIE_NAME}=${foreignToken}`,
+				"x-ssfw-csrf": foreignToken,
+			},
+		}),
+		async () => session,
 	);
 
-	assert.equal(hasValidCsrfToken(requestWithToken), true);
-	assert.equal(response.status, 200);
+	assert.equal(response.status, 403);
 });
 
 test("proxy replaces forged identity headers with the validated session", async () => {
@@ -816,6 +837,7 @@ function validSession() {
 
 function validRouteSession() {
 	return {
+		id: "44444444-4444-4444-8444-444444444444",
 		tenantId: "22222222-2222-4222-8222-222222222222",
 		userId: "33333333-3333-4333-8333-333333333333",
 	};

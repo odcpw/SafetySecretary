@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import {
-	CSRF_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../../lib/auth/cookies";
+import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -31,7 +29,7 @@ type VisionPayload =
 
 type SessionValidator = (
 	cookieValue: string | null | undefined,
-) => Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null>;
+) => Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null>;
 
 const uuidPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -81,7 +79,7 @@ export async function handleVisionSettingsPost(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -147,7 +145,7 @@ export class PrismaVisionSettingsStore implements VisionSettingsStore {
 async function resolveSession(
 	request: NextRequest,
 	sessionValidator: SessionValidator,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return sessionValidator(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
@@ -204,11 +202,4 @@ function parseBoolean(value: unknown): boolean | null {
 	}
 
 	return null;
-}
-
-function hasValidCsrfToken(request: NextRequest): boolean {
-	const cookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-	const header = request.headers.get("x-ssfw-csrf");
-
-	return Boolean(cookie && header && cookie === header);
 }

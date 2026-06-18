@@ -63,7 +63,6 @@ registerHooks({
 });
 
 const databaseUrl = process.env.DATABASE_URL;
-const csrfValue = "incident-vision-csrf";
 let migrated = false;
 const requireFromTest = createRequire(import.meta.url);
 const { JSDOM } = requireFromTest("jsdom") as {
@@ -111,8 +110,10 @@ test("VisionConsentModal gates rendering and all locales have labels", () => {
 		"src/components/incident/IncidentVisionAction.tsx",
 		"utf8",
 	);
-	const incidentPageSource = readFileSync(
-		"src/app/incidents/[id]/page.tsx",
+	// The chat-first refactor moved the vision surface into the coach photo
+	// strip, which renders the modal directly with requiresVision.
+	const photoStripSource = readFileSync(
+		"src/components/incident/coach/PhotoStrip.tsx",
 		"utf8",
 	);
 
@@ -127,8 +128,8 @@ test("VisionConsentModal gates rendering and all locales have labels", () => {
 	assert.match(modalSource, /choose\("NEVER"\)/);
 	assert.match(actionSource, /<VisionConsentModal/);
 	assert.match(actionSource, /currentConsent === "ASK"/);
-	assert.match(incidentPageSource, /<IncidentVisionAction/);
-	assert.match(incidentPageSource, /requiresVision/);
+	assert.match(photoStripSource, /<VisionConsentModal/);
+	assert.match(photoStripSource, /requiresVision/);
 
 	for (const locale of ["de", "en", "fr", "it"] as const) {
 		assertLocaleVisionConsentLabels(locale);
@@ -248,6 +249,12 @@ if (!databaseUrl) {
 	const visionConsentRoute = (await import(
 		moduleUrl("src/app/api/incidents/[id]/vision-consent/route.ts")
 	)) as typeof import("../../../src/app/api/incidents/[id]/vision-consent/route");
+	const { issueSession } = (await import(
+		moduleUrl("src/lib/auth/session.ts")
+	)) as typeof import("../../../src/lib/auth/session");
+	const { mintCsrfToken } = (await import(
+		moduleUrl("src/lib/auth/csrf.ts")
+	)) as typeof import("../../../src/lib/auth/csrf");
 	const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 		moduleUrl("src/lib/db/index.ts")
 	)) as typeof import("../../../src/lib/db");
@@ -384,7 +391,13 @@ if (!databaseUrl) {
 			},
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id, visionEnabled };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+			visionEnabled,
+		};
 	}
 
 	async function insertIncidentCase(input: {
@@ -436,15 +449,16 @@ if (!databaseUrl) {
 		caseId: string,
 		visionConsent: "ASK" | "ALWAYS" | "NEVER",
 	): Promise<Response> {
+		const csrf = mintCsrfToken(tenant.sessionCookie);
 		return visionConsentRoute.POST(
 			new NextRequest(
 				`https://app.example.test/api/incidents/${caseId}/vision-consent`,
 				{
 					body: JSON.stringify({ visionConsent }),
 					headers: {
-						cookie: `${CSRF_COOKIE_NAME}=${csrfValue}`,
+						cookie: `ssfw_session=${tenant.sessionCookie}; ${CSRF_COOKIE_NAME}=${csrf}`,
 						"content-type": "application/json",
-						"x-ssfw-csrf": csrfValue,
+						"x-ssfw-csrf": csrf,
 						"x-ssfw-tenant-id": tenant.tenantId,
 						"x-ssfw-user-id": tenant.userId,
 					},
@@ -523,6 +537,7 @@ type SeededTenant = {
 	tenantId: string;
 	userId: string;
 	visionEnabled: boolean;
+	sessionCookie: string;
 };
 
 type RenderedVisionAction = {
@@ -644,6 +659,9 @@ function setupDom(): TestDom {
 		url: "https://app.example.test/incidents/00000000-0000-4000-8000-000000000001",
 	});
 	const { document } = dom.window;
+	// The vision components read a session-bound CSRF cookie via ensureCsrfToken
+	// before fetching; provide one so the consent/request calls reach fetch.
+	document.cookie = `${CSRF_COOKIE_NAME}=incident-vision-csrf`;
 	const globals = globalThis as unknown as Record<string, unknown>;
 	globals.IS_REACT_ACT_ENVIRONMENT = true;
 	globals.window = dom.window;

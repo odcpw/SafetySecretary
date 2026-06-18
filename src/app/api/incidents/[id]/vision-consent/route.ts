@@ -1,8 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import {
-	CSRF_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../../../lib/auth/cookies";
+import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
+import { verifyCsrfToken } from "../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -45,7 +43,7 @@ export async function POST(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!hasValidCsrfToken(request)) {
+	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -138,7 +136,7 @@ async function writeIncidentVisionConsent(
 
 async function resolveSession(
 	request: NextRequest,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
@@ -162,13 +160,6 @@ async function readVisionConsentPayload(
 		ok: true,
 		visionConsent,
 	};
-}
-
-function hasValidCsrfToken(request: NextRequest): boolean {
-	const csrfCookie = request.cookies.get(CSRF_COOKIE_NAME)?.value;
-	const csrfHeader = request.headers.get("x-ssfw-csrf");
-
-	return Boolean(csrfCookie && csrfHeader && csrfCookie === csrfHeader);
 }
 
 function isUuid(value: string | null | undefined): value is string {

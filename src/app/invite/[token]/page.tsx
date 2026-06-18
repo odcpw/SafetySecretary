@@ -1,6 +1,7 @@
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { authBaseUrlForRequest } from "../../../lib/auth/base-url";
 import { SESSION_COOKIE_NAME } from "../../../lib/auth/cookies";
 import { INVITE_PAGE_COPY } from "../../../lib/auth/invitation-copy";
 import {
@@ -92,7 +93,7 @@ async function sendInviteMagicLinkAction(formData: FormData) {
 		await requestInvitationMagicLink({
 			token,
 			magicLinkTransport: createEmailTransport(),
-			baseUrl: await requestBaseUrl(),
+			baseUrl: authBaseUrlForRequest(),
 			from: process.env.EMAIL_FROM ?? "no-reply@safetysecretary.local",
 		});
 	} catch (error) {
@@ -127,17 +128,6 @@ async function acceptInviteAction(formData: FormData) {
 async function resolveSession() {
 	const requestCookies = await cookies();
 	return validateSession(requestCookies.get(SESSION_COOKIE_NAME)?.value);
-}
-
-async function requestBaseUrl(): Promise<string> {
-	if (process.env.APP_BASE_URL) {
-		return process.env.APP_BASE_URL;
-	}
-
-	const requestHeaders = await headers();
-	const host = requestHeaders.get("host") ?? "localhost:3000";
-	const proto = requestHeaders.get("x-forwarded-proto") ?? "http";
-	return `${proto}://${host}`;
 }
 
 function InviteShell({

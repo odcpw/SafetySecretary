@@ -41,6 +41,7 @@ export interface MagicLinkStore {
 	findUserTenantByEmail(
 		email: string,
 		tenantId?: string,
+		now?: Date,
 	): Promise<UserTenant | null>;
 	createToken(input: CreateMagicLinkTokenInput): Promise<void>;
 	countUsableTokensByEmail?(email: string, now: Date): Promise<number>;
@@ -282,6 +283,7 @@ export async function consumeMagicLinkToken(
 		userTenant = await store.findUserTenantByEmail(
 			tokenRow.email,
 			targetTenantId,
+			now,
 		);
 	} else if (options.workspaceResolver) {
 		userTenant = await options.workspaceResolver({ email: tokenRow.email });
@@ -314,9 +316,11 @@ export class PrismaMagicLinkStore implements MagicLinkStore {
 	async findUserTenantByEmail(
 		email: string,
 		tenantId?: string,
+		now: Date = new Date(),
 	): Promise<UserTenant | null> {
+		const normalizedEmail = normalizeMagicLinkEmail(email);
 		const user = await this.prisma.user.findUnique({
-			where: { email },
+			where: { email: normalizedEmail },
 			select: {
 				id: true,
 				memberships: {
@@ -330,13 +334,73 @@ export class PrismaMagicLinkStore implements MagicLinkStore {
 
 		const membership = user?.memberships[0];
 		if (!user || !membership) {
-			return null;
+			if (!tenantId || !user) {
+				return null;
+			}
+
+			return this.acceptPendingInvitationForTargetTenant({
+				email: normalizedEmail,
+				now,
+				tenantId,
+				userId: user.id,
+			});
 		}
 
 		return {
 			userId: user.id,
 			tenantId: membership.tenantId,
 		};
+	}
+
+	private async acceptPendingInvitationForTargetTenant(input: {
+		email: string;
+		now: Date;
+		tenantId: string;
+		userId: string;
+	}): Promise<UserTenant | null> {
+		return this.prisma.$transaction(async (tx) => {
+			const invitations = await tx.$queryRaw<
+				Array<{ id: string; tenantId: string }>
+			>`
+				SELECT id::text AS "id", tenant_id::text AS "tenantId"
+				FROM shared.invitations
+				WHERE tenant_id = ${input.tenantId}::uuid
+					AND recipient_email = ${input.email}
+					AND consumed_at IS NULL
+					AND expires_at > ${input.now}
+				ORDER BY expires_at DESC
+				LIMIT 1
+				FOR UPDATE
+			`;
+			const invitation = invitations[0];
+
+			if (!invitation) {
+				return null;
+			}
+
+			await tx.tenantMembership.upsert({
+				where: {
+					tenantId_userId: {
+						tenantId: invitation.tenantId,
+						userId: input.userId,
+					},
+				},
+				update: {},
+				create: {
+					tenantId: invitation.tenantId,
+					userId: input.userId,
+				},
+			});
+			await tx.invitation.update({
+				where: { id: invitation.id },
+				data: { consumedAt: input.now },
+			});
+
+			return {
+				tenantId: invitation.tenantId,
+				userId: input.userId,
+			};
+		});
 	}
 
 	async createToken(input: CreateMagicLinkTokenInput): Promise<void> {

@@ -34,6 +34,9 @@ test("LocaleSwitcher renders all four locale choices", () => {
 
 test("LocaleSwitcher persists selected locale through the API route", async () => {
 	const dom = setupDom();
+	// The CSRF token is now server-minted and read-only on the client, so seed
+	// the cookie the proxy would have issued before exercising the switcher.
+	dom.window.document.cookie = "ssfw_csrf=server-bound-csrf-token; Path=/";
 	const container = dom.window.document.createElement("div");
 	dom.window.document.body.append(container);
 	const root = createRoot(container);

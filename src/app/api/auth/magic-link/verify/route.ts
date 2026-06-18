@@ -4,6 +4,7 @@ import {
 	authCookieSecurityContextFromRequest,
 	setSessionCookie,
 } from "../../../../../lib/auth/cookies";
+import { setCsrfCookie } from "../../../../../lib/auth/csrf";
 import { pickInitialUiLocale } from "../../../../../lib/auth/locale";
 import {
 	consumeMagicLinkToken,
@@ -121,11 +122,9 @@ async function verifyMagicLink(
 				{ status: 200 },
 			);
 
-	setSessionCookie(
-		response,
-		session,
-		authCookieSecurityContextFromRequest(request),
-	);
+	const cookieSecurity = authCookieSecurityContextFromRequest(request);
+	setSessionCookie(response, session, cookieSecurity);
+	setCsrfCookie(response, session.cookieValue, cookieSecurity);
 
 	return response;
 }
@@ -168,7 +167,7 @@ function hasAllowedVerificationOrigin(request: NextRequest): boolean {
 
 	const referer = request.headers.get("referer");
 	if (!referer) {
-		return true;
+		return false;
 	}
 
 	try {

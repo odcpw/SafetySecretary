@@ -53,6 +53,9 @@ if (!databaseUrl) {
 	} = (await import(
 		moduleUrl("src/lib/auth/invitations.ts")
 	)) as typeof import("../../../src/lib/auth/invitations");
+	const { PrismaMagicLinkStore, consumeMagicLinkToken } = (await import(
+		moduleUrl("src/lib/auth/magic-link.ts")
+	)) as typeof import("../../../src/lib/auth/magic-link");
 	const { DevFileEmailTransport } = (await import(
 		moduleUrl("src/lib/email/transport.ts")
 	)) as typeof import("../../../src/lib/email/transport");
@@ -185,6 +188,70 @@ if (!databaseUrl) {
 					where: { tenantId: tenant.tenantId, userId: recipient.id },
 				}),
 				1,
+			);
+		} finally {
+			await cleanupTenant(tenant, [recipientEmail]);
+			await rm(logPath, { force: true });
+		}
+	});
+
+	test("targeted invite magic link accepts the pending invitation", async () => {
+		ensureMigrated();
+		const tenant = await seedTenant("magic");
+		const logPath = join(tmpdir(), `ssfw-4gl-${randomUUID()}.jsonl`);
+		const store = new PrismaInvitationStore(prisma);
+		const recipientEmail = `ssfw-4gl-magic-${randomUUID()}@example.invalid`;
+
+		try {
+			await rm(logPath, { force: true });
+			const created = await createInvitation({
+				tenantId: tenant.tenantId,
+				actorUserId: tenant.actorUserId,
+				recipientEmail,
+				baseUrl: "https://app.example.test",
+				from: "no-reply@example.test",
+				now: new Date("2026-05-05T08:00:00.000Z"),
+				store,
+				transport: new DevFileInvitationEmailTransport(logPath),
+			});
+
+			await requestInvitationMagicLink({
+				token: created.token,
+				baseUrl: "https://app.example.test",
+				from: "no-reply@example.test",
+				now: new Date("2026-05-05T08:01:00.000Z"),
+				store,
+				magicLinkTransport: new DevFileEmailTransport(logPath),
+			});
+
+			const payloads = await readJsonl(logPath);
+			const magicPayload = payloads.find(
+				(payload) => payload.kind === "magic-link",
+			);
+			assert.ok(magicPayload?.magicLinkUrl);
+			const magicToken = new URL(
+				String(magicPayload.magicLinkUrl),
+			).searchParams.get("token");
+			assert.ok(magicToken);
+
+			const verified = await consumeMagicLinkToken(magicToken, {
+				now: new Date("2026-05-05T08:02:00.000Z"),
+				store: new PrismaMagicLinkStore(prisma),
+			});
+
+			assert.equal(verified.ok, true);
+			assert.equal(verified.ok ? verified.tenantId : "", tenant.tenantId);
+			assert.equal(
+				await membershipCountForEmail(tenant.tenantId, recipientEmail),
+				1,
+			);
+			assert.ok(
+				(
+					await prisma.invitation.findUniqueOrThrow({
+						where: { id: created.invitation.id },
+						select: { consumedAt: true },
+					})
+				).consumedAt,
 			);
 		} finally {
 			await cleanupTenant(tenant, [recipientEmail]);

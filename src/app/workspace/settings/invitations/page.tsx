@@ -196,17 +196,14 @@ export default function InvitationsSettingsPage() {
 	);
 }
 
+// The token is server-minted, session-bound, and re-issued by the proxy, so the
+// client only reads it (preferring the __Host- carrier) and never mints.
 function ensureCsrfToken(cookieName: string): string {
-	const existing = readCookie(cookieName);
-	if (existing) {
-		return existing;
+	const token = readCookie("__Host-ssfw_csrf") ?? readCookie(cookieName);
+	if (!token) {
+		throw new Error("CSRF_COOKIE_MISSING");
 	}
 
-	const token = createToken();
-	// biome-ignore lint/suspicious/noDocumentCookie: mirrors existing client CSRF form pattern.
-	document.cookie = [`${cookieName}=${token}`, "Path=/", "SameSite=Lax"].join(
-		"; ",
-	);
 	return token;
 }
 
@@ -218,14 +215,6 @@ function readCookie(name: string): string | null {
 		.find((part) => part.startsWith(prefix));
 
 	return value ? decodeURIComponent(value.slice(prefix.length)) : null;
-}
-
-function createToken(): string {
-	if (window.crypto && typeof window.crypto.randomUUID === "function") {
-		return window.crypto.randomUUID();
-	}
-
-	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function formatDate(value: string): string {

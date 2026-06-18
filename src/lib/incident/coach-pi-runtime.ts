@@ -21,7 +21,7 @@ import type {
 // absolute path on hosts where the Pi SDK is installed elsewhere (e.g. a global
 // npm prefix); a bare specifier here keeps any host-specific path out of the repo.
 const defaultPiModuleSpecifier = "@earendil-works/pi-coding-agent";
-const defaultPiModel = "openai/gpt-5.2";
+const defaultPiModel = "openai/gpt-5.5";
 
 // Keep the Pi SDK import out of Next/Turbopack static analysis.
 const runtimeImport = new Function("specifier", "return import(specifier)") as <
@@ -168,7 +168,7 @@ export class PiCoachProvider implements LLMProvider {
 				throw error;
 			}
 			console.warn(
-				"[ii-coach] Pi runtime failed, falling back to OpenAI:",
+				"[ii-coach] !! RUNTIME DOWNGRADE: Pi runtime unavailable; falling back to the direct OpenAI provider. The coach is no longer running on the intended Pi path:",
 				error instanceof Error ? error.message : error,
 			);
 			return this.fallback.text(req);
@@ -190,6 +190,6 @@ function splitModel(value: string): [string, string] {
 	}
 	return [
 		value.slice(0, slash) || "openai",
-		value.slice(slash + 1) || "gpt-5.2",
+		value.slice(slash + 1) || "gpt-5.5",
 	];
 }

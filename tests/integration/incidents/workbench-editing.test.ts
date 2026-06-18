@@ -48,6 +48,12 @@ const actionsRoute = (await import(
 const causesRoute = (await import(
 	moduleUrl("src/app/api/incidents/[id]/causes/route.ts")
 )) as typeof import("../../../src/app/api/incidents/[id]/causes/route");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
@@ -252,7 +258,7 @@ if (!databaseUrl) {
 	});
 
 	async function createCause(
-		tenant: { tenantId: string; userId: string },
+		tenant: { tenantId: string; userId: string; sessionCookie: string },
 		caseId: string,
 		statement: string,
 	): Promise<string> {
@@ -286,15 +292,18 @@ if (!databaseUrl) {
 	}
 
 	function request(
-		tenant: { tenantId: string; userId: string },
+		tenant: { tenantId: string; userId: string; sessionCookie: string },
 		url: string,
 		body?: Record<string, unknown>,
 	) {
+		const csrf = mintCsrfToken(tenant.sessionCookie);
 		return new NextRequest(url, {
 			body: body ? JSON.stringify(body) : undefined,
 			headers: {
 				accept: "application/json",
 				"content-type": "application/json",
+				cookie: `ssfw_session=${tenant.sessionCookie}; ssfw_csrf=${csrf}`,
+				"x-ssfw-csrf": csrf,
 				"x-ssfw-tenant-id": tenant.tenantId,
 				"x-ssfw-user-id": tenant.userId,
 			},
@@ -305,6 +314,7 @@ if (!databaseUrl) {
 	async function seedTenant(label: string): Promise<{
 		tenantId: string;
 		userId: string;
+		sessionCookie: string;
 	}> {
 		const tenant = await prisma.tenant.create({
 			data: {
@@ -322,7 +332,12 @@ if (!databaseUrl) {
 			data: { tenantId: tenant.id, userId: user.id },
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {

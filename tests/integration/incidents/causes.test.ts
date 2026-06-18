@@ -78,6 +78,9 @@ const turnRoute = (await import(
 const { authorizeRequest } = (await import(
 	moduleUrl("src/proxy.ts")
 )) as typeof import("../../../src/proxy");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 const {
 	buildFiveWhysPrompt,
 	fiveWhysMockSeedFromFixture,
@@ -195,7 +198,7 @@ test("proxied II causes form posts require the CSRF double-submit token", async 
 	);
 	assert.equal(rejected.status, 403);
 
-	const csrfToken = "ssfw-d4h-csrf-token";
+	const csrfToken = mintCsrfToken(session.id);
 	const accepted = await authorizeRequest(
 		new NextRequest(url, {
 			body,

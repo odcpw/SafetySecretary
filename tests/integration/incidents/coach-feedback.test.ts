@@ -50,6 +50,9 @@ if (!databaseUrl) {
 	const { issueSession } = (await import(
 		moduleUrl("src/lib/auth/session.ts")
 	)) as typeof import("../../../src/lib/auth/session");
+	const { mintCsrfToken } = (await import(
+		moduleUrl("src/lib/auth/csrf.ts")
+	)) as typeof import("../../../src/lib/auth/csrf");
 	const {
 		dropTenantSchema,
 		prisma,
@@ -65,7 +68,7 @@ if (!databaseUrl) {
 		const tenantB = await seedTenant("b");
 		const sessionA = await issueSession(tenantA.userId, tenantA.tenantId);
 		const sessionB = await issueSession(tenantB.userId, tenantB.tenantId);
-		const csrf = randomUUID();
+		const csrf = mintCsrfToken(sessionA.cookieValue);
 		const caseId = randomUUID();
 
 		try {

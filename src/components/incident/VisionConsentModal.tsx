@@ -161,22 +161,16 @@ const primaryButtonClassName =
 const secondaryButtonClassName =
 	"inline-flex min-h-11 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elev)] px-3 py-2 text-sm font-medium text-[var(--color-text)] disabled:cursor-wait disabled:opacity-70";
 
+// The token is server-minted, session-bound, and re-issued by the proxy, so the
+// client only reads it (preferring the __Host- carrier) and never mints.
 export function ensureCsrfToken(name: string): string {
-	const existingToken = readCookie(name);
+	const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
 
-	if (existingToken) {
-		return decodeURIComponent(existingToken);
+	if (!token) {
+		throw new Error("CSRF_COOKIE_MISSING");
 	}
 
-	const token = createCsrfToken();
-	writeCookie(name, token);
-
-	const storedToken = readCookie(name);
-	if (!storedToken) {
-		throw new Error("CSRF_COOKIE_WRITE_FAILED");
-	}
-
-	return decodeURIComponent(storedToken);
+	return decodeURIComponent(token);
 }
 
 function readCookie(name: string): string {
@@ -187,36 +181,5 @@ function readCookie(name: string): string {
 			.map((value) => value.trim())
 			.find((value) => value.startsWith(prefix))
 			?.slice(prefix.length) ?? ""
-	);
-}
-
-function writeCookie(name: string, value: string): void {
-	const attributes = [
-		`${name}=${encodeURIComponent(value)}`,
-		"Path=/",
-		"SameSite=Lax",
-	];
-
-	if (window.location.protocol === "https:") {
-		attributes.push("Secure");
-	}
-
-	// biome-ignore lint/suspicious/noDocumentCookie: the app proxy expects a double-submit CSRF cookie.
-	document.cookie = attributes.join("; ");
-}
-
-function createCsrfToken(): string {
-	if (window.crypto && typeof window.crypto.randomUUID === "function") {
-		return window.crypto.randomUUID();
-	}
-
-	if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
-		throw new Error("CSRF_UNAVAILABLE");
-	}
-
-	const bytes = Uint8Array.from({ length: 32 }, () => 0);
-	window.crypto.getRandomValues(bytes);
-	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
-		"",
 	);
 }

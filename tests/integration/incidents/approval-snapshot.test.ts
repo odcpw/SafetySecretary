@@ -56,7 +56,7 @@ const requireFromTest = createRequire(import.meta.url);
 let migrated = false;
 let vectorShimInstalled = false;
 
-test("approval page submit path creates and sends the double-submit CSRF token", async () => {
+test("approval page submit path reads and sends the server-bound CSRF token", async () => {
 	const { JSDOM } = requireFromTest("jsdom") as {
 		JSDOM: new (
 			html: string,
@@ -90,7 +90,10 @@ test("approval page submit path creates and sends the double-submit CSRF token",
 	);
 	const fetchCalls: FetchCall[] = [];
 
-	assert.equal(cookieValue(dom.window.document.cookie, "ssfw_csrf"), undefined);
+	// The CSRF token is now server-minted and read-only on the client, so seed
+	// the cookie the proxy would have issued; the script must read and echo it.
+	const seededCsrf = "server-bound-approval-csrf";
+	dom.window.document.cookie = `ssfw_csrf=${seededCsrf}; Path=/`;
 	dom.window.fetch = (async (input, init) => {
 		fetchCalls.push({ init, input });
 		return new Response(JSON.stringify({ snapshot: { versionLabel: "v03" } }), {
@@ -116,10 +119,10 @@ test("approval page submit path creates and sends the double-submit CSRF token",
 	assert.equal(call.init?.method, "POST");
 	assert.equal(call.init?.credentials, "same-origin");
 	const csrfCookieValue = cookieValue(dom.window.document.cookie, "ssfw_csrf");
-	assert.ok(csrfCookieValue, "page should create the CSRF cookie when absent");
+	assert.equal(csrfCookieValue, seededCsrf, "page should not mint a CSRF cookie");
 	assert.equal(
 		new Headers(call.init?.headers).get("x-ssfw-csrf"),
-		decodeURIComponent(csrfCookieValue),
+		seededCsrf,
 	);
 
 	dom.window.close();

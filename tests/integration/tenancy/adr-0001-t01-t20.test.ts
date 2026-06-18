@@ -292,9 +292,12 @@ if (!databaseUrl) {
 			assert.equal(second.createdTenant, false);
 			assert.equal(await schemaExists(second.tenantId), true);
 			await assertProductionTenantSchema(second.tenantId, "T8");
+			// A matching email domain alone must not grant membership: the peer
+			// is neither the tenant creator nor invited, and the tenant has not
+			// opted into domain auto-join, so no cross-tenant access is created.
 			assert.equal(
 				await membershipCountForUser(first.tenantId, second.userId),
-				1,
+				0,
 			);
 			assert.equal(
 				await membershipCountForUser(second.tenantId, first.userId),

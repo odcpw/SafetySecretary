@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { registerHooks } from "node:module";
 import test from "node:test";
@@ -53,10 +52,15 @@ const {
 } = (await import(
 	moduleUrl("src/lib/incident/coach-transcribe.ts")
 )) as typeof import("../../../src/lib/incident/coach-transcribe");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 
 const incidentId = "11111111-1111-4111-8111-111111111111";
 const tenantId = "22222222-2222-4222-8222-222222222222";
 const userId = "33333333-3333-4333-8333-333333333333";
+const sessionId = "44444444-4444-4444-8444-444444444444";
+const csrfToken = mintCsrfToken(sessionId);
 
 test.after(() => {
 	if (originalNodeEnv === undefined) {
@@ -82,7 +86,7 @@ test("transcribe route rejects an unauthenticated request", async () => {
 });
 
 test("transcribe route returns 400 when no audio field is present", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 	const form = new FormData();
 	form.set("locale", "en");
 
@@ -102,7 +106,7 @@ test("transcribe route returns 400 when no audio field is present", async () => 
 });
 
 test("transcribe route returns the mocked transcript without hitting the network", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 	const form = new FormData();
 	form.set(
 		"audio",
@@ -138,7 +142,7 @@ test("transcribe route returns the mocked transcript without hitting the network
 });
 
 test("transcribe route accepts a MediaRecorder codec-suffixed MIME type", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 	const form = new FormData();
 	// Real browsers report e.g. "audio/webm;codecs=opus"; the route must match
 	// on the MIME essence rather than rejecting it as UNSUPPORTED_CONTENT_TYPE.
@@ -175,7 +179,7 @@ test("transcribe route accepts a MediaRecorder codec-suffixed MIME type", async 
 });
 
 test("transcribe route maps a missing provider key to 503 NO_PROVIDER_KEY", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 
 	const response = await transcribeRoute.handleCoachTranscribe(
 		multipartRequest({ csrf, form: audioForm() }),
@@ -193,7 +197,7 @@ test("transcribe route maps a missing provider key to 503 NO_PROVIDER_KEY", asyn
 });
 
 test("transcribe route maps an exhausted cap to 503 MONTHLY_CAP_EXCEEDED", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 
 	const response = await transcribeRoute.handleCoachTranscribe(
 		multipartRequest({ csrf, form: audioForm() }),
@@ -211,7 +215,7 @@ test("transcribe route maps an exhausted cap to 503 MONTHLY_CAP_EXCEEDED", async
 });
 
 test("transcribe route maps provider 400 to AUDIO_UNREADABLE", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 
 	const response = await transcribeRoute.handleCoachTranscribe(
 		multipartRequest({ csrf, form: audioForm() }),
@@ -229,7 +233,7 @@ test("transcribe route maps provider 400 to AUDIO_UNREADABLE", async () => {
 });
 
 test("transcribe route maps non-decode provider failures to PROVIDER_FAILED", async () => {
-	const csrf = randomUUID();
+	const csrf = csrfToken;
 
 	const response = await transcribeRoute.handleCoachTranscribe(
 		multipartRequest({ csrf, form: audioForm() }),
@@ -419,7 +423,7 @@ function multipartRequest(input: { csrf: string; form: FormData }) {
 }
 
 async function testSessionValidator() {
-	return { tenantId, userId };
+	return { id: sessionId, tenantId, userId };
 }
 
 function record(value: unknown): Record<string, unknown> {

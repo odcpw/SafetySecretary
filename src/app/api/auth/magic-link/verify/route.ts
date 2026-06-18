@@ -4,6 +4,7 @@ import {
 	authCookieSecurityContextFromRequest,
 	setSessionCookie,
 } from "../../../../../lib/auth/cookies";
+import { isTrustedAuthOrigin } from "../../../../../lib/auth/base-url";
 import { setCsrfCookie } from "../../../../../lib/auth/csrf";
 import { pickInitialUiLocale } from "../../../../../lib/auth/locale";
 import {
@@ -162,7 +163,7 @@ function wantsHtmlRedirect(request: NextRequest): boolean {
 function hasAllowedVerificationOrigin(request: NextRequest): boolean {
 	const origin = request.headers.get("origin");
 	if (origin) {
-		return origin === request.nextUrl.origin;
+		return isTrustedAuthOrigin(origin, request.nextUrl.origin);
 	}
 
 	const referer = request.headers.get("referer");
@@ -171,7 +172,7 @@ function hasAllowedVerificationOrigin(request: NextRequest): boolean {
 	}
 
 	try {
-		return new URL(referer).origin === request.nextUrl.origin;
+		return isTrustedAuthOrigin(new URL(referer).origin, request.nextUrl.origin);
 	} catch {
 		return false;
 	}

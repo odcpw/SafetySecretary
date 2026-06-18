@@ -143,6 +143,50 @@ test("coach proposal digest flags repeated pending applied or dismissed proposal
 	assert.match(errors[1]?.message ?? "", /Duplicate pending proposal/i);
 });
 
+test("coach proposal digest keeps cause-linked actions distinct even when titles match", () => {
+	const digest = buildCoachProposalDigestFromMessages([
+		{
+			createdAt: "2026-06-16T10:00:00.000Z",
+			id: "message-1",
+			operationDecisions: {
+				"op-action-a": { recordId: "record-a", status: "applied" },
+			},
+			operations: [
+				{
+					id: "op-action-a",
+					kind: "stop_action",
+					payload: {
+						linkedCauseNodeId: "cause-a",
+						title: "Shift lead checks spill kit at shift start",
+					},
+				},
+			],
+		},
+	]);
+
+	const errors = findDuplicateCoachProposalOperations({
+		operations: [
+			{
+				index: 0,
+				operation: {
+					kind: "stop_action",
+					payload: {
+						linkedCauseNodeId: "cause-b",
+						title: "Shift lead checks spill kit at shift start",
+					},
+				},
+			},
+		],
+		proposalDigest: digest,
+	});
+
+	assert.deepEqual(errors, []);
+	assert.equal(
+		digest.applied[0]?.gist,
+		"[cause-a] Shift lead checks spill kit at shift start",
+	);
+});
+
 function moduleUrl(relativePath: string): string {
 	return pathToFileURL(relativePath).href;
 }

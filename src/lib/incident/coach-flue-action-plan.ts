@@ -68,6 +68,7 @@ export function buildFlueActionPlanOperations(
 	const existingCauseIds = new Set(
 		(input.existingCauseIds ?? []).map((id) => id.trim()).filter(Boolean),
 	);
+	const generatedCauseRefs = new Map<string, string>();
 
 	if (input.actions.length === 0) {
 		return {
@@ -105,28 +106,34 @@ export function buildFlueActionPlanOperations(
 		}
 
 		if (linkedCauseNodeId) {
-			if (existingCauseIds.size > 0 && !existingCauseIds.has(linkedCauseNodeId)) {
-				if (!linkedCauseStatement) {
-					errors.push(
-						`Action ${position} linkedCauseNodeId is not in the current incident cause list.`,
-					);
-				}
+			if (!existingCauseIds.has(linkedCauseNodeId)) {
+				errors.push(
+					`Action ${position} linkedCauseNodeId is not in the current incident cause list.`,
+				);
 			} else {
 				linkedCauseReference = linkedCauseNodeId;
 			}
 		}
 
 		if (!linkedCauseReference && linkedCauseStatement) {
-			linkedCauseReference = `action-cause-${position}`;
-			operations.push({
-				kind: AgentOperationKind.CauseNode,
-				ref: linkedCauseReference,
-				payload: {
-					branchStatus: "OPEN",
-					label: linkedCauseStatement,
-					method: "cause-tree",
-				},
-			});
+			const normalizedStatement = linkedCauseStatement.toLowerCase();
+			const existingRef = generatedCauseRefs.get(normalizedStatement);
+
+			if (existingRef) {
+				linkedCauseReference = existingRef;
+			} else {
+				linkedCauseReference = `action-cause-${position}`;
+				generatedCauseRefs.set(normalizedStatement, linkedCauseReference);
+				operations.push({
+					kind: AgentOperationKind.CauseNode,
+					ref: linkedCauseReference,
+					payload: {
+						branchStatus: "OPEN",
+						label: linkedCauseStatement,
+						method: "cause-tree",
+					},
+				});
+			}
 		}
 
 		if (!linkedCauseReference) {

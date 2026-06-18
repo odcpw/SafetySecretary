@@ -121,6 +121,80 @@ test("flue action plan proposals reject unlinked measures", () => {
 	assert.match(result.errors.join("\n"), /must link to an existing cause/i);
 });
 
+test("flue action plan proposals reject unknown cause ids even when no causes exist yet", () => {
+	const result = buildFlueActionPlanOperations({
+		actions: [
+			{
+				linkedCauseNodeId: "11111111-1111-4111-8111-111111111111",
+				purpose: "corrective",
+				stopClass: "T",
+				title: "Maintenance repairs the leaking pallet jack",
+			},
+		],
+		existingCauseIds: [],
+	});
+
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.operations, []);
+	assert.match(
+		result.errors.join("\n"),
+		/linkedCauseNodeId is not in the current incident cause list/i,
+	);
+});
+
+test("flue action plan proposals reuse one same-response cause for repeated statements", () => {
+	const result = buildFlueActionPlanOperations({
+		actions: [
+			{
+				linkedCauseStatement:
+					"Supervisors had no immediate stop-work rule for active oil leaks",
+				purpose: "corrective",
+				stopClass: "O",
+				title: "Shift leads block leaking equipment immediately",
+			},
+			{
+				linkedCauseStatement:
+					"Supervisors had no immediate stop-work rule for active oil leaks",
+				purpose: "preventive",
+				stopClass: "O",
+				title: "Production manager adds the stop-work rule to startup checks",
+			},
+		],
+	});
+
+	assert.equal(result.ok, true);
+	assert.deepEqual(result.operations, [
+		{
+			kind: AgentOperationKind.CauseNode,
+			payload: {
+				branchStatus: "OPEN",
+				label:
+					"Supervisors had no immediate stop-work rule for active oil leaks",
+				method: "cause-tree",
+			},
+			ref: "action-cause-1",
+		},
+		{
+			kind: AgentOperationKind.StopAction,
+			payload: {
+				linkedCauseNodeId: "action-cause-1",
+				purpose: "corrective",
+				stopClass: "O",
+				title: "Shift leads block leaking equipment immediately",
+			},
+		},
+		{
+			kind: AgentOperationKind.StopAction,
+			payload: {
+				linkedCauseNodeId: "action-cause-1",
+				purpose: "preventive",
+				stopClass: "O",
+				title: "Production manager adds the stop-work rule to startup checks",
+			},
+		},
+	]);
+});
+
 function moduleUrl(relativePath: string): string {
 	return pathToFileURL(relativePath).href;
 }

@@ -198,6 +198,28 @@ function operationGist(
 		return truncate(`${String(payload.field)}=${String(payload.value)}`);
 	}
 
+	if (operation.kind === "stop_action") {
+		return truncate(
+			`${referencePart(payload.linkedCauseNodeId)}${stringPart(payload.title, "stop_action")}`,
+		);
+	}
+
+	if (operation.kind === "cause_update") {
+		return truncate(
+			[
+				referencePart(payload.causeId),
+				referencePart(payload.parentId),
+				stringPart(payload.statement, ""),
+				stringPart(payload.branchStatus, ""),
+				typeof payload.isRootCause === "boolean"
+					? `isRootCause=${String(payload.isRootCause)}`
+					: "",
+			]
+				.filter(Boolean)
+				.join(" "),
+		);
+	}
+
 	for (const key of [
 		"title",
 		"label",
@@ -226,6 +248,16 @@ function truncate(value: string): string {
 
 function normalizeProposalGist(value: string): string {
 	return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function referencePart(value: unknown): string {
+	return typeof value === "string" && value.trim()
+		? `[${value.trim()}] `
+		: "";
+}
+
+function stringPart(value: unknown, fallback: string): string {
+	return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
 function isoString(value: Date | string): string {

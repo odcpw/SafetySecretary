@@ -523,7 +523,6 @@ export const MESSAGE_KEYS = [
 	"incident.tab.causes",
 	"incident.tab.overview",
 	"incident.tab.persons",
-	"incident.tab.placeholder",
 	"incident.tab.timeline",
 	"incident.type.accident",
 	"incident.type.firstAid",

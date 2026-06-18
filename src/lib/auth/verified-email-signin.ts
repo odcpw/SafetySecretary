@@ -8,6 +8,7 @@ import {
 } from "./cookies";
 import { setCsrfCookie } from "./csrf";
 import { pickInitialUiLocale } from "./locale";
+import { hasActiveTenantMembership } from "./membership";
 import { normalizeLocalReturnTo } from "./return-to";
 import {
 	issueSession,
@@ -18,17 +19,26 @@ import {
 	resolveOrCreateWorkspaceForEmail,
 } from "./workspace-resolution";
 
+export const INVITATION_REQUIRED_MESSAGE =
+	"This workspace requires an invitation before you can sign in.";
+export const INVITATION_REQUIRED_CODE = "INVITATION_REQUIRED";
+
+export type VerifiedEmailSignInFailureCode =
+	| typeof INVITATION_REQUIRED_CODE
+	| "SESSION_MEMBERSHIP_REQUIRED";
+
 export type VerifiedEmailSignInResult =
 	| {
 			ok: true;
 			response: NextResponse;
 			tenantId: string;
 			userId: string;
-	  }
+		  }
 	| {
+			code: VerifiedEmailSignInFailureCode;
 			ok: false;
 			response: NextResponse;
-	  };
+		  };
 
 type WorkspaceResolver = (input: {
 	defaultLanguage: Language;
@@ -52,11 +62,21 @@ export async function signInVerifiedEmail(input: {
 		email: input.email,
 	});
 
-	await captureUiLocaleOnFirstSignIn(
-		workspace.userId,
-		workspace.tenantId,
-		input.request.headers.get("accept-language"),
-	);
+	if (
+		!(await hasActiveTenantMembership(workspace.tenantId, workspace.userId))
+	) {
+		return {
+			code: INVITATION_REQUIRED_CODE,
+			ok: false,
+			response: NextResponse.json(
+				{
+					code: INVITATION_REQUIRED_CODE,
+					message: INVITATION_REQUIRED_MESSAGE,
+				},
+				{ status: 403 },
+			),
+		};
+	}
 
 	let session: Awaited<ReturnType<typeof issueSession>>;
 
@@ -69,6 +89,7 @@ export async function signInVerifiedEmail(input: {
 	} catch (error) {
 		if (error instanceof SessionTenantMembershipError) {
 			return {
+				code: "SESSION_MEMBERSHIP_REQUIRED",
 				ok: false,
 				response: NextResponse.json(
 					{ message: "Sign-in could not be completed." },
@@ -79,6 +100,12 @@ export async function signInVerifiedEmail(input: {
 
 		throw error;
 	}
+
+	await captureUiLocaleOnFirstSignIn(
+		workspace.userId,
+		workspace.tenantId,
+		input.request.headers.get("accept-language"),
+	);
 
 	const redirectTo = normalizeLocalReturnTo(input.returnTo);
 	const response = NextResponse.redirect(

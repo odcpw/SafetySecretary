@@ -18,6 +18,11 @@ import {
 	issueSession,
 	SessionTenantMembershipError,
 } from "../../../../../lib/auth/session";
+import { hasActiveTenantMembership } from "../../../../../lib/auth/membership";
+import {
+	INVITATION_REQUIRED_CODE,
+	INVITATION_REQUIRED_MESSAGE,
+} from "../../../../../lib/auth/verified-email-signin";
 import { resolveOrCreateWorkspaceForEmail } from "../../../../../lib/auth/workspace-resolution";
 import { prisma } from "../../../../../lib/db";
 
@@ -91,11 +96,15 @@ async function verifyMagicLink(
 		);
 	}
 
-	await captureUiLocaleOnFirstSignIn(
-		result.userId,
-		result.tenantId,
-		request.headers.get("accept-language"),
-	);
+	if (!(await hasActiveTenantMembership(result.tenantId, result.userId))) {
+		return NextResponse.json(
+			{
+				code: INVITATION_REQUIRED_CODE,
+				message: INVITATION_REQUIRED_MESSAGE,
+			},
+			{ status: 403 },
+		);
+	}
 
 	let session: Awaited<ReturnType<typeof issueSession>>;
 
@@ -115,6 +124,12 @@ async function verifyMagicLink(
 
 		throw error;
 	}
+
+	await captureUiLocaleOnFirstSignIn(
+		result.userId,
+		result.tenantId,
+		request.headers.get("accept-language"),
+	);
 	const response = wantsHtmlRedirect(request)
 		? NextResponse.redirect(
 				// Build the post-sign-in target from the public origin (APP_BASE_URL)

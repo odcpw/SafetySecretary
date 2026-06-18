@@ -18,7 +18,10 @@ import {
 	oauthIdentityFromUserInfo,
 	resolveOrCreateWorkspaceForOAuthIdentity,
 } from "../../../../../../lib/auth/oauth-identity";
-import { signInVerifiedEmail } from "../../../../../../lib/auth/verified-email-signin";
+import {
+	INVITATION_REQUIRED_CODE,
+	signInVerifiedEmail,
+} from "../../../../../../lib/auth/verified-email-signin";
 
 export const runtime = "nodejs";
 
@@ -114,12 +117,17 @@ export async function GET(
 				}),
 		});
 
-		if (!result.ok) {
-			return clearOAuthStateCookie(
-				redirectToSignin(request, "oauth_failed"),
-				cookieName,
-				request,
-			);
+			if (!result.ok) {
+				return clearOAuthStateCookie(
+					redirectToSignin(
+						request,
+						result.code === INVITATION_REQUIRED_CODE
+							? "invitation_required"
+							: "oauth_failed",
+					),
+					cookieName,
+					request,
+				);
 		}
 
 		return clearOAuthStateCookie(result.response, cookieName, request);

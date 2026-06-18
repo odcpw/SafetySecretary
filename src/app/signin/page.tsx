@@ -286,6 +286,8 @@ function oauthFailureMessage(reason: string): string {
 			return "That account did not provide a verified email. Use an email sign-in link.";
 		case "oauth_identity_conflict":
 			return "That provider account is already linked differently. Use an email sign-in link.";
+		case "invitation_required":
+			return "This workspace requires an invitation before you can sign in.";
 		default:
 			return "OAuth sign-in could not be completed. Use an email sign-in link.";
 	}

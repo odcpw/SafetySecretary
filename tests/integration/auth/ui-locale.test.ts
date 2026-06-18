@@ -233,7 +233,7 @@ if (!databaseUrl) {
 		}
 	});
 
-	test("verify route auto-provisions personal and company-domain workspaces", async () => {
+	test("verify route keeps public domains personal and requires an invitation for same-domain company colleagues", async () => {
 		ensureMigrated();
 
 		const suffix = randomUUID();
@@ -255,16 +255,24 @@ if (!databaseUrl) {
 			const personalA = await verifyUntargetedMagicLink(personalAEmail, "de");
 			const personalB = await verifyUntargetedMagicLink(personalBEmail, "fr");
 			const companyA = await verifyUntargetedMagicLink(companyAEmail, "en");
-			const companyB = await verifyUntargetedMagicLink(companyBEmail, "it");
 
-			for (const result of [personalA, personalB, companyA, companyB]) {
+			for (const result of [personalA, personalB, companyA]) {
 				tenantIds.add(result.tenantId);
 				userIds.add(result.userId);
 			}
 
+			const companyB = await verifyUntargetedMagicLinkFailure(
+				companyBEmail,
+				"it",
+			);
+
 			assert.notEqual(personalA.tenantId, personalB.tenantId);
-			assert.equal(companyA.tenantId, companyB.tenantId);
 			assert.notEqual(personalA.tenantId, companyA.tenantId);
+			assert.deepEqual(companyB, {
+				code: "INVITATION_REQUIRED",
+				message: "This workspace requires an invitation before you can sign in.",
+				status: 403,
+			});
 
 			const tenants = await prisma.tenant.findMany({
 				where: { id: { in: [...tenantIds] } },
@@ -289,8 +297,15 @@ if (!databaseUrl) {
 				companyTenant?.memberships
 					.map((membership) => membership.userId)
 					.sort(),
-				[companyA.userId, companyB.userId].sort(),
+				[companyA.userId].sort(),
 			);
+
+			const blockedUser = await prisma.user.findUniqueOrThrow({
+				where: { email: companyBEmail },
+				select: { id: true, uiLocale: true },
+			});
+			userIds.add(blockedUser.id);
+			assert.equal(blockedUser.uiLocale, null);
 		} finally {
 			await prisma.magicLinkToken.deleteMany({
 				where: { email: { in: emails } },
@@ -382,6 +397,61 @@ if (!databaseUrl) {
 		return {
 			userId: payload.userId,
 			tenantId: payload.tenantId,
+		};
+	}
+
+	async function verifyUntargetedMagicLinkFailure(
+		email: string,
+		acceptLanguage: string,
+	): Promise<{ code: string; message: string; status: number }> {
+		const transport = new RecordingEmailTransport();
+
+		await requestMagicLink({
+			email,
+			transport,
+			baseUrl: "https://app.example.test",
+			from: "no-reply@example.test",
+			now: new Date(),
+		});
+
+		assert.equal(transport.magicLinkUrls.length, 1);
+		const token = new URL(transport.magicLinkUrls[0]).searchParams.get("token");
+		assert.ok(token);
+
+		const response = await verifyRoute.POST(
+			new NextRequest(
+				`https://app.example.test/api/auth/magic-link/verify?token=${encodeURIComponent(
+					token,
+				)}`,
+				{
+					method: "POST",
+					headers: {
+						"accept-language": acceptLanguage,
+						origin: "https://app.example.test",
+						"user-agent": "desktop",
+					},
+				},
+			),
+		);
+		assert.equal(response.status, 403);
+
+		const payload = (await response.json()) as {
+			code?: unknown;
+			message?: unknown;
+		};
+		if (
+			typeof payload.code !== "string" ||
+			typeof payload.message !== "string"
+		) {
+			throw new TypeError(
+				"Verify route failure response must include code and message.",
+			);
+		}
+
+		return {
+			code: payload.code,
+			message: payload.message,
+			status: response.status,
 		};
 	}
 

@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { appRedirectOrigin } from "../../../../lib/auth/base-url";
 import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
 import { verifyCsrfToken } from "../../../../lib/auth/csrf";
+import { hasActiveTenantMembership } from "../../../../lib/auth/membership";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -28,6 +29,13 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 
 	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
+	}
+
+	if (!(await hasActiveTenantMembership(session.tenantId, session.userId))) {
+		return NextResponse.json(
+			{ code: "TENANT_MEMBERSHIP_REQUIRED" },
+			{ status: 403 },
+		);
 	}
 
 	const body = await readBody(request);

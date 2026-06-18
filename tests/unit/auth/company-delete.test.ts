@@ -26,6 +26,14 @@ registerHooks({
 				`);
 			}
 
+			if (specifier.endsWith("/lib/auth/membership")) {
+				return dataModuleUrl(`
+					export async function hasActiveTenantMembership() {
+						return globalThis.__ssfwCompanyHasMembership ?? true;
+					}
+				`);
+			}
+
 			if (specifier.endsWith("/lib/db")) {
 				return dataModuleUrl(`
 					export async function dropTenantSchema(tenantId, client) {
@@ -99,6 +107,7 @@ const SESSION_ID = "44444444-4444-4444-8444-444444444444";
 const csrfCookieName = "ssfw_csrf";
 const testGlobalState = globalThis as typeof globalThis & {
 	__ssfwCompanyDeleteCalls?: unknown[];
+	__ssfwCompanyHasMembership?: boolean;
 	__ssfwCompanyDeleteSession?: {
 		id: string;
 		tenantId: string;
@@ -123,6 +132,30 @@ test("company DELETE requires explicit confirmation before tenant deletion", asy
 	);
 
 	assert.equal(response.status, 400);
+	assert.deepEqual(testGlobalState.__ssfwCompanyDropCalls, []);
+	assert.deepEqual(testGlobalState.__ssfwCompanyDeleteCalls, []);
+});
+
+test("company DELETE requires the actor to remain a tenant member", async () => {
+	setCompanyDeleteState();
+	testGlobalState.__ssfwCompanyHasMembership = false;
+	const csrfValue = mintCsrfToken(SESSION_ID);
+
+	const response = await deleteCompany(
+		request("/api/auth/company", {
+			body: { confirmation: "DELETE" },
+			headers: {
+				cookie: `${csrfCookieName}=${csrfValue}`,
+				"x-ssfw-csrf": csrfValue,
+			},
+			method: "DELETE",
+		}),
+	);
+
+	assert.equal(response.status, 403);
+	assert.deepEqual(await response.json(), {
+		code: "TENANT_MEMBERSHIP_REQUIRED",
+	});
 	assert.deepEqual(testGlobalState.__ssfwCompanyDropCalls, []);
 	assert.deepEqual(testGlobalState.__ssfwCompanyDeleteCalls, []);
 });
@@ -168,6 +201,7 @@ test("company DELETE drops tenant schema and deletes sessions, memberships, and 
 function setCompanyDeleteState(): void {
 	testGlobalState.__ssfwCompanyDeleteCalls = [];
 	testGlobalState.__ssfwCompanyDropCalls = [];
+	testGlobalState.__ssfwCompanyHasMembership = true;
 	testGlobalState.__ssfwCompanyDeleteSession = {
 		id: SESSION_ID,
 		tenantId: "22222222-2222-4222-8222-222222222222",

@@ -157,7 +157,7 @@ if (!databaseUrl) {
 		}
 	});
 
-	test("OAuth workspace resolution keeps public domains personal and company domains shared", async () => {
+	test("OAuth workspace resolution keeps public domains personal and does not auto-join same-domain company colleagues", async () => {
 		ensureMigrated();
 
 		const suffix = randomUUID();
@@ -189,6 +189,31 @@ if (!databaseUrl) {
 			assert.notEqual(personalA.tenantId, personalB.tenantId);
 			assert.equal(companyA.tenantId, companyB.tenantId);
 			assert.notEqual(personalA.tenantId, companyA.tenantId);
+
+			const companyTenant = await prisma.tenant.findUniqueOrThrow({
+				where: { id: companyA.tenantId },
+				select: {
+					memberships: {
+						orderBy: { createdAt: "asc" },
+						select: { userId: true },
+					},
+				},
+			});
+			assert.deepEqual(
+				companyTenant.memberships.map((membership) => membership.userId),
+				[companyA.userId],
+			);
+
+			const colleagueIdentity = await prisma.oAuthIdentity.findUnique({
+				where: {
+					provider_providerSubject: {
+						provider: "google",
+						providerSubject: `google-${companyBEmail}-${suffix}`,
+					},
+				},
+				select: { userId: true },
+			});
+			assert.equal(colleagueIdentity, null);
 		} finally {
 			await cleanupOAuthRows(prisma, dropTenantSchema, emails, tenantIds, [
 				...userIds,

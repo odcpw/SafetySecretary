@@ -86,11 +86,11 @@ test("OAuth start route stores sanitized returnTo in the state cookie", async ()
 		assert.ok(authorizationUrl.searchParams.get("nonce"));
 
 		const stateCookie = cookieValue(response, oauthStateCookieName("google"));
-		assert.ok(stateCookie);
-		assert.equal(
-			decodeOAuthStateCookie(stateCookie)?.returnTo,
-			"/workspace",
-		);
+			assert.ok(stateCookie);
+			assert.equal(
+				decodeOAuthStateCookie(stateCookie)?.returnTo,
+				"/incidents",
+			);
 		assert.equal(response.headers.get("set-cookie")?.includes("Secure"), true);
 
 		const backslashResponse = await startRoute.GET(
@@ -104,16 +104,19 @@ test("OAuth start route stores sanitized returnTo in the state cookie", async ()
 			oauthStateCookieName("google"),
 		);
 		assert.ok(backslashStateCookie);
-		assert.equal(
-			decodeOAuthStateCookie(backslashStateCookie)?.returnTo,
-			"/workspace",
-		);
+			assert.equal(
+				decodeOAuthStateCookie(backslashStateCookie)?.returnTo,
+				"/incidents",
+			);
 	} finally {
 		restoreEnv();
 	}
 });
 
 test("OAuth callback rejects state mismatch and clears state cookie", async () => {
+	const restoreEnv = setEnv({
+		APP_BASE_URL: "https://app.example.test",
+	});
 	const authorization = buildOAuthAuthorizationRequest({
 		codeVerifier: "verifier-1",
 		env: {
@@ -125,24 +128,28 @@ test("OAuth callback rejects state mismatch and clears state cookie", async () =
 		requestUrl: "https://app.example.test/signin",
 		state: "state-real",
 	});
-	const response = await callbackRoute.GET(
-		new NextRequest(
-			"https://app.example.test/api/auth/oauth/google/callback?code=code-1&state=state-other",
-			{
-				headers: {
-					cookie: `${authorization.cookie.name}=${authorization.cookie.value}`,
+	try {
+		const response = await callbackRoute.GET(
+			new NextRequest(
+				"https://app.example.test/api/auth/oauth/google/callback?code=code-1&state=state-other",
+				{
+					headers: {
+						cookie: `${authorization.cookie.name}=${authorization.cookie.value}`,
+					},
 				},
-			},
-		),
-		{ params: { provider: "google" } },
-	);
+			),
+			{ params: { provider: "google" } },
+		);
 
-	assert.equal(response.status, 303);
-	assert.equal(
-		response.headers.get("location"),
-		"https://app.example.test/signin?oauth=oauth_state",
-	);
-	assert.equal(cookieValue(response, oauthStateCookieName("google")), "");
+		assert.equal(response.status, 303);
+		assert.equal(
+			response.headers.get("location"),
+			"https://app.example.test/signin?oauth=oauth_state",
+		);
+		assert.equal(cookieValue(response, oauthStateCookieName("google")), "");
+	} finally {
+		restoreEnv();
+	}
 });
 
 test("OAuth callback exchanges code, creates a session, and clears state cookie", async (t) => {
@@ -232,6 +239,89 @@ test("OAuth callback exchanges code, creates a session, and clears state cookie"
 		restoreFetch();
 		restoreEnv();
 		await cleanupRows(prisma, email, tenantId, userId);
+	}
+});
+
+test("OAuth callback preserves invitation-required failures for same-domain colleagues", async (t) => {
+	if (!databaseUrl) {
+		t.skip("DATABASE_URL is required");
+		return;
+	}
+
+	ensureMigrated();
+
+	const suffix = randomUUID();
+	const ownerEmail = `owner@ssfw-oauth-invite-${suffix}.example.invalid`;
+	const colleagueEmail = `colleague@ssfw-oauth-invite-${suffix}.example.invalid`;
+	const colleagueSubject = `google-route-invite-${suffix}`;
+	const owner = await resolveOrCreateWorkspaceForOAuthIdentity({
+		defaultLanguage: "en",
+		email: ownerEmail,
+		issuer: "https://accounts.google.com",
+		provider: "google",
+		subject: `google-route-owner-${suffix}`,
+	});
+	const authorization = buildOAuthAuthorizationRequest({
+		codeVerifier: "verifier-invite",
+		env: {
+			APP_BASE_URL: "https://app.example.test",
+			GOOGLE_OAUTH_CLIENT_ID: "google-client",
+			GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+		},
+		provider: "google",
+		requestUrl: "https://app.example.test/signin",
+		nonce: "nonce-invite",
+		state: "state-invite",
+	});
+	const restoreEnv = setEnv({
+		APP_BASE_URL: "https://app.example.test",
+		GOOGLE_OAUTH_CLIENT_ID: "google-client",
+		GOOGLE_OAUTH_CLIENT_SECRET: "google-secret",
+	});
+	const restoreFetch = mockOAuthFetch({
+		audience: "google-client",
+		email: colleagueEmail,
+		emailVerified: true,
+		nonce: "nonce-invite",
+		subject: colleagueSubject,
+	});
+
+	try {
+		const response = await callbackRoute.GET(
+			new NextRequest(
+				"https://app.example.test/api/auth/oauth/google/callback?code=code-invite&state=state-invite",
+				{
+					headers: {
+						cookie: `${authorization.cookie.name}=${authorization.cookie.value}`,
+					},
+				},
+			),
+			{ params: { provider: "google" } },
+		);
+
+		assert.equal(response.status, 303);
+		assert.equal(
+			response.headers.get("location"),
+			"https://app.example.test/signin?oauth=invitation_required",
+		);
+		assert.equal(cookieValue(response, oauthStateCookieName("google")), "");
+		assert.equal(cookieValue(response, "ssfw_session"), null);
+
+		const colleagueIdentity = await prisma.oAuthIdentity.findUnique({
+			where: {
+				provider_providerSubject: {
+					provider: "google",
+					providerSubject: colleagueSubject,
+				},
+			},
+		});
+		assert.equal(colleagueIdentity, null);
+	} finally {
+		restoreFetch();
+		restoreEnv();
+		await cleanupRows(prisma, ownerEmail, owner.tenantId, owner.userId, [
+			colleagueEmail,
+		]);
 	}
 });
 

@@ -1,5 +1,6 @@
 import type { Language } from "@prisma/client";
 import { prisma as defaultPrisma } from "../db";
+import { hasActiveTenantMembership } from "./membership";
 import {
 	type OAuthProvider,
 	extractOAuthSubject,
@@ -51,6 +52,10 @@ export async function resolveOrCreateWorkspaceForOAuthIdentity(input: {
 		defaultLanguage: input.defaultLanguage,
 		email: input.email,
 	});
+
+	if (!(await hasActiveTenantMembership(workspace.tenantId, workspace.userId))) {
+		return workspace;
+	}
 
 	if (existingIdentity && existingIdentity.userId !== workspace.userId) {
 		throw new OAuthIdentityConflictError();

@@ -131,7 +131,7 @@ test("Google OAuth authorization request supports explicit redirect URI and sani
 	);
 	assert.equal(
 		decodeOAuthStateCookie(request.cookie.value)?.returnTo,
-		"/workspace",
+		"/incidents",
 	);
 });
 
@@ -149,12 +149,12 @@ test("OAuth helpers reject missing provider credentials", () => {
 
 test("OAuth returnTo and state cookie parsing are defensive", () => {
 	assert.equal(normalizeOAuthReturnTo("/workspace/actions"), "/workspace/actions");
-	assert.equal(normalizeOAuthReturnTo("//evil.example.test"), "/workspace");
-	assert.equal(normalizeOAuthReturnTo("/\\evil.example.test"), "/workspace");
-	assert.equal(normalizeOAuthReturnTo("/workspace\u0000/actions"), "/workspace");
+	assert.equal(normalizeOAuthReturnTo("//evil.example.test"), "/incidents");
+	assert.equal(normalizeOAuthReturnTo("/\\evil.example.test"), "/incidents");
+	assert.equal(normalizeOAuthReturnTo("/workspace\u0000/actions"), "/incidents");
 	assert.equal(
 		normalizeOAuthReturnTo("https://evil.example.test/workspace"),
-		"/workspace",
+		"/incidents",
 	);
 	assert.equal(decodeOAuthStateCookie("not-json"), null);
 	assert.equal(

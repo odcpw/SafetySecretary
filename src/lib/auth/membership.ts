@@ -59,6 +59,10 @@ export type RemoveMemberOptions = {
 	transactionOptions?: MembershipTransactionOptions;
 };
 
+export type TenantMembershipLookupOptions = {
+	db?: PrismaClient;
+};
+
 type MembershipTransactionOptions = {
 	isolationLevel?: Prisma.TransactionIsolationLevel;
 	maxWait?: number;
@@ -138,6 +142,25 @@ export async function removeMember(
 
 		throw error;
 	}
+}
+
+export async function hasActiveTenantMembership(
+	tenantId: string,
+	userId: string,
+	options: TenantMembershipLookupOptions = {},
+): Promise<boolean> {
+	const db = options.db ?? (await defaultMembershipDatabase());
+	const membership = await db.tenantMembership.findUnique({
+		where: {
+			tenantId_userId: {
+				tenantId,
+				userId,
+			},
+		},
+		select: { id: true },
+	});
+
+	return membership !== null;
 }
 
 async function defaultMembershipDatabase(): Promise<PrismaClient> {

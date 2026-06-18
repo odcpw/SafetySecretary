@@ -18,6 +18,18 @@ export const CSRF_COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 // this branch — the managed key is required there.
 const CSRF_DEV_FALLBACK_KEY = "ssfw-csrf-dev-fallback-key";
 
+type CsrfCookieOptions = {
+	httpOnly: false;
+	maxAge: number;
+	path: "/";
+	sameSite: "lax";
+	secure: boolean;
+};
+
+type CsrfCookieWriter = {
+	set(name: string, value: string, options: CsrfCookieOptions): void;
+};
+
 // The CSRF token is a server-minted HMAC of the session id keyed by the managed
 // MASTER_ENCRYPTION_KEY. It is therefore non-forgeable (an attacker cannot
 // compute it without the secret) and bound to exactly one session, so a planted
@@ -69,11 +81,19 @@ export function setCsrfCookie(
 	sessionId: string,
 	context: AuthCookieSecurityContext = {},
 ): void {
+	setCsrfCookieValue(response.cookies, sessionId, context);
+}
+
+export function setCsrfCookieValue(
+	cookieWriter: CsrfCookieWriter,
+	sessionId: string,
+	context: AuthCookieSecurityContext = {},
+): void {
 	const secure = shouldUseSecureAuthCookies(context);
 	const token = mintCsrfToken(sessionId);
 
 	if (secure) {
-		response.cookies.set(CSRF_HOST_COOKIE_NAME, token, {
+		cookieWriter.set(CSRF_HOST_COOKIE_NAME, token, {
 			httpOnly: false,
 			maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
 			path: "/",
@@ -82,7 +102,7 @@ export function setCsrfCookie(
 		});
 	}
 
-	response.cookies.set(CSRF_COOKIE_NAME, token, {
+	cookieWriter.set(CSRF_COOKIE_NAME, token, {
 		httpOnly: false,
 		maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
 		path: "/",

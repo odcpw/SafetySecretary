@@ -17,6 +17,10 @@ export type SessionCookieOptions = {
 	secure: boolean;
 };
 
+type SessionCookieWriter = {
+	set(name: string, value: string, options: SessionCookieOptions): void;
+};
+
 type EnvLike = Pick<NodeJS.ProcessEnv, string>;
 
 export type AuthCookieSecurityContext = {
@@ -68,8 +72,21 @@ export function authCookieSecurityContextFromRequest(request: {
 	url: string;
 }): AuthCookieSecurityContext {
 	return {
-		forwardedProto: request.headers.get("x-forwarded-proto"),
+		...authCookieSecurityContextFromHeaders(request.headers),
 		requestUrl: request.url,
+	};
+}
+
+export function authCookieSecurityContextFromHeaders(
+	requestHeaders: Pick<Headers, "get">,
+): AuthCookieSecurityContext {
+	const forwardedProto = requestHeaders.get("x-forwarded-proto");
+	const host = requestHeaders.get("host");
+	const protocol = forwardedProto?.split(",")[0]?.trim() || "http";
+
+	return {
+		forwardedProto,
+		requestUrl: host ? `${protocol}://${host}` : null,
 	};
 }
 
@@ -90,7 +107,15 @@ export function setSessionCookie(
 	session: Pick<IssuedSession, "cookieValue" | "maxAgeSeconds">,
 	context: AuthCookieSecurityContext = {},
 ): void {
-	response.cookies.set(
+	setSessionCookieValue(response.cookies, session, context);
+}
+
+export function setSessionCookieValue(
+	cookieWriter: SessionCookieWriter,
+	session: Pick<IssuedSession, "cookieValue" | "maxAgeSeconds">,
+	context: AuthCookieSecurityContext = {},
+): void {
+	cookieWriter.set(
 		SESSION_COOKIE_NAME,
 		session.cookieValue,
 		buildSessionCookieOptions(session.maxAgeSeconds, context),

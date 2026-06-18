@@ -120,6 +120,7 @@ type NextRequestInit = ConstructorParameters<typeof NextRequest>[1];
 const {
 	CSRF_COOKIE_NAME,
 	SESSION_COOKIE_NAME,
+	authCookieSecurityContextFromHeaders,
 	buildSessionCookieOptions,
 	shouldUseSecureAuthCookies,
 } =
@@ -440,6 +441,25 @@ test("cookie options follow HTTPS base URL outside production", () => {
 		setOptionalEnv("NODE_ENV", originalNodeEnv);
 		setOptionalEnv("APP_BASE_URL", originalAppBaseUrl);
 	}
+});
+
+test("auth cookie security context can be derived from forwarded headers", () => {
+	assert.deepEqual(
+		authCookieSecurityContextFromHeaders(
+			new Headers({
+				host: "preview.example.test",
+				"x-forwarded-proto": "https, http",
+			}),
+		),
+		{
+			forwardedProto: "https, http",
+			requestUrl: "https://preview.example.test",
+		},
+	);
+	assert.deepEqual(authCookieSecurityContextFromHeaders(new Headers()), {
+		forwardedProto: null,
+		requestUrl: null,
+	});
 });
 
 test("multi-tenant memberships create distinct sessions per tenant", async () => {

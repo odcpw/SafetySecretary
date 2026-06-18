@@ -3,16 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { authBaseUrlForRequest } from "../../../lib/auth/base-url";
 import {
-	type AuthCookieSecurityContext,
-	buildSessionCookieOptions,
-	CSRF_COOKIE_NAME,
-	CSRF_HOST_COOKIE_NAME,
+	authCookieSecurityContextFromHeaders,
 	SESSION_COOKIE_NAME,
-	shouldUseSecureAuthCookies,
+	setSessionCookieValue,
 } from "../../../lib/auth/cookies";
 import {
-	CSRF_COOKIE_MAX_AGE_SECONDS,
-	mintCsrfToken,
+	setCsrfCookieValue,
 } from "../../../lib/auth/csrf";
 import { INVITE_PAGE_COPY } from "../../../lib/auth/invitation-copy";
 import {
@@ -156,55 +152,11 @@ async function switchInviteSession(input: {
 		input.tenantId,
 		requestHeaders.get("user-agent"),
 	);
-	const cookieSecurity = cookieSecurityFromHeaders(requestHeaders);
+	const cookieSecurity = authCookieSecurityContextFromHeaders(requestHeaders);
 	const cookieStore = await cookies();
 
-	cookieStore.set(
-		SESSION_COOKIE_NAME,
-		session.cookieValue,
-		buildSessionCookieOptions(session.maxAgeSeconds, cookieSecurity),
-	);
-	setInviteCsrfCookie(cookieStore, session.cookieValue, cookieSecurity);
-}
-
-function setInviteCsrfCookie(
-	cookieStore: Pick<Awaited<ReturnType<typeof cookies>>, "set">,
-	sessionId: string,
-	context: AuthCookieSecurityContext,
-): void {
-	const secure = shouldUseSecureAuthCookies(context);
-	const token = mintCsrfToken(sessionId);
-
-	if (secure) {
-		cookieStore.set(CSRF_HOST_COOKIE_NAME, token, {
-			httpOnly: false,
-			maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
-			path: "/",
-			sameSite: "lax",
-			secure: true,
-		});
-	}
-
-	cookieStore.set(CSRF_COOKIE_NAME, token, {
-		httpOnly: false,
-		maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
-		path: "/",
-		sameSite: "lax",
-		secure,
-	});
-}
-
-function cookieSecurityFromHeaders(
-	requestHeaders: Pick<Headers, "get">,
-): AuthCookieSecurityContext {
-	const forwardedProto = requestHeaders.get("x-forwarded-proto");
-	const host = requestHeaders.get("host");
-	const protocol = forwardedProto?.split(",")[0]?.trim() || "http";
-
-	return {
-		forwardedProto,
-		requestUrl: host ? `${protocol}://${host}` : null,
-	};
+	setSessionCookieValue(cookieStore, session, cookieSecurity);
+	setCsrfCookieValue(cookieStore, session.cookieValue, cookieSecurity);
 }
 
 function InviteShell({

@@ -99,6 +99,11 @@ export class SmtpEmailTransport implements TransactionalEmailTransport {
 }
 
 type FetchLike = typeof fetch;
+type TransactionalEmailContent = {
+	html: string;
+	subject: string;
+	text: string;
+};
 
 export class ResendEmailTransport implements TransactionalEmailTransport {
 	private readonly apiKey: string;
@@ -127,37 +132,25 @@ export class ResendEmailTransport implements TransactionalEmailTransport {
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
-		const response = await this.fetchImpl(this.endpoint, {
-			body: JSON.stringify({
-				from: email.from,
-				html: magicLinkHtml(email),
-				subject: "Sign in to Safety Secretary",
-				text: magicLinkText(email),
-				to: email.to,
-			}),
-			headers: {
-				authorization: `Bearer ${this.apiKey}`,
-				"content-type": "application/json",
-				"user-agent": this.userAgent,
-			},
-			method: "POST",
-		});
-
-		if (!response.ok) {
-			throw new Error(
-				`Resend email send failed with status ${response.status}.`,
-			);
-		}
+		await this.send(email.to, email.from, magicLinkContent(email));
 	}
 
 	async sendInvitation(email: InvitationEmail): Promise<void> {
+		await this.send(email.to, email.from, invitationContent(email));
+	}
+
+	private async send(
+		to: string,
+		from: string,
+		content: TransactionalEmailContent,
+	): Promise<void> {
 		const response = await this.fetchImpl(this.endpoint, {
 			body: JSON.stringify({
-				from: email.from,
-				html: invitationHtml(email),
-				subject: invitationSubject(email),
-				text: invitationText(email),
-				to: email.to,
+				from,
+				html: content.html,
+				subject: content.subject,
+				text: content.text,
+				to,
 			}),
 			headers: {
 				authorization: `Bearer ${this.apiKey}`,
@@ -205,42 +198,26 @@ export class PostmarkEmailTransport implements TransactionalEmailTransport {
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
-		const response = await this.fetchImpl(this.endpoint, {
-			body: JSON.stringify({
-				From: email.from,
-				HtmlBody: magicLinkHtml(email),
-				MessageStream: this.messageStream,
-				Subject: "Sign in to Safety Secretary",
-				TextBody: magicLinkText(email),
-				To: email.to,
-				TrackLinks: "None",
-				TrackOpens: false,
-			}),
-			headers: {
-				accept: "application/json",
-				"content-type": "application/json",
-				"user-agent": this.userAgent,
-				"x-postmark-server-token": this.serverToken,
-			},
-			method: "POST",
-		});
-
-		if (!response.ok) {
-			throw new Error(
-				`Postmark email send failed with status ${response.status}.`,
-			);
-		}
+		await this.send(email.to, email.from, magicLinkContent(email));
 	}
 
 	async sendInvitation(email: InvitationEmail): Promise<void> {
+		await this.send(email.to, email.from, invitationContent(email));
+	}
+
+	private async send(
+		to: string,
+		from: string,
+		content: TransactionalEmailContent,
+	): Promise<void> {
 		const response = await this.fetchImpl(this.endpoint, {
 			body: JSON.stringify({
-				From: email.from,
-				HtmlBody: invitationHtml(email),
+				From: from,
+				HtmlBody: content.html,
 				MessageStream: this.messageStream,
-				Subject: invitationSubject(email),
-				TextBody: invitationText(email),
-				To: email.to,
+				Subject: content.subject,
+				TextBody: content.text,
+				To: to,
 				TrackLinks: "None",
 				TrackOpens: false,
 			}),
@@ -301,49 +278,27 @@ export class MailgunEmailTransport implements TransactionalEmailTransport {
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
-		const body = new URLSearchParams({
-			from: email.from,
-			html: magicLinkHtml(email),
-			"o:tracking": "no",
-			"o:tracking-clicks": "no",
-			"o:tracking-opens": "no",
-			subject: "Sign in to Safety Secretary",
-			text: magicLinkText(email),
-			to: email.to,
-		});
-
-		const response = await this.fetchImpl(
-			`${this.baseUrl}/v3/${encodeURIComponent(this.domain)}/messages`,
-			{
-				body,
-				headers: {
-					authorization: `Basic ${Buffer.from(
-						`api:${this.apiKey}`,
-					).toString("base64")}`,
-					"content-type": "application/x-www-form-urlencoded",
-					"user-agent": this.userAgent,
-				},
-				method: "POST",
-			},
-		);
-
-		if (!response.ok) {
-			throw new Error(
-				`Mailgun email send failed with status ${response.status}.`,
-			);
-		}
+		await this.send(email.to, email.from, magicLinkContent(email));
 	}
 
 	async sendInvitation(email: InvitationEmail): Promise<void> {
+		await this.send(email.to, email.from, invitationContent(email));
+	}
+
+	private async send(
+		to: string,
+		from: string,
+		content: TransactionalEmailContent,
+	): Promise<void> {
 		const body = new URLSearchParams({
-			from: email.from,
-			html: invitationHtml(email),
+			from,
+			html: content.html,
 			"o:tracking": "no",
 			"o:tracking-clicks": "no",
 			"o:tracking-opens": "no",
-			subject: invitationSubject(email),
-			text: invitationText(email),
-			to: email.to,
+			subject: content.subject,
+			text: content.text,
+			to,
 		});
 
 		const response = await this.fetchImpl(
@@ -367,6 +322,24 @@ export class MailgunEmailTransport implements TransactionalEmailTransport {
 			);
 		}
 	}
+}
+
+function magicLinkContent(email: MagicLinkEmail): TransactionalEmailContent {
+	return {
+		html: magicLinkHtml(email),
+		subject: "Sign in to Safety Secretary",
+		text: magicLinkText(email),
+	};
+}
+
+function invitationContent(
+	email: InvitationEmail,
+): TransactionalEmailContent {
+	return {
+		html: invitationHtml(email),
+		subject: invitationSubject(email),
+		text: invitationText(email),
+	};
 }
 
 export function createEmailTransport(

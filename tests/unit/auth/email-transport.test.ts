@@ -231,6 +231,55 @@ test("PostmarkEmailTransport requires a server token", () => {
 	);
 });
 
+test("PostmarkEmailTransport sends invitation emails through the email API without tracking", async () => {
+	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+	const fetchImpl: typeof fetch = async (input, init) => {
+		calls.push({ init, input });
+		return new Response(
+			JSON.stringify({ MessageID: "email-1", ErrorCode: 0 }),
+			{ status: 200 },
+		);
+	};
+	const transport = new PostmarkEmailTransport({
+		endpoint: "https://postmark.example.test/email",
+		fetchImpl,
+		messageStream: "outbound",
+		serverToken: "pm_test",
+		userAgent: "SafetySecretaryNext/test",
+	});
+
+	await transport.sendInvitation({
+		expiresAt: new Date("2026-06-20T20:15:00.000Z"),
+		from: "SafetySecretary <invite@example.test>",
+		inviteUrl: "https://app.example.test/invite/token-a",
+		tenantName: "Alpha Safety AG",
+		to: "user@example.test",
+	});
+
+	assert.equal(calls.length, 1);
+	assert.equal(calls[0]?.input, "https://postmark.example.test/email");
+	assert.equal(calls[0]?.init?.method, "POST");
+	assert.deepEqual(calls[0]?.init?.headers, {
+		accept: "application/json",
+		"content-type": "application/json",
+		"user-agent": "SafetySecretaryNext/test",
+		"x-postmark-server-token": "pm_test",
+	});
+
+	const body = JSON.parse(String(calls[0]?.init?.body)) as Record<
+		string,
+		unknown
+	>;
+	assert.equal(body.From, "SafetySecretary <invite@example.test>");
+	assert.equal(body.To, "user@example.test");
+	assert.equal(body.Subject, "Invitation to Alpha Safety AG on Safety Secretary");
+	assert.equal(body.MessageStream, "outbound");
+	assert.equal(body.TrackLinks, "None");
+	assert.equal(body.TrackOpens, false);
+	assert.match(String(body.TextBody), /https:\/\/app\.example\.test\/invite\/token-a/);
+	assert.match(String(body.HtmlBody), /Accept invitation/);
+});
+
 test("MailgunEmailTransport sends magic links through the messages API without tracking", async () => {
 	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
 	const fetchImpl: typeof fetch = async (input, init) => {
@@ -319,4 +368,55 @@ test("MailgunEmailTransport requires an API key and domain", () => {
 			}),
 		/MAILGUN_DOMAIN is required/,
 	);
+});
+
+test("MailgunEmailTransport sends invitation emails through the messages API without tracking", async () => {
+	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+	const fetchImpl: typeof fetch = async (input, init) => {
+		calls.push({ init, input });
+		return new Response(JSON.stringify({ id: "email-1", message: "Queued" }), {
+			status: 200,
+		});
+	};
+	const transport = new MailgunEmailTransport({
+		apiKey: "mg_test",
+		baseUrl: "https://api.eu.mailgun.example.test/",
+		domain: "mg.example.test",
+		fetchImpl,
+		userAgent: "SafetySecretaryNext/test",
+	});
+
+	await transport.sendInvitation({
+		expiresAt: new Date("2026-06-20T20:15:00.000Z"),
+		from: "SafetySecretary <invite@example.test>",
+		inviteUrl: "https://app.example.test/invite/token-a",
+		tenantName: "Alpha Safety AG",
+		to: "user@example.test",
+	});
+
+	assert.equal(calls.length, 1);
+	assert.equal(
+		calls[0]?.input,
+		"https://api.eu.mailgun.example.test/v3/mg.example.test/messages",
+	);
+	assert.equal(calls[0]?.init?.method, "POST");
+	assert.deepEqual(calls[0]?.init?.headers, {
+		authorization: `Basic ${Buffer.from("api:mg_test").toString("base64")}`,
+		"content-type": "application/x-www-form-urlencoded",
+		"user-agent": "SafetySecretaryNext/test",
+	});
+
+	assert.ok(calls[0]?.init?.body instanceof URLSearchParams);
+	const body = calls[0]?.init?.body as URLSearchParams;
+	assert.equal(body.get("from"), "SafetySecretary <invite@example.test>");
+	assert.equal(body.get("to"), "user@example.test");
+	assert.equal(
+		body.get("subject"),
+		"Invitation to Alpha Safety AG on Safety Secretary",
+	);
+	assert.equal(body.get("o:tracking"), "no");
+	assert.equal(body.get("o:tracking-clicks"), "no");
+	assert.equal(body.get("o:tracking-opens"), "no");
+	assert.match(String(body.get("text")), /https:\/\/app\.example\.test\/invite\/token-a/);
+	assert.match(String(body.get("html")), /Accept invitation/);
 });

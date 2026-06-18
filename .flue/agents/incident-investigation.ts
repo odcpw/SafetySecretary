@@ -40,6 +40,7 @@ import {
 	buildFlueIncidentFieldOperations,
 	validateFlueRawIncidentOperations,
 } from "../../src/lib/incident/coach-flue-operation-tools";
+import { resolveFlueModel } from "../../src/lib/incident/coach-flue-config";
 import {
 	findDuplicateCoachProposalOperations,
 	readIncidentCoachProposalDigest,
@@ -197,7 +198,7 @@ export default createAgent((ctx) => {
 		throw new Error(`[ii-flue] Invalid incident agent instance id: ${ctx.id}`);
 	}
 
-	const model = process.env.SSFW_FLUE_MODEL?.trim() || "openai/gpt-5.5";
+	const model = resolveFlueModel(process.env);
 
 	return {
 		instructions: [

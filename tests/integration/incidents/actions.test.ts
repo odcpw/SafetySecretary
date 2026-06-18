@@ -77,6 +77,9 @@ const { authorizeRequest } = (await import(
 const { mintCsrfToken } = (await import(
 	moduleUrl("src/lib/auth/csrf.ts")
 )) as typeof import("../../../src/lib/auth/csrf");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
@@ -203,6 +206,7 @@ if (!databaseUrl) {
 
 			const legacyList = await actionsRoute.GET(
 				request({
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -226,6 +230,7 @@ if (!databaseUrl) {
 				request({
 					body: { actionId: legacyActionId },
 					method: "DELETE",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -249,6 +254,7 @@ if (!databaseUrl) {
 						ownerRole: "Maintenance planner",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -298,6 +304,7 @@ if (!databaseUrl) {
 						status: "IN_PROGRESS",
 					},
 					method: "PATCH",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -343,6 +350,7 @@ if (!databaseUrl) {
 						status: "COMPLETE",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -357,6 +365,7 @@ if (!databaseUrl) {
 
 			const list = await actionsRoute.GET(
 				request({
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -380,6 +389,7 @@ if (!databaseUrl) {
 
 			const crossTenant = await actionsRoute.GET(
 				request({
+					sessionCookie: tenantB.sessionCookie,
 					tenantId: tenantB.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantB.userId,
@@ -397,6 +407,7 @@ if (!databaseUrl) {
 						status: "BLOCKED",
 					},
 					method: "PATCH",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -419,6 +430,7 @@ if (!databaseUrl) {
 						status: "COMPLETE",
 					},
 					method: "PATCH",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -467,6 +479,7 @@ if (!databaseUrl) {
 				request({
 					body: { actionId },
 					method: "DELETE",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/actions`,
 					userId: tenantA.userId,
@@ -491,6 +504,7 @@ if (!databaseUrl) {
 	});
 
 	async function seedTenant(label: string): Promise<{
+		sessionCookie: string;
 		tenantId: string;
 		userId: string;
 	}> {
@@ -513,7 +527,12 @@ if (!databaseUrl) {
 			},
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {
@@ -791,14 +810,18 @@ if (!databaseUrl) {
 function request(input: {
 	body?: Record<string, unknown>;
 	method?: string;
+	sessionCookie: string;
 	tenantId: string;
 	url: string;
 	userId: string;
 }) {
+	const csrf = mintCsrfToken(input.sessionCookie);
 	return new NextRequest(input.url, {
 		body: input.body ? JSON.stringify(input.body) : undefined,
 		headers: {
 			"content-type": "application/json",
+			cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
+			"x-ssfw-csrf": csrf,
 			"x-ssfw-tenant-id": input.tenantId,
 			"x-ssfw-user-id": input.userId,
 		},
@@ -809,15 +832,19 @@ function request(input: {
 function formRequest(input: {
 	body: Record<string, string>;
 	method?: string;
+	sessionCookie: string;
 	tenantId: string;
 	url: string;
 	userId: string;
 }) {
+	const csrf = mintCsrfToken(input.sessionCookie);
 	return new NextRequest(input.url, {
 		body: new URLSearchParams(input.body).toString(),
 		headers: {
 			accept: "text/html",
 			"content-type": "application/x-www-form-urlencoded",
+			cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
+			"x-ssfw-csrf": csrf,
 			"x-ssfw-tenant-id": input.tenantId,
 			"x-ssfw-user-id": input.userId,
 		},

@@ -81,6 +81,9 @@ const { authorizeRequest } = (await import(
 const { mintCsrfToken } = (await import(
 	moduleUrl("src/lib/auth/csrf.ts")
 )) as typeof import("../../../src/lib/auth/csrf");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
 const {
 	buildFiveWhysPrompt,
 	fiveWhysMockSeedFromFixture,
@@ -244,6 +247,7 @@ if (!databaseUrl) {
 			const first = await postTurn({
 				answer: fixture.entries[0].userAnswer,
 				caseId,
+				sessionCookie: tenantA.sessionCookie,
 				tenantId: tenantA.tenantId,
 				timelineEventId: eventId,
 				userId: tenantA.userId,
@@ -260,6 +264,7 @@ if (!databaseUrl) {
 				answer: fixture.entries[1].userAnswer,
 				caseId,
 				parentId: firstNodeId,
+				sessionCookie: tenantA.sessionCookie,
 				tenantId: tenantA.tenantId,
 				userId: tenantA.userId,
 			});
@@ -275,6 +280,7 @@ if (!databaseUrl) {
 				answer: fixture.entries[2].userAnswer,
 				caseId,
 				parentId: secondNodeId,
+				sessionCookie: tenantA.sessionCookie,
 				tenantId: tenantA.tenantId,
 				userId: tenantA.userId,
 			});
@@ -295,6 +301,7 @@ if (!databaseUrl) {
 						statement: `${thirdNode.statement} Updated`,
 					},
 					method: "PATCH",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/causes`,
 					userId: tenantA.userId,
@@ -311,6 +318,7 @@ if (!databaseUrl) {
 
 			const list = await causesRoute.GET(
 				request({
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/causes`,
 					userId: tenantA.userId,
@@ -327,6 +335,7 @@ if (!databaseUrl) {
 
 			const crossTenant = await causesRoute.GET(
 				request({
+					sessionCookie: tenantB.sessionCookie,
 					tenantId: tenantB.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/causes`,
 					userId: tenantB.userId,
@@ -373,6 +382,7 @@ if (!databaseUrl) {
 				postTurn({
 					answer,
 					caseId,
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					timelineEventId: eventId,
 					userId: tenantA.userId,
@@ -431,6 +441,7 @@ if (!databaseUrl) {
 
 			const list = await causesRoute.GET(
 				request({
+					sessionCookie: tenant.sessionCookie,
 					tenantId: tenant.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/causes`,
 					userId: tenant.userId,
@@ -510,7 +521,7 @@ if (!databaseUrl) {
 	});
 
 	async function createCause(
-		tenant: { tenantId: string; userId: string },
+		tenant: { sessionCookie: string; tenantId: string; userId: string },
 		caseId: string,
 		statement: string,
 	): Promise<string> {
@@ -518,6 +529,7 @@ if (!databaseUrl) {
 			request({
 				body: { statement },
 				method: "POST",
+				sessionCookie: tenant.sessionCookie,
 				tenantId: tenant.tenantId,
 				url: `https://app.example.test/api/incidents/${caseId}/causes`,
 				userId: tenant.userId,
@@ -532,7 +544,7 @@ if (!databaseUrl) {
 	}
 
 	async function patchCause(
-		tenant: { tenantId: string; userId: string },
+		tenant: { sessionCookie: string; tenantId: string; userId: string },
 		caseId: string,
 		body: Record<string, unknown>,
 	): Promise<Response> {
@@ -540,6 +552,7 @@ if (!databaseUrl) {
 			request({
 				body,
 				method: "PATCH",
+				sessionCookie: tenant.sessionCookie,
 				tenantId: tenant.tenantId,
 				url: `https://app.example.test/api/incidents/${caseId}/causes`,
 				userId: tenant.userId,
@@ -579,6 +592,7 @@ if (!databaseUrl) {
 		answer: string;
 		caseId: string;
 		parentId?: string;
+		sessionCookie: string;
 		tenantId: string;
 		timelineEventId?: string;
 		userId: string;
@@ -591,6 +605,7 @@ if (!databaseUrl) {
 					timelineEventId: input.timelineEventId,
 				},
 				method: "POST",
+				sessionCookie: input.sessionCookie,
 				tenantId: input.tenantId,
 				url: `https://app.example.test/api/incidents/${input.caseId}/causes/turn`,
 				userId: input.userId,
@@ -634,6 +649,7 @@ if (!databaseUrl) {
 	}
 
 	async function seedTenant(label: string): Promise<{
+		sessionCookie: string;
 		tenantId: string;
 		userId: string;
 	}> {
@@ -656,7 +672,12 @@ if (!databaseUrl) {
 			},
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {
@@ -794,14 +815,18 @@ if (!databaseUrl) {
 	function request(input: {
 		body?: Record<string, unknown>;
 		method?: string;
+		sessionCookie: string;
 		tenantId: string;
 		url: string;
 		userId: string;
 	}) {
+		const csrf = mintCsrfToken(input.sessionCookie);
 		return new NextRequest(input.url, {
 			body: input.body ? JSON.stringify(input.body) : undefined,
 			headers: {
 				"content-type": "application/json",
+				cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
+				"x-ssfw-csrf": csrf,
 				"x-ssfw-tenant-id": input.tenantId,
 				"x-ssfw-user-id": input.userId,
 			},

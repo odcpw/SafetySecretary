@@ -18,7 +18,7 @@ Decision: complete by pass cap; no source-code refactor in pass 10.
 | 7 | Type Surface Shrink | `src/lib/incident/coach-flue-operation-tools.ts` | Operation-tool unit tests before/after; `pnpm test:incidents:coach-flue`; `pnpm typecheck`; `git diff --check` | `eaf378a` |
 | 8 | UI/Layout Helper Duplication | `src/components/agent/StructuredOperationReview.tsx` | `pnpm test:agent`; `pnpm typecheck`; `pnpm lint`; `git diff --check` | `45966c4` |
 | 9 | Dead-Code Safety Gauntlet | `src/lib/i18n/messages.de.json`, `src/lib/i18n/messages.en.json`, `src/lib/i18n/messages.fr.json`, `src/lib/i18n/messages.it.json`, `src/lib/i18n/types.ts` | `pnpm typecheck`; `pnpm lint`; i18n unit test; `pnpm test:copy-lint`; `git diff --check` | `a2ea192` |
-| 10 | Final Metrics, Ledger, and Convergence | None; artifacts/progress only | Final gates: `pnpm typecheck`, `pnpm lint`, `pnpm test:agent`, `pnpm test:incidents:coach-flue`, `pnpm test:auth:last-user`, `pnpm test:copy-lint`, `git diff --check` | Pending final commit |
+| 10 | Final Metrics, Ledger, and Convergence | None; artifacts/progress only | Final gates: `pnpm typecheck`, `pnpm lint`, `pnpm test:agent`, `pnpm test:incidents:coach-flue`, `pnpm test:auth:last-user`, `pnpm test:copy-lint`, `git diff --check` | `a8981e9` |
 
 ## Loop Outcome
 

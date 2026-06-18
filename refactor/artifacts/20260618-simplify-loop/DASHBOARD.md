@@ -32,7 +32,7 @@ Method: `git diff --numstat c7a0a98..d595c74`, with source defined as changed fi
 | 7 | Type Surface Shrink | Flue raw-operation payload type narrowed | Operation-tool tests, `pnpm test:incidents:coach-flue`, `pnpm typecheck`, `git diff --check` | `eaf378a` |
 | 8 | UI/Layout Helper Duplication | Structured review detail-row helper extracted | `pnpm test:agent`, `pnpm typecheck`, `pnpm lint`, `git diff --check` | `45966c4` |
 | 9 | Dead-Code Safety Gauntlet | Unused `incident.tab.placeholder` key removed | `pnpm typecheck`, `pnpm lint`, i18n unit test, `pnpm test:copy-lint`, `git diff --check` | `a2ea192` |
-| 10 | Final Metrics, Ledger, and Convergence | No source changes | Final focused gates and pass-10 artifacts | Pending final commit |
+| 10 | Final Metrics, Ledger, and Convergence | No source changes | Final focused gates and pass-10 artifacts | `a8981e9` |
 
 ## Final Gates
 

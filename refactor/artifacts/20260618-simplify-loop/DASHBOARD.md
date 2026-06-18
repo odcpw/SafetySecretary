@@ -1,8 +1,8 @@
 # Simplify Loop Dashboard
 
 Generated: 2026-06-18T21:34:21+02:00
-Baseline commit: `c7a0a98`
-Compared revision before pass-10 artifacts: `d595c74`
+Baseline commit: `a6b5777`
+Compared revision before pass-10 artifacts: `e659e83`
 Loop status: COMPLETE by pass cap, 10 of 10.
 
 ## Summary
@@ -17,22 +17,22 @@ Loop status: COMPLETE by pass cap, 10 of 10.
 | Final gate commands | 0 | 7 run | 7 pass / 0 fail | Clean |
 | Final test assertions | 0 | 96 observed | 95 pass / 1 skip / 0 fail | Clean with expected env skip |
 
-Method: `git diff --numstat c7a0a98..d595c74`, with source defined as changed files outside `tests/**`, `refactor/artifacts/**`, and `.skill-loop-progress.md`. Pass-10 artifacts are intentionally excluded from that source/test/artifact metric so the numbers describe passes 1-9 before the final dashboard commit.
+Method: `git diff --numstat a6b5777..e659e83`, with source defined as changed files outside `tests/**`, `refactor/artifacts/**`, and `.skill-loop-progress.md`. Pass-10 artifacts are intentionally excluded from that source/test/artifact metric so the numbers describe passes 1-9 before the final dashboard commit.
 
 ## Per-Pass Ledger
 
 | Pass | Mission | Source result | Proof | Commit |
 |---:|---|---|---|---|
-| 1 | Baseline Evidence and Candidate Map | No source changes | Candidate/scanner artifacts captured | `2bf19a7` |
-| 2 | Auth Transport Duplication | Email transport source shrank; transport tests expanded | Email transport tests, `pnpm test:auth:last-user`, `pnpm typecheck` | `db4279f` |
-| 3 | Invite Session Cookie Flow | Invite page duplication removed; shared auth helpers added | Invite/session/base-url tests, `pnpm test:auth:last-user`, `pnpm typecheck` | `aef6f55` |
-| 4 | Flue Runtime and Story Harness Boundaries | Shared Flue model config helper added | `pnpm test:incidents:coach-flue`, `pnpm flue:build`, `pnpm typecheck` | `0cb6c24` |
-| 5 | Incident Coach Operation Tool Shape | File-local invalid-date helper; proof tests added | Flue operation/action-plan tests, `pnpm test:incidents:coach-flue`, `pnpm typecheck` | `e0bab9a` |
-| 6 | Test Fixture and Stub Hygiene | Synthetic fake-transport boundary documented | `pnpm test:agent`, LLM mock test, `pnpm typecheck`, `git diff --check` | `de52238` |
-| 7 | Type Surface Shrink | Flue raw-operation payload type narrowed | Operation-tool tests, `pnpm test:incidents:coach-flue`, `pnpm typecheck`, `git diff --check` | `eaf378a` |
-| 8 | UI/Layout Helper Duplication | Structured review detail-row helper extracted | `pnpm test:agent`, `pnpm typecheck`, `pnpm lint`, `git diff --check` | `45966c4` |
-| 9 | Dead-Code Safety Gauntlet | Unused `incident.tab.placeholder` key removed | `pnpm typecheck`, `pnpm lint`, i18n unit test, `pnpm test:copy-lint`, `git diff --check` | `a2ea192` |
-| 10 | Final Metrics, Ledger, and Convergence | No source changes | Final focused gates and pass-10 artifacts | `a8981e9` |
+| 1 | Baseline Evidence and Candidate Map | No source changes | Candidate/scanner artifacts captured | `0bffe64` |
+| 2 | Auth Transport Duplication | Email transport source shrank; transport tests expanded | Email transport tests, `pnpm test:auth:last-user`, `pnpm typecheck` | `4fb3367` |
+| 3 | Invite Session Cookie Flow | Invite page duplication removed; shared auth helpers added | Invite/session/base-url tests, `pnpm test:auth:last-user`, `pnpm typecheck` | `d54d5e5` |
+| 4 | Flue Runtime and Story Harness Boundaries | Shared Flue model config helper added | `pnpm test:incidents:coach-flue`, `pnpm flue:build`, `pnpm typecheck` | `7ae96a7` |
+| 5 | Incident Coach Operation Tool Shape | File-local invalid-date helper; proof tests added | Flue operation/action-plan tests, `pnpm test:incidents:coach-flue`, `pnpm typecheck` | `5b15e07` |
+| 6 | Test Fixture and Stub Hygiene | Synthetic fake-transport boundary documented | `pnpm test:agent`, LLM mock test, `pnpm typecheck`, `git diff --check` | `05452b8` |
+| 7 | Type Surface Shrink | Flue raw-operation payload type narrowed | Operation-tool tests, `pnpm test:incidents:coach-flue`, `pnpm typecheck`, `git diff --check` | `1bff2e8` |
+| 8 | UI/Layout Helper Duplication | Structured review detail-row helper extracted | `pnpm test:agent`, `pnpm typecheck`, `pnpm lint`, `git diff --check` | `e6d2ca8` |
+| 9 | Dead-Code Safety Gauntlet | Unused `incident.tab.placeholder` key removed | `pnpm typecheck`, `pnpm lint`, i18n unit test, `pnpm test:copy-lint`, `git diff --check` | `ac9327b` |
+| 10 | Final Metrics, Ledger, and Convergence | No source changes | Final focused gates and pass-10 artifacts | `0511bee` |
 
 ## Final Gates
 

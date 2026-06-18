@@ -1,15 +1,15 @@
 # Pass 10 Metrics
 
 Generated: 2026-06-18T21:34:21+02:00
-Baseline commit: `c7a0a98`
-Compared revision: `d595c74` (`HEAD` before unstaged pass-10 artifacts)
+Baseline commit: `a6b5777`
+Compared revision: `e659e83` (commit before pass-10 artifacts)
 
 ## Method
 
 Command:
 
 ```text
-git diff --numstat c7a0a98..HEAD
+git diff --numstat a6b5777..e659e83
 ```
 
 Categorization:
@@ -19,7 +19,7 @@ Categorization:
 - `artifact`: `refactor/artifacts/**`.
 - `progress`: `.skill-loop-progress.md`.
 
-Pass-10 artifact/progress edits are intentionally excluded from this baseline-to-HEAD source delta because the user requested no commit.
+Pass-10 artifact/progress edits are intentionally excluded from this source delta so the metric describes the committed source/test changes from passes 1-9 before the final dashboard commit.
 
 ## Category Delta
 

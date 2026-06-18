@@ -216,7 +216,7 @@ export function buildFlueEvidenceOperations(input: {
 
 		if (
 			event.occurredAt &&
-			Number.isNaN(new Date(event.occurredAt).getTime())
+			isInvalidDateTime(event.occurredAt)
 		) {
 			errors.push(`Timeline event ${index + 1} occurredAt is invalid.`);
 			continue;
@@ -450,7 +450,7 @@ export function validateFlueRawIncidentOperations(input: {
 			if (kind === AgentOperationKind.TimelineEvent) {
 				const occurredAt =
 					typeof payload.occurredAt === "string" ? payload.occurredAt : "";
-				if (occurredAt && Number.isNaN(new Date(occurredAt).getTime())) {
+				if (occurredAt && isInvalidDateTime(occurredAt)) {
 					errors.push({
 						index,
 						message: "timeline_event occurredAt must be an ISO date/time.",
@@ -665,7 +665,7 @@ function normalizeIncidentField(
 		if (!text) {
 			return { message: `${field} must not be empty`, ok: false };
 		}
-		if (field === "incidentAt" && Number.isNaN(new Date(text).getTime())) {
+		if (field === "incidentAt" && isInvalidDateTime(text)) {
 			return { message: "incidentAt must be an ISO date/time", ok: false };
 		}
 		return fieldPayload({
@@ -780,6 +780,10 @@ function sortCauseNodes(
 
 function cleanText(value: string | undefined): string {
 	return value?.trim().replace(/\s+/g, " ") ?? "";
+}
+
+function isInvalidDateTime(value: string): boolean {
+	return Number.isNaN(new Date(value).getTime());
 }
 
 function stringFieldValue(value: string | number | null): string {

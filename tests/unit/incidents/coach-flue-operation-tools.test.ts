@@ -71,6 +71,35 @@ test("flue field proposals validate enum codes before app apply", () => {
 	]);
 });
 
+test("flue field proposals keep incidentAt ISO validation and operation order", () => {
+	const result = buildFlueIncidentFieldOperations({
+		fields: [
+			{ field: "title", value: "Hydraulic oil slip in Line 2" },
+			{ field: "incidentAt", value: "after lunch" },
+			{ field: "actualInjuryOutcome", value: "MEDICAL_TREATMENT" },
+		],
+	});
+
+	assert.equal(result.ok, false);
+	assert.match(result.errors.join("\n"), /incidentAt must be an ISO date\/time/);
+	assert.deepEqual(result.operations, [
+		{
+			kind: AgentOperationKind.IncidentFieldUpdate,
+			payload: {
+				field: "title",
+				value: "Hydraulic oil slip in Line 2",
+			},
+		},
+		{
+			kind: AgentOperationKind.IncidentFieldUpdate,
+			payload: {
+				field: "actualInjuryOutcome",
+				value: "MEDICAL_TREATMENT",
+			},
+		},
+	]);
+});
+
 test("flue evidence proposals keep sequence out of facts and measures out of facts", () => {
 	const result = buildFlueEvidenceOperations({
 		facts: [
@@ -99,6 +128,41 @@ test("flue evidence proposals keep sequence out of facts and measures out of fac
 				narrative: "Mara slipped while carrying label rolls.",
 				phase: "event",
 				title: "Mara slipped on hydraulic oil",
+			},
+		},
+	]);
+});
+
+test("flue evidence proposals keep occurredAt validation and accepted operation order", () => {
+	const result = buildFlueEvidenceOperations({
+		facts: [{ text: "The spill kit was empty." }],
+		timelineEvents: [
+			{
+				occurredAt: "after lunch",
+				phase: "event",
+				title: "Mara slipped on hydraulic oil",
+			},
+			{
+				occurredAt: "2026-06-18T09:15:00.000Z",
+				phase: "after",
+				title: "Area was cordoned off",
+			},
+		],
+	});
+
+	assert.equal(result.ok, false);
+	assert.match(result.errors.join("\n"), /Timeline event 1 occurredAt is invalid/);
+	assert.deepEqual(result.operations, [
+		{
+			kind: AgentOperationKind.Fact,
+			payload: { text: "The spill kit was empty." },
+		},
+		{
+			kind: AgentOperationKind.TimelineEvent,
+			payload: {
+				occurredAt: "2026-06-18T09:15:00.000Z",
+				phase: "after",
+				title: "Area was cordoned off",
 			},
 		},
 	]);

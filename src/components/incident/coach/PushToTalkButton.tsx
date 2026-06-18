@@ -61,6 +61,7 @@ export default function PushToTalkButton({
 
 		return () => {
 			mountedRef.current = false;
+			activeRef.current = false;
 			transcribeAbortRef.current?.abort();
 			transcribeAbortRef.current = null;
 			stopTracks(streamRef.current);
@@ -148,12 +149,14 @@ export default function PushToTalkButton({
 			stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 		} catch {
 			activeRef.current = false;
-			setHint(copy.mic.micBlocked);
+			if (mountedRef.current) {
+				setHint(copy.mic.micBlocked);
+			}
 			return;
 		}
 
 		// The user may have released before permission resolved.
-		if (!activeRef.current) {
+		if (!mountedRef.current || !activeRef.current) {
 			stopTracks(stream);
 			return;
 		}
@@ -182,7 +185,12 @@ export default function PushToTalkButton({
 			const chunks = chunksRef.current;
 			chunksRef.current = [];
 
+			if (!mountedRef.current) {
+				return;
+			}
+
 			if (chunks.length === 0) {
+				setState("idle");
 				return;
 			}
 
@@ -193,7 +201,9 @@ export default function PushToTalkButton({
 		};
 
 		recorder.start();
-		setState("recording");
+		if (mountedRef.current) {
+			setState("recording");
+		}
 	}, [copy, disabled, state, supported, transcribe]);
 
 	const stop = useCallback(() => {

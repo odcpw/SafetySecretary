@@ -117,17 +117,17 @@ export async function GET(
 				}),
 		});
 
-			if (!result.ok) {
-				return clearOAuthStateCookie(
-					redirectToSignin(
-						request,
-						result.code === INVITATION_REQUIRED_CODE
-							? "invitation_required"
-							: "oauth_failed",
-					),
-					cookieName,
+		if (!result.ok) {
+			return clearOAuthStateCookie(
+				redirectToSignin(
 					request,
-				);
+					result.code === INVITATION_REQUIRED_CODE
+						? "invitation_required"
+						: "oauth_failed",
+				),
+				cookieName,
+				request,
+			);
 		}
 
 		return clearOAuthStateCookie(result.response, cookieName, request);

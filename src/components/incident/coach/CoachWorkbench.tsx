@@ -81,6 +81,7 @@ export default function CoachWorkbench({
 }: CoachWorkbenchProps) {
 	const copy = resolveCoachCopy(locale);
 	const coachReplyLocale = replyLocale ?? locale;
+	const genericChatError = copy.chatErrors.generic;
 	const [record, setRecord] = useState<IncidentRecord | null>(null);
 	const [messages, setMessages] = useState<CoachChatMessage[]>([]);
 	// Lives in a ref because sequential "Accept all" applies must see the
@@ -216,6 +217,10 @@ export default function CoachWorkbench({
 					setFeedbackRating(body.feedback?.rating ?? null);
 					setFeedbackComment(body.feedback?.comment ?? "");
 				}
+			} catch {
+				if (!cancelled) {
+					setError(genericChatError);
+				}
 			} finally {
 				if (!cancelled) {
 					setLoaded(true);
@@ -228,7 +233,7 @@ export default function CoachWorkbench({
 		return () => {
 			cancelled = true;
 		};
-	}, [incidentId]);
+		}, [genericChatError, incidentId]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll to the newest message whenever the conversation grows.
 	useEffect(() => {
@@ -429,7 +434,7 @@ export default function CoachWorkbench({
 		setInput("");
 		const ok = await submitMessage(message);
 
-		if (!ok) {
+		if (!ok && mountedRef.current) {
 			setInput(message);
 		}
 	}
@@ -527,19 +532,27 @@ export default function CoachWorkbench({
 			}),
 			{ focusComposer: false },
 		).then((accepted) => {
-			if (accepted) {
-				return;
+			if (!accepted) {
+				requeueConsistencyChanges(changes);
 			}
+		}).catch(() => requeueConsistencyChanges(changes));
+	}
 
-			pendingConsistencyChangesRef.current = [
-				...changes,
-				...pendingConsistencyChangesRef.current,
-			].slice(-8);
+	function requeueConsistencyChanges(
+		changes: readonly ManualIncidentRecordChange[],
+	) {
+		if (!mountedRef.current) {
+			return;
+		}
 
-			if (!consistencyTimerRef.current) {
-				consistencyTimerRef.current = setTimeout(flushConsistencyReview, 2000);
-			}
-		});
+		pendingConsistencyChangesRef.current = [
+			...changes,
+			...pendingConsistencyChangesRef.current,
+		].slice(-8);
+
+		if (!consistencyTimerRef.current) {
+			consistencyTimerRef.current = setTimeout(flushConsistencyReview, 2000);
+		}
 	}
 
 	async function decide(
@@ -578,6 +591,10 @@ export default function CoachWorkbench({
 				code?: string;
 			};
 
+			if (!mountedRef.current) {
+				return;
+			}
+
 			if (!response.ok) {
 				throw new Error(body.code ?? `APPLY_FAILED_${response.status}`);
 			}
@@ -612,12 +629,16 @@ export default function CoachWorkbench({
 				await refreshRecord();
 			}
 		} catch (caught) {
-			setError(userSafeError(caught, copy));
+			if (mountedRef.current) {
+				setError(userSafeError(caught, copy));
+			}
 		} finally {
-			releaseBusyOperation(operation.id);
-			setEditing((current) =>
-				current?.operationId === operation.id ? null : current,
-			);
+			if (mountedRef.current) {
+				releaseBusyOperation(operation.id);
+				setEditing((current) =>
+					current?.operationId === operation.id ? null : current,
+				);
+			}
 		}
 	}
 

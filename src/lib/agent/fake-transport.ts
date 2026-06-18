@@ -1,3 +1,10 @@
+/**
+ * Deterministic agent transport for tests and manual validation harnesses.
+ *
+ * It is exported with the agent runtime so those harnesses can exercise the
+ * real dispatch/trace path, but it must only replay seeded synthetic
+ * operations for an exact context digest.
+ */
 import { AgentRuntimeError } from "./errors";
 import { digestContext } from "./runtime";
 import type {

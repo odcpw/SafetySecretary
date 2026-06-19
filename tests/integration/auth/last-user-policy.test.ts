@@ -146,7 +146,7 @@ if (!databaseUrl) {
 		}
 	});
 
-	test("company deletion drops tenant schema and deletes shared sessions and memberships", async () => {
+	test("company deletion rejects a multi-member workspace", async () => {
 		ensureMigrated();
 		const tenant = await seedTenant("delete", 2);
 		await provisionEmptyTenantSchema(tenant.tenantId);
@@ -168,10 +168,52 @@ if (!databaseUrl) {
 				}),
 			);
 
+			assert.equal(response.status, 409);
+			assert.deepEqual(await response.json(), {
+				code: "COMPANY_DELETE_REQUIRES_LAST_MEMBER",
+			});
+			assert.equal(await schemaExists(tenant.tenantId), true);
+			assert.equal(await membershipCount(tenant.tenantId), 2);
+			assert.equal(await sessionCount(tenant.tenantId), 2);
+			assert.equal(await tenantCount(tenant.tenantId), 1);
+			console.log(
+				`DB inspection company deletion rejected: schema_exists=${await schemaExists(
+					tenant.tenantId,
+				)}; memberships=${await membershipCount(
+					tenant.tenantId,
+				)}; sessions=${await sessionCount(tenant.tenantId)}`,
+			);
+		} finally {
+			await cleanupTenant(tenant);
+		}
+	});
+
+	test("company deletion drops tenant schema and deletes sole-member shared rows", async () => {
+		ensureMigrated();
+		const tenant = await seedTenant("delete", 1);
+		await provisionEmptyTenantSchema(tenant.tenantId);
+		const requestSession = tenant.sessions[0].id;
+		const csrfToken = mintCsrfToken(requestSession);
+
+		try {
+			assert.equal(await schemaExists(tenant.tenantId), true);
+
+			const response = await companyRoute.DELETE(
+				new NextRequest("https://app.example.test/api/auth/company", {
+					body: JSON.stringify({ confirmation: "DELETE" }),
+					headers: {
+						cookie: `${SESSION_COOKIE_NAME}=${requestSession}; ${CSRF_COOKIE_NAME}=${csrfToken}`,
+						"content-type": "application/json",
+						"x-ssfw-csrf": csrfToken,
+					},
+					method: "DELETE",
+				}),
+			);
+
 			assert.equal(response.status, 200);
 			assert.deepEqual(await response.json(), {
-				deletedMemberships: 2,
-				deletedSessions: 2,
+				deletedMemberships: 1,
+				deletedSessions: 1,
 				deletedTenants: 1,
 				status: "deleted",
 			});

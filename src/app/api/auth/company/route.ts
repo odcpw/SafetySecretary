@@ -19,6 +19,7 @@ type DeleteCompanyResult = {
 };
 
 const confirmationValue = "DELETE";
+const deleteRequiresLastMemberCode = "COMPANY_DELETE_REQUIRES_LAST_MEMBER";
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
 	const session = await resolveSession(request);
@@ -48,7 +49,21 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 		);
 	}
 
-	const result = await deleteCompanyWorkspace(session.tenantId);
+	const result = await deleteCompanyWorkspace(session.tenantId, session.userId);
+
+	if (result.status === "actor_not_member") {
+		return NextResponse.json(
+			{ code: "TENANT_MEMBERSHIP_REQUIRED" },
+			{ status: 403 },
+		);
+	}
+
+	if (result.status === "not_last_member") {
+		return NextResponse.json(
+			{ code: deleteRequiresLastMemberCode },
+			{ status: 409 },
+		);
+	}
 
 	return NextResponse.json(result);
 }
@@ -68,9 +83,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 async function deleteCompanyWorkspace(
 	tenantId: string,
-): Promise<DeleteCompanyResult> {
+	userId: string,
+): Promise<
+	| DeleteCompanyResult
+	| { status: "actor_not_member" }
+	| { status: "not_last_member" }
+> {
 	const deleted = await prisma.$transaction(async (tx) => {
-		await dropTenantSchema(tenantId, tx);
+		const lockedMemberships = await tx.$queryRaw<{ userId: string }[]>`
+			SELECT user_id::text AS "userId"
+			FROM shared.tenant_memberships
+			WHERE tenant_id = ${tenantId}::uuid
+			FOR UPDATE
+		`;
+		const memberIds = new Set(
+			lockedMemberships.map((membership) => membership.userId.toLowerCase()),
+		);
+
+		if (!memberIds.has(userId.toLowerCase())) {
+			return { status: "actor_not_member" as const };
+		}
+
+		if (memberIds.size !== 1) {
+			return { status: "not_last_member" as const };
+		}
 
 		const deletedSessions = await tx.session.deleteMany({
 			where: { tenantId },
@@ -86,10 +122,17 @@ async function deleteCompanyWorkspace(
 			deletedMemberships: deletedMemberships.count,
 			deletedSessions: deletedSessions.count,
 			deletedTenants: deletedTenants.count,
+			status: "deleted" as const,
 		};
 	});
 
-	return { ...deleted, status: "deleted" };
+	if (deleted.status !== "deleted") {
+		return deleted;
+	}
+
+	await dropTenantSchema(tenantId);
+
+	return deleted;
 }
 
 async function resolveSession(

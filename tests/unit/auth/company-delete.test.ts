@@ -38,30 +38,44 @@ registerHooks({
 				return dataModuleUrl(`
 					export async function dropTenantSchema(tenantId, client) {
 						globalThis.__ssfwCompanyDropCalls ??= [];
+						globalThis.__ssfwCompanyOperationCalls ??= [];
 						globalThis.__ssfwCompanyDropCalls.push([tenantId, client ? "transaction" : "standalone"]);
+						globalThis.__ssfwCompanyOperationCalls.push(["drop", tenantId, client ? "transaction" : "standalone"]);
 						return { tenantId };
 					}
 					export const prisma = {
 						async $transaction(fn) {
 							return fn({
+								async $queryRaw() {
+									return globalThis.__ssfwCompanyLockedMemberships ?? [
+										{ userId: "33333333-3333-4333-8333-333333333333" },
+										{ userId: "99999999-9999-4999-8999-999999999999" },
+									];
+								},
 								session: {
 									async deleteMany(args) {
 										globalThis.__ssfwCompanyDeleteCalls ??= [];
+										globalThis.__ssfwCompanyOperationCalls ??= [];
 										globalThis.__ssfwCompanyDeleteCalls.push(["sessions", args]);
-										return { count: 3 };
+										globalThis.__ssfwCompanyOperationCalls.push(["sessions", args]);
+										return { count: globalThis.__ssfwCompanyDeletedSessionsCount ?? 3 };
 									},
 								},
 								tenantMembership: {
 									async deleteMany(args) {
 										globalThis.__ssfwCompanyDeleteCalls ??= [];
+										globalThis.__ssfwCompanyOperationCalls ??= [];
 										globalThis.__ssfwCompanyDeleteCalls.push(["memberships", args]);
-										return { count: 2 };
+										globalThis.__ssfwCompanyOperationCalls.push(["memberships", args]);
+										return { count: globalThis.__ssfwCompanyDeletedMembershipsCount ?? 2 };
 									},
 								},
 								tenant: {
 									async deleteMany(args) {
 										globalThis.__ssfwCompanyDeleteCalls ??= [];
+										globalThis.__ssfwCompanyOperationCalls ??= [];
 										globalThis.__ssfwCompanyDeleteCalls.push(["tenant", args]);
+										globalThis.__ssfwCompanyOperationCalls.push(["tenant", args]);
 										return { count: 1 };
 									},
 								},
@@ -114,6 +128,10 @@ const testGlobalState = globalThis as typeof globalThis & {
 		userId: string;
 	} | null;
 	__ssfwCompanyDropCalls?: unknown[];
+	__ssfwCompanyLockedMemberships?: Array<{ userId: string }>;
+	__ssfwCompanyDeletedMembershipsCount?: number;
+	__ssfwCompanyDeletedSessionsCount?: number;
+	__ssfwCompanyOperationCalls?: unknown[];
 };
 
 test("company DELETE requires explicit confirmation before tenant deletion", async () => {
@@ -160,8 +178,36 @@ test("company DELETE requires the actor to remain a tenant member", async () => 
 	assert.deepEqual(testGlobalState.__ssfwCompanyDeleteCalls, []);
 });
 
-test("company DELETE drops tenant schema and deletes sessions, memberships, and tenant", async () => {
+test("company DELETE requires the actor to be the last tenant member", async () => {
 	setCompanyDeleteState();
+	const csrfValue = mintCsrfToken(SESSION_ID);
+
+	const response = await deleteCompany(
+		request("/api/auth/company", {
+			body: { confirmation: "DELETE" },
+			headers: {
+				cookie: `${csrfCookieName}=${csrfValue}`,
+				"x-ssfw-csrf": csrfValue,
+			},
+			method: "DELETE",
+		}),
+	);
+
+	assert.equal(response.status, 409);
+	assert.deepEqual(await response.json(), {
+		code: "COMPANY_DELETE_REQUIRES_LAST_MEMBER",
+	});
+	assert.deepEqual(testGlobalState.__ssfwCompanyDropCalls, []);
+	assert.deepEqual(testGlobalState.__ssfwCompanyDeleteCalls, []);
+});
+
+test("company DELETE drops tenant schema after deleting sole-member workspace rows", async () => {
+	setCompanyDeleteState();
+	testGlobalState.__ssfwCompanyLockedMemberships = [
+		{ userId: "33333333-3333-4333-8333-333333333333" },
+	];
+	testGlobalState.__ssfwCompanyDeletedMembershipsCount = 1;
+	testGlobalState.__ssfwCompanyDeletedSessionsCount = 1;
 	const csrfValue = mintCsrfToken(SESSION_ID);
 
 	const response = await deleteCompany(
@@ -177,13 +223,13 @@ test("company DELETE drops tenant schema and deletes sessions, memberships, and 
 
 	assert.equal(response.status, 200);
 	assert.deepEqual(await response.json(), {
-		deletedMemberships: 2,
-		deletedSessions: 3,
+		deletedMemberships: 1,
+		deletedSessions: 1,
 		deletedTenants: 1,
 		status: "deleted",
 	});
 	assert.deepEqual(testGlobalState.__ssfwCompanyDropCalls, [
-		["22222222-2222-4222-8222-222222222222", "transaction"],
+		["22222222-2222-4222-8222-222222222222", "standalone"],
 	]);
 	assert.deepEqual(testGlobalState.__ssfwCompanyDeleteCalls, [
 		[
@@ -196,11 +242,27 @@ test("company DELETE drops tenant schema and deletes sessions, memberships, and 
 		],
 		["tenant", { where: { id: "22222222-2222-4222-8222-222222222222" } }],
 	]);
+	assert.deepEqual(testGlobalState.__ssfwCompanyOperationCalls, [
+		[
+			"sessions",
+			{ where: { tenantId: "22222222-2222-4222-8222-222222222222" } },
+		],
+		[
+			"memberships",
+			{ where: { tenantId: "22222222-2222-4222-8222-222222222222" } },
+		],
+		["tenant", { where: { id: "22222222-2222-4222-8222-222222222222" } }],
+		["drop", "22222222-2222-4222-8222-222222222222", "standalone"],
+	]);
 });
 
 function setCompanyDeleteState(): void {
 	testGlobalState.__ssfwCompanyDeleteCalls = [];
 	testGlobalState.__ssfwCompanyDropCalls = [];
+	testGlobalState.__ssfwCompanyLockedMemberships = undefined;
+	testGlobalState.__ssfwCompanyDeletedMembershipsCount = undefined;
+	testGlobalState.__ssfwCompanyDeletedSessionsCount = undefined;
+	testGlobalState.__ssfwCompanyOperationCalls = [];
 	testGlobalState.__ssfwCompanyHasMembership = true;
 	testGlobalState.__ssfwCompanyDeleteSession = {
 		id: SESSION_ID,

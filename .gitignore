@@ -5,6 +5,7 @@ case-backups/
 coverage/
 dist/
 .flue-dist/
+.flue-vite/
 data/flue*.db*
 .env
 .env.*
@@ -16,6 +17,7 @@ next-env.d.ts
 node_modules/
 pnpm-debug.log*
 test-results/
+playwright-report/
 .tmp/
 *.tsbuildinfo
 

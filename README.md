@@ -36,8 +36,8 @@ bureaucracy.
 
 ## Run it yourself (bring your own OpenAI key)
 
-Safety Secretary talks to OpenAI using *your* own API key, so you stay in
-control of the model and the cost.
+Safety Secretary is open source and self-hostable. It talks to OpenAI using
+*your* own API key, so you stay in control of the model and the cost.
 
 You'll need [Node.js](https://nodejs.org), [pnpm](https://pnpm.io), and
 [Docker](https://www.docker.com) (for the local database).
@@ -122,5 +122,4 @@ sanity.
 
 ## License
 
-No open‑source license yet — all rights reserved. You're welcome to look around
-and run it locally.
+Safety Secretary is open source under the MIT License. See [LICENSE](LICENSE).

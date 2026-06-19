@@ -14,6 +14,8 @@ type LandingCopy = {
 	hiraBlurb: string;
 	comingSoon: string;
 	signInFooter: string;
+	sourceLinkLabel: string;
+	sourceSentence: string;
 	auth: LandingAuthCopy;
 };
 
@@ -34,6 +36,9 @@ const landingCopyByLocale: Record<Locale, LandingCopy> = {
 		comingSoon: "Coming soon",
 		signInFooter:
 			"Your sign-in link is your own workspace. We email it — no password to remember.",
+		sourceLinkLabel: "GitHub",
+		sourceSentence:
+			"Open source and self-hostable for teams that want to run it in their own cloud.",
 		auth: {
 			signIn: "Sign in",
 			tryWorkspace: "Try it (test workspace)",
@@ -57,6 +62,9 @@ const landingCopyByLocale: Record<Locale, LandingCopy> = {
 		comingSoon: "Demnächst",
 		signInFooter:
 			"Dein Anmeldelink ist dein eigener Arbeitsbereich. Wir senden ihn per E-Mail — kein Passwort zum Merken.",
+		sourceLinkLabel: "GitHub",
+		sourceSentence:
+			"Open Source und selbst hostbar für Teams, die es in ihrer eigenen Cloud betreiben wollen.",
 		auth: {
 			signIn: "Anmelden",
 			tryWorkspace: "Ausprobieren (Test-Arbeitsbereich)",
@@ -80,6 +88,9 @@ const landingCopyByLocale: Record<Locale, LandingCopy> = {
 		comingSoon: "Bientôt disponible",
 		signInFooter:
 			"Ton lien de connexion est ton propre espace de travail. Nous l'envoyons par e-mail — aucun mot de passe à retenir.",
+		sourceLinkLabel: "GitHub",
+		sourceSentence:
+			"Open source et auto-hébergeable pour les équipes qui veulent l'exécuter dans leur propre cloud.",
 		auth: {
 			signIn: "Se connecter",
 			tryWorkspace: "Essayer (espace de test)",
@@ -102,6 +113,9 @@ const landingCopyByLocale: Record<Locale, LandingCopy> = {
 		comingSoon: "Prossimamente",
 		signInFooter:
 			"Il tuo link di accesso è il tuo spazio di lavoro. Lo inviamo via e-mail — nessuna password da ricordare.",
+		sourceLinkLabel: "GitHub",
+		sourceSentence:
+			"Open source e self-hostable per team che vogliono eseguirlo nel proprio cloud.",
 		auth: {
 			signIn: "Accedi",
 			tryWorkspace: "Provalo (spazio di test)",
@@ -222,6 +236,27 @@ export default function LandingShell({ locale }: LandingShellProps) {
 					<LandingAuthActions copy={copy.auth} />
 					<p className="m-0 text-[var(--text-xs)] text-[var(--color-muted)]">
 						{copy.signInFooter}
+					</p>
+					<p className="m-0 flex flex-wrap items-center gap-2 text-[var(--text-xs)] text-[var(--color-muted)]">
+						<span>{copy.sourceSentence}</span>
+						<a
+							className="inline-flex items-center gap-1.5 font-medium text-[var(--color-text)] underline decoration-[var(--color-border)] underline-offset-4 hover:decoration-[var(--color-text)]"
+							href="https://github.com/odcpw/SafetySecretary"
+							rel="noreferrer"
+							target="_blank"
+						>
+							<svg
+								aria-hidden="true"
+								fill="currentColor"
+								height="14"
+								role="presentation"
+								viewBox="0 0 16 16"
+								width="14"
+							>
+								<path d="M8 0C3.6 0 0 3.6 0 8c0 3.5 2.3 6.5 5.5 7.6.4.1.5-.2.5-.4v-1.4c-2.2.5-2.7-.9-2.7-.9-.4-.9-.9-1.2-.9-1.2-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.9.9 2.3.7.1-.5.3-.9.5-1.1-1.8-.2-3.6-.9-3.6-4 0-.9.3-1.6.8-2.2-.1-.2-.4-1 .1-2.1 0 0 .7-.2 2.2.8.6-.2 1.3-.3 2-.3s1.4.1 2 .3c1.5-1 2.2-.8 2.2-.8.5 1.1.2 1.9.1 2.1.5.6.8 1.3.8 2.2 0 3.1-1.9 3.8-3.6 4 .3.2.5.7.5 1.4v2.1c0 .2.1.5.5.4C13.7 14.5 16 11.5 16 8c0-4.4-3.6-8-8-8Z" />
+							</svg>
+							{copy.sourceLinkLabel}
+						</a>
 					</p>
 				</footer>
 			</div>

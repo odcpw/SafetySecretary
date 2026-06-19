@@ -61,7 +61,9 @@
 		"db:studio": "prisma studio",
 		"db:migrate": "node --experimental-strip-types scripts/db/migrate.ts",
 		"db:reset": "node --experimental-strip-types scripts/db/migrate.ts reset",
-		"db:sql:apply": "node --experimental-strip-types scripts/db/migrate.ts sql:apply"
+		"db:sql:apply": "node --experimental-strip-types scripts/db/migrate.ts sql:apply",
+		"db:check:tenant-conformance": "node --env-file=.env --experimental-strip-types scripts/db/check-tenant-conformance.ts",
+		"db:tenants:orphans": "node --env-file=.env --experimental-strip-types scripts/db/tenant-schema-janitor.ts"
 	},
 	"config": {
 		"secretScan": {

@@ -49,6 +49,22 @@ Raw SQL files in this directory use a 5-digit zero-padded lexicographic-prefix f
 
 This ensures `ls` and `git ls-files` order matches migration order without a separate metadata file.
 
+## Raw SQL migration ledger
+
+`scripts/db/migrate.ts` records applied raw SQL files in `shared.raw_sql_migrations` after Prisma migrations run. Existing deployments that already reached `00450_incident_case_number_unique.sql` are imported once as `legacy_imported`; later raw SQL files are applied once and recorded as `applied`.
+
+Do not edit an already-applied raw SQL file to change behavior. Add a new numbered SQL file instead. The runner compares SHA-256 checksums and fails if an applied raw migration changes.
+
+Useful checks:
+
+```
+pnpm db:migrate -- --dry-run
+pnpm db:check:tenant-conformance
+pnpm db:tenants:orphans -- --json
+```
+
+`db:tenants:orphans -- --drop` only drops one explicitly named orphan at a time. Pass `--tenant-id <uuid>` or `--schema <tenant_uuid_schema>` plus `--confirm-drop <same-uuid>`. Destructive mode also requires `NODE_ENV=development`, unless `--force-production` is explicitly provided.
+
 ## Snapshots and artifacts layering
 
 The snapshots and foreign-key layering conventions are documented in:

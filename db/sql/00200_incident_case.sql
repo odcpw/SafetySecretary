@@ -1034,7 +1034,6 @@ BEGIN
     );
 
   EXECUTE format('CREATE INDEX IF NOT EXISTS incident_case_created_by_idx ON %I.incident_case(created_by)', tenant_schema);
-  EXECUTE format('CREATE UNIQUE INDEX IF NOT EXISTS incident_case_case_number_key ON %I.incident_case(case_number) WHERE case_number IS NOT NULL', tenant_schema);
   EXECUTE format('CREATE INDEX IF NOT EXISTS incident_case_workflow_stage_idx ON %I.incident_case(workflow_stage)', tenant_schema);
   EXECUTE format('CREATE INDEX IF NOT EXISTS incident_person_case_id_idx ON %I.incident_person(case_id)', tenant_schema);
   EXECUTE format('CREATE INDEX IF NOT EXISTS incident_account_case_id_idx ON %I.incident_account(case_id)', tenant_schema);

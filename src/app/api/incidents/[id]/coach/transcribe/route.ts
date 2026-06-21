@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../../lib/auth/cookies";
-import { verifyCsrfToken } from "../../../../../../lib/auth/csrf";
+import { readSessionCookie } from "../../../../../../lib/auth/cookies";
+import { verifyCsrfRequest } from "../../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -82,7 +82,7 @@ export async function handleCoachTranscribe(
 
 	// CSRF is enforced by the proxy for state-changing methods; a multipart POST
 	// still carries the double-submit header from the client.
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -166,10 +166,7 @@ export async function handleCoachTranscribe(
 				status: error.status ?? null,
 			});
 			if (error.status === 400) {
-				return NextResponse.json(
-					{ code: "AUDIO_UNREADABLE" },
-					{ status: 422 },
-				);
+				return NextResponse.json({ code: "AUDIO_UNREADABLE" }, { status: 422 });
 			}
 
 			return NextResponse.json({ code: "PROVIDER_FAILED" }, { status: 502 });
@@ -183,7 +180,7 @@ async function resolveSession(
 	request: NextRequest,
 	sessionValidator: SessionValidator = validateSession,
 ): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
-	return sessionValidator(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return sessionValidator(readSessionCookie(request.cookies));
 }
 
 function isMultipartRequest(request: Request): boolean {

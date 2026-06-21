@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { readEnvRaw } from "../config/env";
 import { withTenantConnection } from "../db";
 import type { Locale } from "../i18n/types";
 import {
@@ -12,7 +13,10 @@ import { hashOfPrompt, MockProvider, type MockProviderSeed } from "../llm/mock";
 import { KindEnum, type LLMProvider, type LLMResponse } from "../llm/types";
 
 export const II_5WHYS_PROMPT_PURPOSE = "ii_5whys_turn";
-export const II_5WHYS_MOCK_SEED_PATH_ENV = "SSFW_II_5WHYS_MOCK_SEED_PATH";
+export const II_5WHYS_MOCK_SEED_PATH_ENV =
+	"SAFETYSECRETARY_II_5WHYS_MOCK_SEED_PATH";
+export const LEGACY_II_5WHYS_MOCK_SEED_PATH_ENV =
+	"SSFW_II_5WHYS_MOCK_SEED_PATH";
 
 export type CauseParentKind = "timeline_event" | "cause_node";
 
@@ -228,7 +232,8 @@ export async function updateCauseNode(
 	payload: CauseNodeUpdate,
 ): Promise<IncidentCauseNode | null> {
 	return withTenantConnection(tenantId, async (tx) => {
-		const repositions = payload.parentId !== undefined || payload.beforeId !== undefined;
+		const repositions =
+			payload.parentId !== undefined || payload.beforeId !== undefined;
 
 		if (repositions) {
 			// Serialize moves per case so two concurrent re-parents cannot each
@@ -424,7 +429,11 @@ export function readFiveWhysMockProviderFromEnv(
 		return undefined;
 	}
 
-	const fixturePath = env[II_5WHYS_MOCK_SEED_PATH_ENV];
+	const fixturePath = readEnvRaw(
+		env,
+		II_5WHYS_MOCK_SEED_PATH_ENV,
+		LEGACY_II_5WHYS_MOCK_SEED_PATH_ENV,
+	);
 
 	if (!fixturePath) {
 		return undefined;

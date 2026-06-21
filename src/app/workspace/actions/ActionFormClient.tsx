@@ -700,7 +700,7 @@ async function submitAction(
 			credentials: "same-origin",
 			headers: {
 				"Content-Type": "application/json",
-				"x-ssfw-csrf": csrfToken,
+				"x-safetysecretary-csrf": csrfToken,
 			},
 			method: mode === "create" ? "POST" : "PATCH",
 		},
@@ -725,7 +725,7 @@ async function deleteAction(id: string): Promise<SerializedActionItemDetail> {
 	const csrfToken = ensureCsrfToken(CSRF_COOKIE_NAME);
 	const response = await fetch(`/api/actions/${id}`, {
 		credentials: "same-origin",
-		headers: { "x-ssfw-csrf": csrfToken },
+		headers: { "x-safetysecretary-csrf": csrfToken },
 		method: "DELETE",
 	});
 
@@ -752,7 +752,7 @@ async function uploadAttachment(
 	const response = await fetch(`/api/actions/${actionId}/attachments`, {
 		body: formData,
 		credentials: "same-origin",
-		headers: { "x-ssfw-csrf": csrfToken },
+		headers: { "x-safetysecretary-csrf": csrfToken },
 		method: "POST",
 	});
 
@@ -781,7 +781,7 @@ async function removeAttachment(
 		credentials: "same-origin",
 		headers: {
 			"Content-Type": "application/json",
-			"x-ssfw-csrf": csrfToken,
+			"x-safetysecretary-csrf": csrfToken,
 		},
 		method: "DELETE",
 	});

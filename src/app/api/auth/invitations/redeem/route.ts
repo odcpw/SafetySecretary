@@ -1,13 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import {
 	authCookieSecurityContextFromRequest,
-	SESSION_COOKIE_NAME,
+	readSessionCookie,
 	setSessionCookie,
 } from "../../../../../lib/auth/cookies";
-import {
-	setCsrfCookie,
-	verifyCsrfToken,
-} from "../../../../../lib/auth/csrf";
+import { setCsrfCookie, verifyCsrfRequest } from "../../../../../lib/auth/csrf";
 import { redeemInvitationToken } from "../../../../../lib/auth/invitations";
 import {
 	issueSession,
@@ -15,6 +12,10 @@ import {
 	type ValidatedSession,
 	validateSession,
 } from "../../../../../lib/auth/session";
+import {
+	notifyOperatorTenantAccess,
+	scheduleOperatorNotification,
+} from "../../../../../lib/operator/notifications";
 
 export const runtime = "nodejs";
 
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -73,6 +74,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 	const cookieSecurity = authCookieSecurityContextFromRequest(request);
 	setSessionCookie(response, inviteSession, cookieSecurity);
 	setCsrfCookie(response, inviteSession.cookieValue, cookieSecurity);
+	if (result.joinedTenant) {
+		scheduleOperatorNotification("tenant access", () =>
+			notifyOperatorTenantAccess({
+				action: "joined",
+				tenantId: result.tenantId,
+				userId: result.userId,
+			}),
+		);
+	}
 
 	return response;
 }
@@ -80,14 +90,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 async function readToken(request: NextRequest): Promise<string> {
 	const contentType = request.headers.get("content-type") ?? "";
 
 	if (contentType.includes("application/json")) {
-		const body = (await request.json().catch(() => null)) as RedeemRequestBody | null;
+		const body = (await request
+			.json()
+			.catch(() => null)) as RedeemRequestBody | null;
 		return typeof body?.token === "string" ? body.token : "";
 	}
 

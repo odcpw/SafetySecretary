@@ -3,7 +3,7 @@ export type AuditInspectionDraftScope = {
 	readonly userId: string;
 };
 
-const draftStorageKeyPrefix = "ssfw:audit-inspection-capture:v1";
+const draftStorageKeyPrefix = "safetysecretary:audit-inspection-capture:v1";
 
 export function auditInspectionDraftStorageKey(
 	scope: AuditInspectionDraftScope,

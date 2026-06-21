@@ -1,8 +1,15 @@
-import { SESSION_COOKIE_NAME } from "../auth/cookies";
+import {
+	readCookieMapValue,
+	readSessionCookie as readSessionCookieFromStore,
+	SESSION_COOKIE_NAMES,
+} from "../auth/cookies";
 import { type ValidatedSession, validateSession } from "../auth/session";
 import { tenantPrefix } from "./keys";
 
-export type TenantSession = Pick<ValidatedSession, "id" | "tenantId" | "userId">;
+export type TenantSession = Pick<
+	ValidatedSession,
+	"id" | "tenantId" | "userId"
+>;
 
 export type StorageSessionValidator = (
 	cookieValue: string | null | undefined,
@@ -67,17 +74,20 @@ type CookieReadableRequest = Request & {
 };
 
 function readSessionCookie(request: Request): string | null {
-	const nextCookie = (request as CookieReadableRequest).cookies?.get(
-		SESSION_COOKIE_NAME,
-	)?.value;
+	const nextCookies = (request as CookieReadableRequest).cookies;
+	const nextCookie = nextCookies
+		? readSessionCookieFromStore(nextCookies)
+		: undefined;
 
 	if (nextCookie) {
 		return nextCookie;
 	}
 
 	return (
-		parseCookieHeader(request.headers.get("cookie")).get(SESSION_COOKIE_NAME) ??
-		null
+		readCookieMapValue(
+			parseCookieHeader(request.headers.get("cookie")),
+			SESSION_COOKIE_NAMES,
+		) ?? null
 	);
 }
 

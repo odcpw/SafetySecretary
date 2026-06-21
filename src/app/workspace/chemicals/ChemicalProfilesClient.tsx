@@ -802,7 +802,7 @@ async function submitProfile({
 		credentials: "same-origin",
 		headers: {
 			"Content-Type": "application/json",
-			"x-ssfw-csrf": csrfToken,
+			"x-safetysecretary-csrf": csrfToken,
 		},
 		method,
 	});
@@ -829,7 +829,7 @@ async function submitArchive(
 	const response = await fetch(`/api/chemicals/${id}`, {
 		credentials: "same-origin",
 		headers: {
-			"x-ssfw-csrf": csrfToken,
+			"x-safetysecretary-csrf": csrfToken,
 		},
 		method: "DELETE",
 	});
@@ -861,7 +861,7 @@ async function submitSdsExtraction(input: {
 		body: formData,
 		credentials: "same-origin",
 		headers: {
-			"x-ssfw-csrf": csrfToken,
+			"x-safetysecretary-csrf": csrfToken,
 		},
 		method: "POST",
 	});
@@ -895,7 +895,7 @@ async function submitSdsReview(input: {
 		credentials: "same-origin",
 		headers: {
 			"Content-Type": "application/json",
-			"x-ssfw-csrf": csrfToken,
+			"x-safetysecretary-csrf": csrfToken,
 		},
 		method: "PATCH",
 	});

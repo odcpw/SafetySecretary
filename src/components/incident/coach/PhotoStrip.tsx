@@ -5,10 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
 import type { CoachPhoto } from "../../../lib/incident/coach-photos";
 import type { WorkflowVisionConsent } from "../../../lib/llm/consent";
-import {
-	ensureCsrfToken,
-	VisionConsentModal,
-} from "../VisionConsentModal";
+import { ensureCsrfToken, VisionConsentModal } from "../VisionConsentModal";
 import type { CoachCopy } from "./copy";
 import PhotoLightbox from "./PhotoLightbox";
 
@@ -71,7 +68,9 @@ export default function PhotoStrip({
 				{
 					body: formData,
 					credentials: "same-origin",
-					headers: { "x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME) },
+					headers: {
+						"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+					},
 					method: "POST",
 				},
 			);
@@ -104,11 +103,11 @@ export default function PhotoStrip({
 		try {
 			const headers: Record<string, string> = {
 				"content-type": "application/json",
-				"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+				"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 			};
 
 			if (modalGranted) {
-				headers["x-ssfw-vision-modal-granted"] = "true";
+				headers["x-safetysecretary-vision-modal-granted"] = "true";
 			}
 
 			const response = await fetch(
@@ -146,7 +145,7 @@ export default function PhotoStrip({
 								credentials: "same-origin",
 								headers: {
 									"content-type": "application/json",
-									"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+									"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 								},
 								method: "PATCH",
 							},
@@ -232,9 +231,7 @@ export default function PhotoStrip({
 					</button>
 				))}
 				<p className="m-0 text-xs text-[var(--color-muted)]">
-					{photos.length === 0
-						? copy.photos.emptyStrip
-						: copy.photos.clickHint}
+					{photos.length === 0 ? copy.photos.emptyStrip : copy.photos.clickHint}
 				</p>
 			</div>
 			{error ? (

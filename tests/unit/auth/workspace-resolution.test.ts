@@ -56,6 +56,10 @@ test("company-domain creator gets the tenant; other same-domain users do not aut
 	assert.equal(first.workspaceKind, "company");
 	assert.equal(second.workspaceKind, "company");
 	assert.equal(first.tenantId, second.tenantId);
+	assert.equal(first.createdTenant, true);
+	assert.equal(first.joinedTenant, true);
+	assert.equal(second.createdTenant, false);
+	assert.equal(second.joinedTenant, false);
 	assert.equal(db.provisionedTenantIds.length, 1);
 	assert.equal(db.domains.get("acme.com"), first.tenantId);
 	// The creator is auto-joined.
@@ -85,6 +89,10 @@ test("same-domain user with opt-in flag auto-joins", async () => {
 	);
 
 	assert.equal(first.tenantId, second.tenantId);
+	assert.equal(first.createdTenant, true);
+	assert.equal(first.joinedTenant, true);
+	assert.equal(second.createdTenant, false);
+	assert.equal(second.joinedTenant, true);
 	assert.equal(db.memberships.has(`${first.tenantId}:user-2`), true);
 });
 
@@ -109,6 +117,8 @@ test("same-domain user with a pending invitation joins and consumes it", async (
 	);
 
 	assert.equal(first.tenantId, second.tenantId);
+	assert.equal(second.createdTenant, false);
+	assert.equal(second.joinedTenant, true);
 	assert.equal(db.memberships.has(`${first.tenantId}:user-2`), true);
 	assert.equal(db.consumedInvitationCount, 1);
 });
@@ -134,6 +144,10 @@ test("public-domain users get separate personal tenants", async () => {
 	assert.equal(first.workspaceKind, "personal");
 	assert.equal(second.workspaceKind, "personal");
 	assert.notEqual(first.tenantId, second.tenantId);
+	assert.equal(first.createdTenant, true);
+	assert.equal(first.joinedTenant, true);
+	assert.equal(second.createdTenant, true);
+	assert.equal(second.joinedTenant, true);
 	assert.equal(db.provisionedTenantIds.length, 2);
 	assert.equal(db.domains.size, 0);
 });
@@ -158,7 +172,9 @@ test("same public-domain user reuses their personal tenant", async () => {
 
 	assert.equal(first.tenantId, second.tenantId);
 	assert.equal(first.createdTenant, true);
+	assert.equal(first.joinedTenant, true);
 	assert.equal(second.createdTenant, false);
+	assert.equal(second.joinedTenant, false);
 	assert.equal(db.provisionedTenantIds.length, 1);
 });
 
@@ -185,7 +201,12 @@ class MemoryWorkspaceDb {
 	readonly provisionedTenantIds: string[] = [];
 	readonly invitations = new Map<
 		string,
-		{ id: string; tenantId: string; recipientEmail: string; consumedAt: Date | null }
+		{
+			id: string;
+			tenantId: string;
+			recipientEmail: string;
+			consumedAt: Date | null;
+		}
 	>();
 	consumedInvitationCount = 0;
 	private invitationSequence = 0;
@@ -317,13 +338,17 @@ class MemoryWorkspaceDb {
 				},
 			},
 			tenantMembership: {
-				upsert: async ({
-					create,
+				createMany: async ({
+					data,
 				}: {
-					create: { tenantId: string; userId: string };
+					data: { tenantId: string; userId: string };
 				}) => {
-					this.memberships.add(`${create.tenantId}:${create.userId}`);
-					return create;
+					const key = `${data.tenantId}:${data.userId}`;
+					const exists = this.memberships.has(key);
+					if (!exists) {
+						this.memberships.add(key);
+					}
+					return { count: exists ? 0 : 1 };
 				},
 			},
 			invitation: {

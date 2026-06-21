@@ -40,9 +40,9 @@ const uuidPattern =
 
 const approveFormScript = `
 (() => {
-	const formSelector = "[data-ssfw-approval-form]";
-	const statusSelector = "[data-ssfw-approval-status]";
-	const csrfHeaderName = "x-ssfw-csrf";
+	const formSelector = "[data-safetysecretary-approval-form], [data-ssfw-approval-form]";
+	const statusSelector = "[data-safetysecretary-approval-status], [data-ssfw-approval-status]";
+	const csrfHeaderName = "x-safetysecretary-csrf";
 
 	function readCookie(name) {
 		const prefix = name + "=";
@@ -55,7 +55,11 @@ const approveFormScript = `
 	}
 
 	function ensureCsrfToken(name) {
-		const token = readCookie("__Host-ssfw_csrf") || readCookie(name);
+		const token =
+			readCookie("__Host-safetysecretary_csrf") ||
+			readCookie("__Host-ssfw_csrf") ||
+			readCookie(name) ||
+			readCookie("ssfw_csrf");
 
 		if (!token) {
 			throw new Error("Approval needs a valid CSRF token. Refresh and try again.");
@@ -83,7 +87,7 @@ const approveFormScript = `
 				return;
 			}
 
-			const csrfCookieName = form.dataset.csrfCookie || "ssfw_csrf";
+			const csrfCookieName = form.dataset.csrfCookie || "safetysecretary_csrf";
 			let csrfToken = "";
 
 			try {
@@ -123,6 +127,11 @@ const approveFormScript = `
 				}
 
 				const versionLabel = payload?.snapshot?.versionLabel;
+				form.dispatchEvent(
+					new CustomEvent("safetysecretary:approval-succeeded", {
+						detail: { versionLabel },
+					}),
+				);
 				form.dispatchEvent(
 					new CustomEvent("ssfw:approval-succeeded", {
 						detail: { versionLabel },
@@ -214,14 +223,18 @@ export default async function IncidentApprovalPage({
 				<form
 					action={`/api/incidents/${caseId}/approve`}
 					data-csrf-cookie={CSRF_COOKIE_NAME}
-					data-ssfw-approval-form="true"
+					data-safetysecretary-approval-form="true"
 					data-success-url={`/incidents/${caseId}/approval`}
 					method="post"
 				>
 					<button style={buttonStyle} type="submit">
 						Approve as {nextVersionLabel}
 					</button>
-					<p data-ssfw-approval-status="" hidden style={errorTextStyle} />
+					<p
+						data-safetysecretary-approval-status=""
+						hidden
+						style={errorTextStyle}
+					/>
 					<noscript>
 						<p style={errorTextStyle}>
 							Approving requires JavaScript so the CSRF header can be sent.

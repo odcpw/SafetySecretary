@@ -13,7 +13,7 @@ const rasterizeTimeoutMs = 30_000;
  * failure (e.g. rsvg-convert not installed) so the export still succeeds without
  * the graphic. NOTE: a fresh VPS must `apt-get install -y librsvg2-bin`. */
 export async function svgToPng(svg: string): Promise<Buffer | null> {
-	const workdir = await mkdtemp(join(tmpdir(), "ssfw-ii-tree-"));
+	const workdir = await mkdtemp(join(tmpdir(), "safetysecretary-ii-tree-"));
 	const svgPath = join(workdir, "tree.svg");
 	const pngPath = join(workdir, "tree.png");
 	try {

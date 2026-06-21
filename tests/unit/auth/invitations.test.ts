@@ -111,7 +111,8 @@ class MemoryInvitationStore implements InvitationStore {
 			throw new Error("Tenant membership required.");
 		}
 
-		const actorEmail = this.users.get(input.actorUserId) ?? "owner@example.test";
+		const actorEmail =
+			this.users.get(input.actorUserId) ?? "owner@example.test";
 		const invitation = {
 			id: `invite-${++this.invitationCounter}`,
 			tenantId: input.tenantId,
@@ -213,6 +214,7 @@ class MemoryInvitationStore implements InvitationStore {
 			};
 		}
 
+		const joinedTenant = !this.hasMembership(invitation.tenantId, input.userId);
 		this.addMembership(invitation.tenantId, input.userId);
 		invitation.consumedAt = input.now;
 
@@ -221,6 +223,7 @@ class MemoryInvitationStore implements InvitationStore {
 			invitationId: invitation.id,
 			tenantId: invitation.tenantId,
 			userId: input.userId,
+			joinedTenant,
 			message: "Invitation accepted.",
 		};
 	}
@@ -308,7 +311,11 @@ class MemoryMagicLinkStore implements MagicLinkStore {
 		now: Date,
 	): Promise<number> {
 		const token = this.tokens.get(hashKey(tokenHash));
-		if (!token || token.consumedAt || token.expiresAt.getTime() <= now.getTime()) {
+		if (
+			!token ||
+			token.consumedAt ||
+			token.expiresAt.getTime() <= now.getTime()
+		) {
 			return 0;
 		}
 
@@ -481,10 +488,12 @@ test("redeem adds matching user, consumes the invite, and rejects replay", async
 	});
 
 	assert.equal(redeemed.ok, true);
+	assert.equal(redeemed.ok ? redeemed.joinedTenant : false, true);
 	assert.equal(store.hasMembership(tenantA, bobUserId), true);
 	assert.equal(store.membershipCount(tenantA, bobUserId), 1);
 	assert.equal(
-		store.invitations.get(hashKey(hashInvitationToken(result.token)))?.consumedAt,
+		store.invitations.get(hashKey(hashInvitationToken(result.token)))
+			?.consumedAt,
 		now,
 	);
 

@@ -2,7 +2,10 @@ import { sqlite } from "@flue/runtime/node";
 import { existsSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
-const dbPath = process.env.SSFW_FLUE_SQLITE_PATH ?? "./data/flue.db";
+const dbPath =
+	process.env.SAFETYSECRETARY_FLUE_SQLITE_PATH ??
+	process.env.SSFW_FLUE_SQLITE_PATH ??
+	"./data/flue.db";
 const adapter = sqlite(dbPath);
 
 export default {
@@ -106,7 +109,11 @@ function rebuildDispatchReceiptsIfNeeded(db: DatabaseSync): void {
 	db.exec("DROP TABLE flue_agent_dispatch_receipts_v011_backup");
 }
 
-function columnExists(db: DatabaseSync, table: string, column: string): boolean {
+function columnExists(
+	db: DatabaseSync,
+	table: string,
+	column: string,
+): boolean {
 	if (!tableExists(db, table)) {
 		return false;
 	}

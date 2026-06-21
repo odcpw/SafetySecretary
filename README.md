@@ -58,8 +58,8 @@ Open `.env` and set these:
 
 ```
 OPENAI_API_KEY=sk-...              # your own OpenAI key
-SSFW_DEV_AUTH_BYPASS=1             # skip the login screen for local use
-NEXT_PUBLIC_SSFW_DEV_AUTH_BYPASS=1
+SAFETYSECRETARY_DEV_AUTH_BYPASS=1  # skip the login screen for local use
+NEXT_PUBLIC_SAFETYSECRETARY_DEV_AUTH_BYPASS=1
 ```
 
 Optional OAuth sign-in can be enabled alongside magic links:

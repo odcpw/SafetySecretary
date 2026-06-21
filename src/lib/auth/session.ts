@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { SESSION_COOKIE_NAME } from "./cookies";
 
 export const DESKTOP_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
 export const MOBILE_SESSION_TTL_SECONDS = 90 * 24 * 60 * 60;
@@ -21,7 +22,7 @@ export type SessionRow = {
 };
 
 export type IssuedSession = {
-	cookieName: "ssfw_session";
+	cookieName: typeof SESSION_COOKIE_NAME;
 	cookieValue: string;
 	maxAgeSeconds: number;
 	expiresAt: Date;
@@ -75,7 +76,7 @@ type SessionOptions = {
 };
 
 type GlobalState = typeof globalThis & {
-	__ssfwSessionPrisma?: PrismaClient;
+	__safetySecretarySessionPrisma?: PrismaClient;
 };
 
 const globalState = globalThis as GlobalState;
@@ -127,7 +128,7 @@ export async function issueSession(
 	});
 
 	return {
-		cookieName: "ssfw_session",
+		cookieName: SESSION_COOKIE_NAME,
 		cookieValue: row.id,
 		maxAgeSeconds: sessionTtlSeconds(resolvedDeviceHint),
 		expiresAt: row.expiresAt,
@@ -270,9 +271,9 @@ function toSessionRow(row: {
 }
 
 function getSessionPrismaClient(): PrismaClient {
-	if (!globalState.__ssfwSessionPrisma) {
-		globalState.__ssfwSessionPrisma = new PrismaClient();
+	if (!globalState.__safetySecretarySessionPrisma) {
+		globalState.__safetySecretarySessionPrisma = new PrismaClient();
 	}
 
-	return globalState.__ssfwSessionPrisma;
+	return globalState.__safetySecretarySessionPrisma;
 }

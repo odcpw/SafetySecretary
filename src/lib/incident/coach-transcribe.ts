@@ -1,4 +1,5 @@
 import { prisma } from "../db";
+import { readEnvRaw } from "../config/env";
 import { PrismaByokStore } from "../llm/byok";
 import {
 	checkAndConsumeCap,
@@ -10,8 +11,12 @@ import { decryptWithMasterKey } from "../crypto/master-key";
 import { KindEnum, type LLMRequest } from "../llm/types";
 
 export const II_COACH_TRANSCRIBE_PROMPT_PURPOSE = "ii_coach_transcribe";
-export const II_COACH_TRANSCRIBE_MOCK_ENV = "SSFW_II_TRANSCRIBE_MOCK";
-export const II_COACH_TRANSCRIBE_MODEL_ENV = "SSFW_II_TRANSCRIBE_MODEL";
+export const II_COACH_TRANSCRIBE_MOCK_ENV =
+	"SAFETYSECRETARY_II_TRANSCRIBE_MOCK";
+export const LEGACY_II_COACH_TRANSCRIBE_MOCK_ENV = "SSFW_II_TRANSCRIBE_MOCK";
+export const II_COACH_TRANSCRIBE_MODEL_ENV =
+	"SAFETYSECRETARY_II_TRANSCRIBE_MODEL";
+export const LEGACY_II_COACH_TRANSCRIBE_MODEL_ENV = "SSFW_II_TRANSCRIBE_MODEL";
 const DEFAULT_MOCK_TRANSCRIPT = "mock transcript";
 const DEFAULT_TRANSCRIBE_MODELS = ["gpt-4o-transcribe", "whisper-1"] as const;
 const TRANSCRIPTIONS_URL = "https://api.openai.com/v1/audio/transcriptions";
@@ -104,12 +109,14 @@ export async function transcribeCoachAudio(
 	// route success path can run without a database.
 	if (options.checkCap || !inTestMode) {
 		const capRequest = buildCapRequest(input);
-		const cap = await (options.checkCap ??
+		const cap = await (
+			options.checkCap ??
 			((req: LLMRequest, tenantId: string) =>
 				checkAndConsumeCap(req, tenantId, {
 					env,
 					...options.capOptions,
-				})))(capRequest, input.tenantId);
+				}))
+		)(capRequest, input.tenantId);
 
 		if (!cap.ok) {
 			throw new CoachTranscribeMonthlyCapError();
@@ -121,7 +128,11 @@ export async function transcribeCoachAudio(
 	if (options.mockTranscript !== undefined || inTestMode) {
 		const text =
 			options.mockTranscript ??
-			env[II_COACH_TRANSCRIBE_MOCK_ENV] ??
+			readEnvRaw(
+				env,
+				II_COACH_TRANSCRIBE_MOCK_ENV,
+				LEGACY_II_COACH_TRANSCRIBE_MOCK_ENV,
+			) ??
 			DEFAULT_MOCK_TRANSCRIPT;
 		await recordTranscribeCost(input, options, "mock");
 		return { text: text.trim() };
@@ -173,9 +184,7 @@ async function resolveTranscribeApiKey(
 	return fallback ? fallback : null;
 }
 
-async function readTenantByokApiKey(
-	tenantId: string,
-): Promise<string | null> {
+async function readTenantByokApiKey(tenantId: string): Promise<string | null> {
 	try {
 		const ciphertext = await new PrismaByokStore(prisma).readByokCiphertext({
 			tenantId,
@@ -309,7 +318,11 @@ async function postTranscriptionWithModel(args: {
 function transcriptionModelCandidates(
 	env: Pick<NodeJS.ProcessEnv, string>,
 ): readonly string[] {
-	const configured = env[II_COACH_TRANSCRIBE_MODEL_ENV]?.trim();
+	const configured = readEnvRaw(
+		env,
+		II_COACH_TRANSCRIBE_MODEL_ENV,
+		LEGACY_II_COACH_TRANSCRIBE_MODEL_ENV,
+	)?.trim();
 
 	if (!configured) {
 		return DEFAULT_TRANSCRIBE_MODELS;

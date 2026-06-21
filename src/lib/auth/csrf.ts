@@ -3,10 +3,11 @@ import type { NextResponse } from "next/server";
 import { resolveMasterEncryptionKey } from "../crypto/master-key";
 import {
 	type AuthCookieSecurityContext,
-	CSRF_COOKIE_NAME,
-	CSRF_HOST_COOKIE_NAME,
+	CSRF_COOKIE_NAMES,
+	CSRF_HOST_COOKIE_NAMES,
 	shouldUseSecureAuthCookies,
 } from "./cookies";
+import { CSRF_HEADER_NAMES, readNamedHeader } from "./headers";
 
 // Domain-separation label so the CSRF subkey can never collide with any other
 // use of MASTER_ENCRYPTION_KEY (BYOK ciphertext etc.).
@@ -69,6 +70,16 @@ export function verifyCsrfToken(
 	);
 }
 
+export function verifyCsrfRequest(
+	headers: Pick<Headers, "get">,
+	sessionId: string,
+): boolean {
+	return verifyCsrfToken(
+		readNamedHeader(headers, CSRF_HEADER_NAMES),
+		sessionId,
+	);
+}
+
 // Set the session-bound CSRF token cookie. In secure contexts the carrier is the
 // __Host- prefixed cookie (forbids Domain, requires Secure + Path=/), which a
 // subdomain attacker cannot overwrite. A non-prefixed copy is also written so
@@ -93,20 +104,24 @@ export function setCsrfCookieValue(
 	const token = mintCsrfToken(sessionId);
 
 	if (secure) {
-		cookieWriter.set(CSRF_HOST_COOKIE_NAME, token, {
+		for (const cookieName of CSRF_HOST_COOKIE_NAMES) {
+			cookieWriter.set(cookieName, token, {
+				httpOnly: false,
+				maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
+				path: "/",
+				sameSite: "lax",
+				secure: true,
+			});
+		}
+	}
+
+	for (const cookieName of CSRF_COOKIE_NAMES) {
+		cookieWriter.set(cookieName, token, {
 			httpOnly: false,
 			maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
 			path: "/",
 			sameSite: "lax",
-			secure: true,
+			secure,
 		});
 	}
-
-	cookieWriter.set(CSRF_COOKIE_NAME, token, {
-		httpOnly: false,
-		maxAge: CSRF_COOKIE_MAX_AGE_SECONDS,
-		path: "/",
-		sameSite: "lax",
-		secure,
-	});
 }

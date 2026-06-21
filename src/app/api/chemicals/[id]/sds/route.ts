@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
-import { verifyCsrfToken } from "../../../../../lib/auth/csrf";
+import {
+	readCookieMapValue,
+	SESSION_COOKIE_NAMES,
+} from "../../../../../lib/auth/cookies";
+import { verifyCsrfRequest } from "../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -69,7 +72,7 @@ export async function handleSdsUploadAndExtraction(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -151,7 +154,7 @@ export async function handleSdsControlReview(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -240,8 +243,10 @@ function sdsErrorResponse(error: unknown): NextResponse {
 
 function readSessionCookie(request: Request): string | null {
 	return (
-		parseCookieHeader(request.headers.get("cookie")).get(SESSION_COOKIE_NAME) ??
-		null
+		readCookieMapValue(
+			parseCookieHeader(request.headers.get("cookie")),
+			SESSION_COOKIE_NAMES,
+		) ?? null
 	);
 }
 

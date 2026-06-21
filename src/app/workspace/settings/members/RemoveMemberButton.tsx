@@ -11,8 +11,8 @@ type RemoveMemberButtonProps = {
 	pendingLabel: string;
 };
 
-const csrfCookieName = "ssfw_csrf";
-const csrfHeaderName = "x-ssfw-csrf";
+const csrfCookieName = "safetysecretary_csrf";
+const csrfHeaderName = "x-safetysecretary-csrf";
 
 export function RemoveMemberButton({
 	errorLabel,

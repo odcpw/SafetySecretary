@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 
 const DEFAULT_HOST = "root@100.68.3.14";
 const DEFAULT_KEY = "~/.ssh/Hetzner_SafetySecretary";
-const DEFAULT_REMOTE_DIR = "/opt/safetysecretary-next";
+const DEFAULT_REMOTE_DIR = "/opt/safetysecretary";
 const DEFAULT_OUT_DIR = ".tmp/prod-case-pulls";
 
 const args = parseArgs(process.argv.slice(2));
@@ -17,16 +17,29 @@ if (args.help) {
 }
 
 const mode = args.summary ? "summary" : "full";
-const limit = positiveInteger(args.limit ?? process.env.SSFW_CASE_PULL_LIMIT, 10);
+const limit = positiveInteger(
+	args.limit ??
+		readEnv("SAFETYSECRETARY_CASE_PULL_LIMIT", "SSFW_CASE_PULL_LIMIT"),
+	10,
+);
 const includeFiles = !args.noFiles && mode === "full";
-const host = args.host ?? process.env.SSFW_PROD_SSH_HOST ?? DEFAULT_HOST;
+const host =
+	args.host ??
+	readEnv("SAFETYSECRETARY_PROD_SSH_HOST", "SSFW_PROD_SSH_HOST") ??
+	DEFAULT_HOST;
 const keyPath = expandHome(
-	args.key ?? process.env.SSFW_PROD_SSH_KEY ?? DEFAULT_KEY,
+	args.key ??
+		readEnv("SAFETYSECRETARY_PROD_SSH_KEY", "SSFW_PROD_SSH_KEY") ??
+		DEFAULT_KEY,
 );
 const remoteDir =
-	args.remoteDir ?? process.env.SSFW_PROD_APP_DIR ?? DEFAULT_REMOTE_DIR;
+	args.remoteDir ??
+	readEnv("SAFETYSECRETARY_PROD_APP_DIR", "SSFW_PROD_APP_DIR") ??
+	DEFAULT_REMOTE_DIR;
 const outDir = resolve(
-	args.outDir ?? process.env.SSFW_CASE_PULL_OUT_DIR ?? DEFAULT_OUT_DIR,
+	args.outDir ??
+		readEnv("SAFETYSECRETARY_CASE_PULL_OUT_DIR", "SSFW_CASE_PULL_OUT_DIR") ??
+		DEFAULT_OUT_DIR,
 );
 
 const startedAt = new Date();
@@ -264,6 +277,15 @@ function expandHome(path) {
 	return path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
 }
 
+function readEnv(name, legacyName) {
+	const value = process.env[name]?.trim();
+	if (value) {
+		return value;
+	}
+
+	return legacyName ? process.env[legacyName]?.trim() : undefined;
+}
+
 function shellQuote(value) {
 	return `'${String(value).replaceAll("'", "'\\''")}'`;
 }
@@ -278,7 +300,10 @@ function safePathSegment(value) {
 }
 
 function timestamp(date) {
-	return date.toISOString().replaceAll(":", "").replace(/\.\d{3}Z$/, "Z");
+	return date
+		.toISOString()
+		.replaceAll(":", "")
+		.replace(/\.\d{3}Z$/, "Z");
 }
 
 function printHelp() {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { verifyCsrfToken } from "../../../../lib/auth/csrf";
+import { verifyCsrfRequest } from "../../../../lib/auth/csrf";
 import { type Storage, tenantStorage } from "../../../../lib/storage";
 import {
 	requireTenantSession,
@@ -74,7 +74,7 @@ export async function handleStorageUpload(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 

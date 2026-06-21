@@ -11,7 +11,7 @@ import { LOCALES, type Locale } from "../../lib/i18n/types";
  * THE language for everything: UI chrome, the coach's replies, the stored
  * record content of NEW incidents, and the exports.
  *
- * On change it always writes the `ssfw_locale` cookie (so anonymous and
+ * On change it always writes the locale cookie (so anonymous and
  * pre-sign-in choices stick), additionally persists `user.uiLocale` via the
  * shared /api/user/locale route when signed in, then refreshes so the new
  * language takes effect server-side.
@@ -23,7 +23,7 @@ export const localeNames: Record<Locale, string> = {
 	it: "Italiano",
 };
 
-const CSRF_HEADER_NAME = "x-ssfw-csrf";
+const CSRF_HEADER_NAME = "x-safetysecretary-csrf";
 
 type LanguageDropdownProps = {
 	readonly locale: Locale;

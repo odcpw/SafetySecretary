@@ -13,8 +13,11 @@ registerHooks({
 
 			if (specifier.endsWith("/lib/auth/cookies")) {
 				return dataModuleUrl(`
-					export const CSRF_COOKIE_NAME = "ssfw_csrf";
-					export const SESSION_COOKIE_NAME = "ssfw_session";
+					export const CSRF_COOKIE_NAME = "safetysecretary_csrf";
+					export const SESSION_COOKIE_NAME = "safetysecretary_session";
+					export function readSessionCookie(cookies) {
+						return cookies.get("safetysecretary_session")?.value ?? cookies.get("ssfw_session")?.value;
+					}
 				`);
 			}
 

@@ -2,13 +2,20 @@ import { PrismaClient } from "@prisma/client";
 import { type NextRequest, NextResponse } from "next/server.js";
 import {
 	authCookieSecurityContextFromRequest,
-	CSRF_COOKIE_NAME,
-	CSRF_HOST_COOKIE_NAME,
-	LOCALE_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
+	readHostCsrfCookie,
+	readLocaleCookie,
+	readPlainCsrfCookie,
+	readSessionCookie,
 	shouldUseSecureAuthCookies,
 } from "./lib/auth/cookies";
-import { setCsrfCookie, verifyCsrfToken } from "./lib/auth/csrf";
+import { setCsrfCookie, verifyCsrfRequest } from "./lib/auth/csrf";
+import {
+	deleteNamedHeaders,
+	TENANT_ID_HEADER_NAME,
+	TENANT_ID_HEADER_NAMES,
+	USER_ID_HEADER_NAME,
+	USER_ID_HEADER_NAMES,
+} from "./lib/auth/headers";
 import { type ValidatedSession, validateSession } from "./lib/auth/session";
 import { LOCALES, type Locale } from "./lib/i18n/types";
 import { DISCLAIMER_VERSION } from "./lib/legal/disclaimer";
@@ -39,7 +46,7 @@ type AcknowledgementValidator = (
 ) => Promise<boolean>;
 type LocaleResolver = (userId: string) => Promise<Locale | null>;
 type GlobalState = typeof globalThis & {
-	__ssfwAcknowledgementPrisma?: PrismaClient;
+	__safetySecretaryAcknowledgementPrisma?: PrismaClient;
 };
 
 const globalState = globalThis as GlobalState;
@@ -64,8 +71,8 @@ export async function authorizeRequest(
 	localeResolver: LocaleResolver | null = null,
 ): Promise<NextResponse> {
 	const headers = new Headers(request.headers);
-	headers.delete("x-ssfw-user-id");
-	headers.delete("x-ssfw-tenant-id");
+	deleteNamedHeaders(headers, USER_ID_HEADER_NAMES);
+	deleteNamedHeaders(headers, TENANT_ID_HEADER_NAMES);
 
 	if (isPublicPath(request.nextUrl.pathname)) {
 		return NextResponse.next({
@@ -73,9 +80,7 @@ export async function authorizeRequest(
 		});
 	}
 
-	const session = await validator(
-		request.cookies.get(SESSION_COOKIE_NAME)?.value,
-	);
+	const session = await validator(readSessionCookie(request.cookies));
 
 	if (!session) {
 		return unauthenticatedResponse(request);
@@ -99,8 +104,8 @@ export async function authorizeRequest(
 		);
 	}
 
-	headers.set("x-ssfw-user-id", session.userId);
-	headers.set("x-ssfw-tenant-id", session.tenantId);
+	headers.set(USER_ID_HEADER_NAME, session.userId);
+	headers.set(TENANT_ID_HEADER_NAME, session.tenantId);
 
 	const response = NextResponse.next({
 		request: { headers },
@@ -131,9 +136,7 @@ export function hasValidCsrfToken(
 	request: NextRequest,
 	sessionId: string,
 ): boolean {
-	const csrfHeader = request.headers.get("x-ssfw-csrf");
-
-	return verifyCsrfToken(csrfHeader, sessionId);
+	return verifyCsrfRequest(request.headers, sessionId);
 }
 
 // Re-mint the session-bound CSRF cookie on authed requests so the client always
@@ -146,11 +149,11 @@ function ensureCsrfCookie(
 	sessionId: string,
 ): void {
 	const cookieSecurity = authCookieSecurityContextFromRequest(request);
-	const carrierName = shouldUseSecureAuthCookies(cookieSecurity)
-		? CSRF_HOST_COOKIE_NAME
-		: CSRF_COOKIE_NAME;
+	const token = shouldUseSecureAuthCookies(cookieSecurity)
+		? readHostCsrfCookie(request.cookies)
+		: readPlainCsrfCookie(request.cookies);
 
-	if (request.cookies.get(carrierName)?.value) {
+	if (token) {
 		return;
 	}
 
@@ -230,11 +233,11 @@ async function persistedUserLocale(userId: string): Promise<Locale | null> {
 }
 
 function getAcknowledgementPrismaClient(): PrismaClient {
-	if (!globalState.__ssfwAcknowledgementPrisma) {
-		globalState.__ssfwAcknowledgementPrisma = new PrismaClient();
+	if (!globalState.__safetySecretaryAcknowledgementPrisma) {
+		globalState.__safetySecretaryAcknowledgementPrisma = new PrismaClient();
 	}
 
-	return globalState.__ssfwAcknowledgementPrisma;
+	return globalState.__safetySecretaryAcknowledgementPrisma;
 }
 
 function localeFromRequest(request: NextRequest): Locale | null {
@@ -244,7 +247,7 @@ function localeFromRequest(request: NextRequest): Locale | null {
 		return explicitLocale;
 	}
 
-	const cookieLocale = request.cookies.get(LOCALE_COOKIE_NAME)?.value ?? null;
+	const cookieLocale = readLocaleCookie(request.cookies) ?? null;
 
 	if (isLocale(cookieLocale)) {
 		return cookieLocale;

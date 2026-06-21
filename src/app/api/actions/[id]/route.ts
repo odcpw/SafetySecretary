@@ -9,8 +9,8 @@ import {
 	getActionItemDetail,
 	serializeActionItemDetail,
 } from "../../../../lib/actions/queries";
-import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
-import { verifyCsrfToken } from "../../../../lib/auth/csrf";
+import { readSessionCookie } from "../../../../lib/auth/cookies";
+import { verifyCsrfRequest } from "../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -60,7 +60,7 @@ export async function PATCH(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -114,7 +114,7 @@ export async function DELETE(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -137,7 +137,7 @@ export async function DELETE(
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 async function readBody(request: NextRequest): Promise<Map<string, unknown>> {

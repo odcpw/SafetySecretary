@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
+import { readSessionCookie } from "../../../../../lib/auth/cookies";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -12,6 +12,10 @@ import {
 	isWorkflowStage,
 	isWorkflowStageAction,
 } from "../../../../../lib/incident/workflow-stage";
+import {
+	notifyOperatorCaseFinished,
+	scheduleOperatorNotification,
+} from "../../../../../lib/operator/notifications";
 
 export const runtime = "nodejs";
 
@@ -87,6 +91,16 @@ export async function POST(
 		return NextResponse.json({ code: "INCIDENT_NOT_FOUND" }, { status: 404 });
 	}
 
+	if (fromStage !== "CLOSED" && nextStage === "CLOSED") {
+		scheduleOperatorNotification("case finished", () =>
+			notifyOperatorCaseFinished({
+				caseId: id,
+				tenantId: session.tenantId,
+				userId: session.userId,
+			}),
+		);
+	}
+
 	if (wantsHtmlRedirect(request)) {
 		return NextResponse.redirect(new URL(`/incidents/${id}`, request.url), 303);
 	}
@@ -156,7 +170,7 @@ function serializeWorkflowStage(row: WorkflowStageRow) {
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 async function readBody(request: NextRequest): Promise<Map<string, unknown>> {

@@ -26,7 +26,9 @@ export function pruneFlueSqlite(options = {}) {
 		options.retentionHours ?? defaultRetentionHours,
 	);
 	const now = options.now ?? new Date();
-	const cutoff = formatSqlDate(new Date(now.getTime() - retentionHours * hourMs));
+	const cutoff = formatSqlDate(
+		new Date(now.getTime() - retentionHours * hourMs),
+	);
 	const vacuum = options.vacuum === true;
 
 	if (!existsSync(dbPath)) {
@@ -123,7 +125,9 @@ export function pruneFlueSqlite(options = {}) {
 						deleted.agentStreamChunksOrphaned;
 					notes.push("agent_stream_chunk_orphan_cleanup_applied");
 				} else {
-					notes.push("agent_stream_chunk_cleanup_skipped_no_timestamp_or_journal");
+					notes.push(
+						"agent_stream_chunk_cleanup_skipped_no_timestamp_or_journal",
+					);
 				}
 			}
 
@@ -267,22 +271,44 @@ function retentionHoursFromValue(value) {
 	const hours = Number(value);
 
 	if (!Number.isFinite(hours) || hours < 0) {
-		throw new Error("SSFW_FLUE_STREAM_RETENTION_HOURS must be a number >= 0.");
+		throw new Error(
+			"SAFETYSECRETARY_FLUE_STREAM_RETENTION_HOURS must be a number >= 0.",
+		);
 	}
 
 	return hours;
 }
 
 function optionsFromEnv(env) {
-	const dbPath = env.SSFW_FLUE_SQLITE_PATH?.trim() || defaultDbPath;
-	const retentionHours = env.SSFW_FLUE_STREAM_RETENTION_HOURS?.trim()
-		? retentionHoursFromValue(env.SSFW_FLUE_STREAM_RETENTION_HOURS)
+	const dbPath =
+		readEnv(env, "SAFETYSECRETARY_FLUE_SQLITE_PATH", "SSFW_FLUE_SQLITE_PATH") ||
+		defaultDbPath;
+	const retentionValue = readEnv(
+		env,
+		"SAFETYSECRETARY_FLUE_STREAM_RETENTION_HOURS",
+		"SSFW_FLUE_STREAM_RETENTION_HOURS",
+	);
+	const retentionHours = retentionValue
+		? retentionHoursFromValue(retentionValue)
 		: defaultRetentionHours;
 	const vacuum = /^(1|true|yes)$/i.test(
-		env.SSFW_FLUE_PRUNE_VACUUM?.trim() ?? "",
+		readEnv(
+			env,
+			"SAFETYSECRETARY_FLUE_PRUNE_VACUUM",
+			"SSFW_FLUE_PRUNE_VACUUM",
+		) ?? "",
 	);
 
 	return { dbPath, retentionHours, vacuum };
+}
+
+function readEnv(env, name, legacyName) {
+	const value = env[name]?.trim();
+	if (value) {
+		return value;
+	}
+
+	return legacyName ? env[legacyName]?.trim() : undefined;
 }
 
 function isDirectRun() {

@@ -64,7 +64,7 @@ export function VisionConsentModal({
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"x-ssfw-csrf": csrfToken,
+						"x-safetysecretary-csrf": csrfToken,
 					},
 					method: "POST",
 				},

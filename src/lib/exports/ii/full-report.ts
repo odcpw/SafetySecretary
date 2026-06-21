@@ -1134,7 +1134,7 @@ function reportView(workflowData: WorkflowSnapshotData) {
 async function convertDocxBufferToPdf(
 	docx: Buffer,
 ): Promise<{ bytes: Buffer }> {
-	const workdir = await mkdtemp(join(tmpdir(), "ssfw-ii-report-"));
+	const workdir = await mkdtemp(join(tmpdir(), "safetysecretary-ii-report-"));
 	const docxPath = join(workdir, "ii-report.docx");
 	const pdfPath = join(workdir, "ii-report.pdf");
 
@@ -1213,7 +1213,9 @@ async function buildCauseTreeImage(
 }
 
 async function extractPdfText(bytes: Uint8Array): Promise<string> {
-	const workdir = await mkdtemp(join(tmpdir(), "ssfw-ii-report-pdftext-"));
+	const workdir = await mkdtemp(
+		join(tmpdir(), "safetysecretary-ii-report-pdftext-"),
+	);
 	const pdfPath = join(workdir, "ii-report.pdf");
 
 	try {

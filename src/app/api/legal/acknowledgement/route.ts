@@ -1,6 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { type NextRequest, NextResponse } from "next/server.js";
-import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
+import { readSessionCookie } from "../../../../lib/auth/cookies";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -18,7 +18,7 @@ export type UserAcknowledgementStore = {
 };
 
 type GlobalState = typeof globalThis & {
-	__ssfwAcknowledgementRoutePrisma?: PrismaClient;
+	__safetySecretaryAcknowledgementRoutePrisma?: PrismaClient;
 };
 
 const globalState = globalThis as GlobalState;
@@ -97,7 +97,7 @@ export class PrismaUserAcknowledgementStore
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 async function readAcknowledgement(request: NextRequest): Promise<boolean> {
@@ -128,9 +128,10 @@ function safeReturnTo(value: string | null): string {
 }
 
 function getPrismaClient(): PrismaClient {
-	if (!globalState.__ssfwAcknowledgementRoutePrisma) {
-		globalState.__ssfwAcknowledgementRoutePrisma = new PrismaClient();
+	if (!globalState.__safetySecretaryAcknowledgementRoutePrisma) {
+		globalState.__safetySecretaryAcknowledgementRoutePrisma =
+			new PrismaClient();
 	}
 
-	return globalState.__ssfwAcknowledgementRoutePrisma;
+	return globalState.__safetySecretaryAcknowledgementRoutePrisma;
 }

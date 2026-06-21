@@ -8,8 +8,8 @@ const supportedUiLocales = new Set<string>(SUPPORTED_UI_LOCALES);
 
 /**
  * Narrow an arbitrary value to a supported UI locale, or null. Accepts only an
- * exact supported tag (no Accept-Language style ranges) — used for the
- * `ssfw_locale` cookie and the persisted `user.uiLocale`.
+ * exact supported tag (no Accept-Language style ranges) — used for the locale
+ * cookie and the persisted `user.uiLocale`.
  */
 export function parseUiLocale(value: unknown): UiLocale | null {
 	return typeof value === "string" && supportedUiLocales.has(value)
@@ -20,7 +20,7 @@ export function parseUiLocale(value: unknown): UiLocale | null {
 export type UiLocaleCandidates = {
 	/** Persisted preference for a signed-in user (`user.uiLocale`). */
 	userLocale?: string | null | undefined;
-	/** Value of the `ssfw_locale` cookie. */
+	/** Value of the locale cookie. */
 	cookieLocale?: string | null | undefined;
 	/** Raw `Accept-Language` request header. */
 	acceptLanguageHeader?: string | null | undefined;
@@ -32,7 +32,7 @@ export type UiLocaleCandidates = {
  * Priority (per the product ruling — one language for chrome, coach replies,
  * stored content and exports):
  *   1. signed-in user's persisted `uiLocale`
- *   2. the `ssfw_locale` cookie (anonymous choice / pre-sign-in)
+ *   2. the locale cookie (anonymous choice / pre-sign-in)
  *   3. the browser `Accept-Language` header
  *   4. DEFAULT_UI_LOCALE
  *

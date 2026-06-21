@@ -6,42 +6,53 @@ import { pathToFileURL } from "node:url";
 
 registerHooks({
 	resolve(specifier, context, nextResolve) {
-		if (context.parentURL?.endsWith("/src/app/api/auth/invitations/redeem/route.ts")) {
+		if (
+			context.parentURL?.endsWith(
+				"/src/app/api/auth/invitations/redeem/route.ts",
+			)
+		) {
 			if (specifier === "next/server") {
 				return nextResolve("next/server.js", context);
 			}
 
 			if (specifier.endsWith("/lib/auth/cookies")) {
 				return dataModuleUrl(`
-					export const SESSION_COOKIE_NAME = "ssfw_session";
+					export const SESSION_COOKIE_NAME = "safetysecretary_session";
+					export function readSessionCookie(cookies) {
+						return cookies.get("safetysecretary_session")?.value ?? cookies.get("ssfw_session")?.value;
+					}
 					export function authCookieSecurityContextFromRequest() {
 						return {};
 					}
 					export function setSessionCookie(response, session) {
-						response.cookies.set("ssfw_session", session.cookieValue, {
-							httpOnly: true,
-							maxAge: session.maxAgeSeconds,
-							path: "/",
-							sameSite: "lax",
-							secure: false,
-						});
+						for (const name of ["safetysecretary_session", "ssfw_session"]) {
+							response.cookies.set(name, session.cookieValue, {
+								httpOnly: true,
+								maxAge: session.maxAgeSeconds,
+								path: "/",
+								sameSite: "lax",
+								secure: false,
+							});
+						}
 					}
 				`);
 			}
 
 			if (specifier.endsWith("/lib/auth/csrf")) {
 				return dataModuleUrl(`
-					export function verifyCsrfToken(submittedToken, sessionId) {
-						return submittedToken === "csrf-" + sessionId;
+					export function verifyCsrfRequest(headers, sessionId) {
+						return (headers.get("x-safetysecretary-csrf") ?? headers.get("x-ssfw-csrf")) === "csrf-" + sessionId;
 					}
 					export function setCsrfCookie(response, sessionId) {
-						response.cookies.set("ssfw_csrf", "csrf-" + sessionId, {
-							httpOnly: false,
-							maxAge: 2592000,
-							path: "/",
-							sameSite: "lax",
-							secure: false,
-						});
+						for (const name of ["safetysecretary_csrf", "ssfw_csrf"]) {
+							response.cookies.set(name, "csrf-" + sessionId, {
+								httpOnly: false,
+								maxAge: 2592000,
+								path: "/",
+								sameSite: "lax",
+								secure: false,
+							});
+						}
 					}
 				`);
 			}

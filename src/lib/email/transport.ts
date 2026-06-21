@@ -16,16 +16,32 @@ export type InvitationEmail = {
 	expiresAt: Date;
 };
 
+export type TransactionalEmailAttachment = {
+	filename: string;
+	contentType: string;
+	content: Uint8Array | Buffer | string;
+};
+
+export type TransactionalEmailMessage = {
+	to: string;
+	from: string;
+	subject: string;
+	text: string;
+	html: string;
+	attachments?: TransactionalEmailAttachment[];
+};
+
 export interface EmailTransport {
 	sendMagicLink(email: MagicLinkEmail): Promise<void>;
 }
 
 export interface TransactionalEmailTransport extends EmailTransport {
 	sendInvitation(email: InvitationEmail): Promise<void>;
+	sendTransactional(email: TransactionalEmailMessage): Promise<void>;
 }
 
 export const DEFAULT_MAGIC_LINK_DEV_EMAIL_LOG =
-	"/tmp/safety-secretary-next-magic-links.jsonl";
+	"/tmp/safetysecretary-magic-links.jsonl";
 
 type EnvLike = Pick<NodeJS.ProcessEnv, string>;
 
@@ -57,6 +73,23 @@ export class DevFileEmailTransport implements TransactionalEmailTransport {
 			inviteUrl: email.inviteUrl,
 			tenantName: email.tenantName,
 			expiresAt: email.expiresAt.toISOString(),
+			sentAt: new Date().toISOString(),
+		});
+	}
+
+	async sendTransactional(email: TransactionalEmailMessage): Promise<void> {
+		await appendEmailPayload(this.logPath, {
+			kind: "transactional",
+			to: email.to,
+			from: email.from,
+			subject: email.subject,
+			text: email.text,
+			html: email.html,
+			attachments: (email.attachments ?? []).map((attachment) => ({
+				filename: attachment.filename,
+				contentType: attachment.contentType,
+				byteLength: attachmentByteLength(attachment),
+			})),
 			sentAt: new Date().toISOString(),
 		});
 	}
@@ -96,10 +129,15 @@ export class SmtpEmailTransport implements TransactionalEmailTransport {
 	async sendInvitation(): Promise<void> {
 		throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
 	}
+
+	async sendTransactional(): Promise<void> {
+		throw new Error(EMAIL_TRANSPORT_NOT_CONFIGURED_MESSAGE);
+	}
 }
 
 type FetchLike = typeof fetch;
 type TransactionalEmailContent = {
+	attachments?: TransactionalEmailAttachment[];
 	html: string;
 	subject: string;
 	text: string;
@@ -128,7 +166,7 @@ export class ResendEmailTransport implements TransactionalEmailTransport {
 		this.apiKey = apiKey;
 		this.endpoint = config.endpoint ?? "https://api.resend.com/emails";
 		this.fetchImpl = config.fetchImpl ?? fetch;
-		this.userAgent = config.userAgent ?? "SafetySecretaryNext/0.1.0";
+		this.userAgent = config.userAgent ?? "SafetySecretary/0.1.0";
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
@@ -139,13 +177,24 @@ export class ResendEmailTransport implements TransactionalEmailTransport {
 		await this.send(email.to, email.from, invitationContent(email));
 	}
 
+	async sendTransactional(email: TransactionalEmailMessage): Promise<void> {
+		await this.send(email.to, email.from, {
+			attachments: email.attachments,
+			html: email.html,
+			subject: email.subject,
+			text: email.text,
+		});
+	}
+
 	private async send(
 		to: string,
 		from: string,
 		content: TransactionalEmailContent,
 	): Promise<void> {
+		const attachments = serializeResendAttachments(content.attachments);
 		const response = await this.fetchImpl(this.endpoint, {
 			body: JSON.stringify({
+				...(attachments.length > 0 ? { attachments } : {}),
 				from,
 				html: content.html,
 				subject: content.subject,
@@ -194,7 +243,7 @@ export class PostmarkEmailTransport implements TransactionalEmailTransport {
 		this.fetchImpl = config.fetchImpl ?? fetch;
 		this.messageStream = config.messageStream?.trim() || undefined;
 		this.serverToken = serverToken;
-		this.userAgent = config.userAgent ?? "SafetySecretaryNext/0.1.0";
+		this.userAgent = config.userAgent ?? "SafetySecretary/0.1.0";
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
@@ -205,13 +254,24 @@ export class PostmarkEmailTransport implements TransactionalEmailTransport {
 		await this.send(email.to, email.from, invitationContent(email));
 	}
 
+	async sendTransactional(email: TransactionalEmailMessage): Promise<void> {
+		await this.send(email.to, email.from, {
+			attachments: email.attachments,
+			html: email.html,
+			subject: email.subject,
+			text: email.text,
+		});
+	}
+
 	private async send(
 		to: string,
 		from: string,
 		content: TransactionalEmailContent,
 	): Promise<void> {
+		const attachments = serializePostmarkAttachments(content.attachments);
 		const response = await this.fetchImpl(this.endpoint, {
 			body: JSON.stringify({
+				...(attachments.length > 0 ? { Attachments: attachments } : {}),
 				From: from,
 				HtmlBody: content.html,
 				MessageStream: this.messageStream,
@@ -274,7 +334,7 @@ export class MailgunEmailTransport implements TransactionalEmailTransport {
 		);
 		this.domain = domain;
 		this.fetchImpl = config.fetchImpl ?? fetch;
-		this.userAgent = config.userAgent ?? "SafetySecretaryNext/0.1.0";
+		this.userAgent = config.userAgent ?? "SafetySecretary/0.1.0";
 	}
 
 	async sendMagicLink(email: MagicLinkEmail): Promise<void> {
@@ -285,33 +345,41 @@ export class MailgunEmailTransport implements TransactionalEmailTransport {
 		await this.send(email.to, email.from, invitationContent(email));
 	}
 
+	async sendTransactional(email: TransactionalEmailMessage): Promise<void> {
+		await this.send(email.to, email.from, {
+			attachments: email.attachments,
+			html: email.html,
+			subject: email.subject,
+			text: email.text,
+		});
+	}
+
 	private async send(
 		to: string,
 		from: string,
 		content: TransactionalEmailContent,
 	): Promise<void> {
-		const body = new URLSearchParams({
-			from,
-			html: content.html,
-			"o:tracking": "no",
-			"o:tracking-clicks": "no",
-			"o:tracking-opens": "no",
-			subject: content.subject,
-			text: content.text,
-			to,
-		});
+		const attachments = content.attachments ?? [];
+		const body =
+			attachments.length > 0
+				? mailgunMultipartBody(to, from, content)
+				: new URLSearchParams(mailgunFields(to, from, content));
+		const headers: Record<string, string> = {
+			authorization: `Basic ${Buffer.from(`api:${this.apiKey}`).toString(
+				"base64",
+			)}`,
+			"user-agent": this.userAgent,
+		};
+
+		if (body instanceof URLSearchParams) {
+			headers["content-type"] = "application/x-www-form-urlencoded";
+		}
 
 		const response = await this.fetchImpl(
 			`${this.baseUrl}/v3/${encodeURIComponent(this.domain)}/messages`,
 			{
 				body,
-				headers: {
-					authorization: `Basic ${Buffer.from(
-						`api:${this.apiKey}`,
-					).toString("base64")}`,
-					"content-type": "application/x-www-form-urlencoded",
-					"user-agent": this.userAgent,
-				},
+				headers,
 				method: "POST",
 			},
 		);
@@ -332,14 +400,93 @@ function magicLinkContent(email: MagicLinkEmail): TransactionalEmailContent {
 	};
 }
 
-function invitationContent(
-	email: InvitationEmail,
-): TransactionalEmailContent {
+function invitationContent(email: InvitationEmail): TransactionalEmailContent {
 	return {
 		html: invitationHtml(email),
 		subject: invitationSubject(email),
 		text: invitationText(email),
 	};
+}
+
+function serializeResendAttachments(
+	attachments: TransactionalEmailAttachment[] | undefined,
+): Array<{ filename: string; content: string }> {
+	return (attachments ?? []).map((attachment) => ({
+		filename: attachment.filename,
+		content: attachmentBytes(attachment.content).toString("base64"),
+	}));
+}
+
+function serializePostmarkAttachments(
+	attachments: TransactionalEmailAttachment[] | undefined,
+): Array<{ Name: string; Content: string; ContentType: string }> {
+	return (attachments ?? []).map((attachment) => ({
+		Name: attachment.filename,
+		Content: attachmentBytes(attachment.content).toString("base64"),
+		ContentType: attachment.contentType,
+	}));
+}
+
+function mailgunFields(
+	to: string,
+	from: string,
+	content: TransactionalEmailContent,
+): Record<string, string> {
+	return {
+		from,
+		html: content.html,
+		"o:tracking": "no",
+		"o:tracking-clicks": "no",
+		"o:tracking-opens": "no",
+		subject: content.subject,
+		text: content.text,
+		to,
+	};
+}
+
+function mailgunMultipartBody(
+	to: string,
+	from: string,
+	content: TransactionalEmailContent,
+): FormData {
+	const body = new FormData();
+
+	for (const [key, value] of Object.entries(mailgunFields(to, from, content))) {
+		body.append(key, value);
+	}
+
+	for (const attachment of content.attachments ?? []) {
+		body.append(
+			"attachment",
+			new Blob([arrayBuffer(attachmentBytes(attachment.content))], {
+				type: attachment.contentType,
+			}),
+			attachment.filename,
+		);
+	}
+
+	return body;
+}
+
+function attachmentByteLength(
+	attachment: TransactionalEmailAttachment,
+): number {
+	return attachmentBytes(attachment.content).byteLength;
+}
+
+function attachmentBytes(content: Uint8Array | Buffer | string): Buffer {
+	if (typeof content === "string") {
+		return Buffer.from(content, "utf8");
+	}
+
+	return Buffer.from(content);
+}
+
+function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
+	return bytes.buffer.slice(
+		bytes.byteOffset,
+		bytes.byteOffset + bytes.byteLength,
+	) as ArrayBuffer;
 }
 
 export function createEmailTransport(

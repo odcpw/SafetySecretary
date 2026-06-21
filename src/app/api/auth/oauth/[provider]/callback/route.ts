@@ -6,7 +6,7 @@ import {
 	extractVerifiedOAuthEmail,
 	fetchOAuthUserInfo,
 	isOAuthProvider,
-	oauthStateCookieName,
+	oauthStateCookieNames,
 	validateOAuthIdTokenClaims,
 } from "../../../../../../lib/auth/oauth";
 import {
@@ -41,9 +41,9 @@ export async function GET(
 		);
 	}
 
-	const cookieName = oauthStateCookieName(providerParam);
+	const cookieNames = oauthStateCookieNames(providerParam);
 	const stateCookie = decodeOAuthStateCookie(
-		request.cookies.get(cookieName)?.value ?? "",
+		readFirstOAuthStateCookie(request, cookieNames) ?? "",
 	);
 
 	if (
@@ -51,9 +51,9 @@ export async function GET(
 		stateCookie.provider !== providerParam ||
 		stateCookie.state !== request.nextUrl.searchParams.get("state")
 	) {
-		return clearOAuthStateCookie(
+		return clearOAuthStateCookies(
 			redirectToSignin(request, "oauth_state"),
-			cookieName,
+			cookieNames,
 			request,
 		);
 	}
@@ -61,9 +61,9 @@ export async function GET(
 	const code = request.nextUrl.searchParams.get("code");
 	const providerError = request.nextUrl.searchParams.get("error");
 	if (providerError || !code) {
-		return clearOAuthStateCookie(
+		return clearOAuthStateCookies(
 			redirectToSignin(request, "oauth_failed"),
-			cookieName,
+			cookieNames,
 			request,
 		);
 	}
@@ -96,9 +96,9 @@ export async function GET(
 		);
 
 		if (!email || !identity) {
-			return clearOAuthStateCookie(
+			return clearOAuthStateCookies(
 				redirectToSignin(request, "oauth_email"),
-				cookieName,
+				cookieNames,
 				request,
 			);
 		}
@@ -118,33 +118,33 @@ export async function GET(
 		});
 
 		if (!result.ok) {
-			return clearOAuthStateCookie(
+			return clearOAuthStateCookies(
 				redirectToSignin(
 					request,
 					result.code === INVITATION_REQUIRED_CODE
 						? "invitation_required"
 						: "oauth_failed",
 				),
-				cookieName,
+				cookieNames,
 				request,
 			);
 		}
 
-		return clearOAuthStateCookie(result.response, cookieName, request);
+		return clearOAuthStateCookies(result.response, cookieNames, request);
 	} catch (error) {
 		if (error instanceof OAuthIdentityConflictError) {
 			logOAuthFailure(providerParam, error.code);
-			return clearOAuthStateCookie(
+			return clearOAuthStateCookies(
 				redirectToSignin(request, "oauth_identity_conflict"),
-				cookieName,
+				cookieNames,
 				request,
 			);
 		}
 
 		logOAuthFailure(providerParam, errorReason(error));
-		return clearOAuthStateCookie(
+		return clearOAuthStateCookies(
 			redirectToSignin(request, "oauth_failed"),
-			cookieName,
+			cookieNames,
 			request,
 		);
 	}
@@ -157,20 +157,36 @@ function redirectToSignin(request: NextRequest, reason: string): NextResponse {
 	return NextResponse.redirect(url, 303);
 }
 
-function clearOAuthStateCookie(
+function readFirstOAuthStateCookie(
+	request: NextRequest,
+	cookieNames: readonly string[],
+): string | undefined {
+	for (const cookieName of cookieNames) {
+		const value = request.cookies.get(cookieName)?.value;
+		if (value) {
+			return value;
+		}
+	}
+
+	return undefined;
+}
+
+function clearOAuthStateCookies(
 	response: NextResponse,
-	cookieName: string,
+	cookieNames: readonly string[],
 	request: NextRequest,
 ): NextResponse {
-	response.cookies.set(cookieName, "", {
-		httpOnly: true,
-		maxAge: 0,
-		path: "/",
-		sameSite: "lax",
-		secure: shouldUseSecureAuthCookies(
-			authCookieSecurityContextFromRequest(request),
-		),
-	});
+	for (const cookieName of cookieNames) {
+		response.cookies.set(cookieName, "", {
+			httpOnly: true,
+			maxAge: 0,
+			path: "/",
+			sameSite: "lax",
+			secure: shouldUseSecureAuthCookies(
+				authCookieSecurityContextFromRequest(request),
+			),
+		});
+	}
 	return response;
 }
 

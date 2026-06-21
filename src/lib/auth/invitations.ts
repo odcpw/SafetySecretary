@@ -33,7 +33,7 @@ const UUID_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type GlobalState = typeof globalThis & {
-	__ssfwInvitationPrisma?: PrismaClient;
+	__safetySecretaryInvitationPrisma?: PrismaClient;
 };
 
 const globalState = globalThis as GlobalState;
@@ -100,6 +100,7 @@ export type RedeemInvitationResult =
 			invitationId: string;
 			tenantId: string;
 			userId: string;
+			joinedTenant: boolean;
 			message: "Invitation accepted.";
 	  }
 	| {
@@ -109,7 +110,9 @@ export type RedeemInvitationResult =
 	  };
 
 export interface InvitationStore {
-	createInvitation(input: CreateInvitationStoreInput): Promise<InvitationRecord>;
+	createInvitation(
+		input: CreateInvitationStoreInput,
+	): Promise<InvitationRecord>;
 	listInvitations(input: {
 		tenantId: string;
 		actorUserId: string;
@@ -121,7 +124,9 @@ export interface InvitationStore {
 		tokenHash: Uint8Array;
 		now: Date;
 	}): Promise<EnsureInviteMagicLinkRecipientResult>;
-	redeemInvitation(input: RedeemInvitationInput): Promise<RedeemInvitationResult>;
+	redeemInvitation(
+		input: RedeemInvitationInput,
+	): Promise<RedeemInvitationResult>;
 }
 
 export type CreateInvitationResult = {
@@ -306,7 +311,9 @@ export async function requestInvitationMagicLink(input: {
 		now,
 	});
 	const magicLinkStore = input.magicLinkStore ?? new PrismaMagicLinkStore();
-	const magicToken = generateMagicLinkToken({ targetTenantId: target.tenantId });
+	const magicToken = generateMagicLinkToken({
+		targetTenantId: target.tenantId,
+	});
 	const tokenHash = hashMagicLinkToken(magicToken);
 	const expiresAt = new Date(now.getTime() + MAGIC_LINK_TTL_MS);
 
@@ -464,9 +471,7 @@ export class PrismaInvitationStore implements InvitationStore {
 				throw new InvitationValidationError(INVITATION_EXPIRED_MESSAGE);
 			}
 
-			const recipientEmail = normalizeMagicLinkEmail(
-				invitation.recipientEmail,
-			);
+			const recipientEmail = normalizeMagicLinkEmail(invitation.recipientEmail);
 			const user = await tx.user.upsert({
 				where: { email: recipientEmail },
 				update: {},
@@ -539,18 +544,12 @@ export class PrismaInvitationStore implements InvitationStore {
 				};
 			}
 
-			await tx.tenantMembership.upsert({
-				where: {
-					tenantId_userId: {
-						tenantId: invitation.tenantId,
-						userId: input.userId,
-					},
-				},
-				update: {},
-				create: {
+			const membership = await tx.tenantMembership.createMany({
+				data: {
 					tenantId: invitation.tenantId,
 					userId: input.userId,
 				},
+				skipDuplicates: true,
 			});
 
 			await tx.invitation.update({
@@ -563,6 +562,7 @@ export class PrismaInvitationStore implements InvitationStore {
 				invitationId: invitation.id,
 				tenantId: invitation.tenantId,
 				userId: input.userId,
+				joinedTenant: membership.count > 0,
 				message: "Invitation accepted.",
 			};
 		});
@@ -623,7 +623,10 @@ function invalidInvitation(): Extract<RedeemInvitationResult, { ok: false }> {
 	};
 }
 
-function invalidLandingInvitation(): Extract<InvitationLandingResult, { ok: false }> {
+function invalidLandingInvitation(): Extract<
+	InvitationLandingResult,
+	{ ok: false }
+> {
 	return {
 		ok: false,
 		reason: "invalid",
@@ -670,9 +673,9 @@ function toInvitationRecord(invitation: {
 }
 
 function getInvitationPrismaClient(): PrismaClient {
-	if (!globalState.__ssfwInvitationPrisma) {
-		globalState.__ssfwInvitationPrisma = new PrismaClient();
+	if (!globalState.__safetySecretaryInvitationPrisma) {
+		globalState.__safetySecretaryInvitationPrisma = new PrismaClient();
 	}
 
-	return globalState.__ssfwInvitationPrisma;
+	return globalState.__safetySecretaryInvitationPrisma;
 }

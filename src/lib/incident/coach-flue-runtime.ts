@@ -4,6 +4,7 @@ import {
 	type AttachedAgentEvent,
 	type FlueClient,
 } from "@flue/sdk";
+import { readEnv } from "../config/env";
 import { encodeFlueIncidentInstanceId } from "./coach-flue-ids";
 
 const defaultFlueBaseUrl = "http://127.0.0.1:3583";
@@ -73,10 +74,13 @@ export async function runIncidentCoachTurnViaFlueWithProgress(input: {
 	readonly onProgress?: (event: FlueIncidentCoachProgressEvent) => void;
 }): Promise<FlueIncidentCoachTurn> {
 	const env = input.env ?? process.env;
-	const baseUrl = cleanEnv(env.SSFW_FLUE_BASE_URL) ?? defaultFlueBaseUrl;
+	const baseUrl =
+		readEnv(env, "SAFETYSECRETARY_FLUE_BASE_URL", "SSFW_FLUE_BASE_URL") ??
+		defaultFlueBaseUrl;
 	const agentName =
-		cleanEnv(env.SSFW_FLUE_II_AGENT) ?? defaultIncidentAgentName;
-	const token = cleanEnv(env.SSFW_FLUE_TOKEN);
+		readEnv(env, "SAFETYSECRETARY_FLUE_II_AGENT", "SSFW_FLUE_II_AGENT") ??
+		defaultIncidentAgentName;
+	const token = readEnv(env, "SAFETYSECRETARY_FLUE_TOKEN", "SSFW_FLUE_TOKEN");
 	const instanceId = encodeFlueIncidentInstanceId({
 		incidentId: input.incidentId,
 		tenantId: input.tenantId,
@@ -324,11 +328,6 @@ function extractPromptText(result: unknown): { text: string; model?: string } {
 	}
 
 	throw new FlueCoachRuntimeError("Flue result did not include text.");
-}
-
-function cleanEnv(value: string | undefined): string | undefined {
-	const trimmed = value?.trim();
-	return trimmed ? trimmed : undefined;
 }
 
 function formatZurichNow(): string {

@@ -111,7 +111,7 @@ export default function ActionPlanEditor({
 					headers: {
 						accept: "application/json",
 						"content-type": "application/json",
-						"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+						"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 					},
 					method: "POST",
 				},

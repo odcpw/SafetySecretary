@@ -38,7 +38,7 @@ const RESIZE_STEP = 24;
 const rootClassName =
 	"grid min-h-0 w-full gap-4 bg-[var(--color-bg)] text-[var(--color-text)] lg:items-stretch";
 const splitClassName =
-	"lg:grid-cols-[minmax(var(--ssfw-table-chat-main-min),1fr)_0.75rem_minmax(var(--ssfw-table-chat-chat-min),var(--ssfw-table-chat-chat-width))]";
+	"lg:grid-cols-[minmax(var(--safetysecretary-table-chat-main-min),1fr)_0.75rem_minmax(var(--safetysecretary-table-chat-chat-min),var(--safetysecretary-table-chat-chat-width))]";
 const singleClassName = "lg:grid-cols-[minmax(0,1fr)]";
 const paneClassName =
 	"min-h-0 min-w-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]";
@@ -70,16 +70,20 @@ export function TableChatLayout({
 	const chatId = `${generatedId}-chat`;
 	const containerRef = useRef<HTMLElement | null>(null);
 	const [chatWidth, setChatWidth] = useState(() =>
-		clamp(initialChatWidth, minChatWidth, Math.max(initialChatWidth, minChatWidth)),
+		clamp(
+			initialChatWidth,
+			minChatWidth,
+			Math.max(initialChatWidth, minChatWidth),
+		),
 	);
 	const [maxChatWidth, setMaxChatWidth] = useState(() =>
 		Math.max(initialChatWidth, minChatWidth),
 	);
 	const cssVars = {
-		"--ssfw-table-chat-main-min": `${minMainWidth}px`,
-		"--ssfw-table-chat-chat-min": `${minChatWidth}px`,
-		"--ssfw-table-chat-chat-width": `${chatWidth}px`,
-		"--ssfw-table-chat-collapse": `${collapseBreakpoint}px`,
+		"--safetysecretary-table-chat-main-min": `${minMainWidth}px`,
+		"--safetysecretary-table-chat-chat-min": `${minChatWidth}px`,
+		"--safetysecretary-table-chat-chat-width": `${chatWidth}px`,
+		"--safetysecretary-table-chat-collapse": `${collapseBreakpoint}px`,
 		...style,
 	} as CSSProperties;
 

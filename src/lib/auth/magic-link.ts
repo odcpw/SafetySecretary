@@ -21,6 +21,10 @@ export const MAGIC_LINK_EXPIRED_MESSAGE =
 type UserTenant = {
 	userId: string;
 	tenantId: string;
+	email?: string;
+	workspaceKind?: string;
+	createdTenant?: boolean;
+	joinedTenant?: boolean;
 };
 
 export type MagicLinkTokenRow = {
@@ -67,6 +71,10 @@ export type ConsumeMagicLinkResult =
 			ok: true;
 			userId: string;
 			tenantId: string;
+			email?: string;
+			workspaceKind?: string;
+			createdTenant?: boolean;
+			joinedTenant?: boolean;
 	  }
 	| {
 			ok: false;
@@ -79,7 +87,7 @@ export type MagicLinkWorkspaceResolver = (input: {
 }) => Promise<UserTenant | null>;
 
 type GlobalState = typeof globalThis & {
-	__ssfwPrisma?: PrismaClient;
+	__safetySecretaryMagicLinkPrisma?: PrismaClient;
 };
 
 const globalState = globalThis as GlobalState;
@@ -303,6 +311,16 @@ export async function consumeMagicLinkToken(
 		ok: true,
 		userId: userTenant.userId,
 		tenantId: userTenant.tenantId,
+		...(userTenant.email ? { email: userTenant.email } : {}),
+		...(userTenant.workspaceKind
+			? { workspaceKind: userTenant.workspaceKind }
+			: {}),
+		...(typeof userTenant.createdTenant === "boolean"
+			? { createdTenant: userTenant.createdTenant }
+			: {}),
+		...(typeof userTenant.joinedTenant === "boolean"
+			? { joinedTenant: userTenant.joinedTenant }
+			: {}),
 	};
 }
 
@@ -378,18 +396,12 @@ export class PrismaMagicLinkStore implements MagicLinkStore {
 				return null;
 			}
 
-			await tx.tenantMembership.upsert({
-				where: {
-					tenantId_userId: {
-						tenantId: invitation.tenantId,
-						userId: input.userId,
-					},
-				},
-				update: {},
-				create: {
+			const membership = await tx.tenantMembership.createMany({
+				data: {
 					tenantId: invitation.tenantId,
 					userId: input.userId,
 				},
+				skipDuplicates: true,
 			});
 			await tx.invitation.update({
 				where: { id: invitation.id },
@@ -397,6 +409,8 @@ export class PrismaMagicLinkStore implements MagicLinkStore {
 			});
 
 			return {
+				email: input.email,
+				joinedTenant: membership.count > 0,
 				tenantId: invitation.tenantId,
 				userId: input.userId,
 			};
@@ -503,11 +517,11 @@ export class PrismaMagicLinkRateLimitStore implements MagicLinkRateLimitStore {
 }
 
 function getPrismaClient(): PrismaClient {
-	if (!globalState.__ssfwPrisma) {
-		globalState.__ssfwPrisma = new PrismaClient();
+	if (!globalState.__safetySecretaryMagicLinkPrisma) {
+		globalState.__safetySecretaryMagicLinkPrisma = new PrismaClient();
 	}
 
-	return globalState.__ssfwPrisma;
+	return globalState.__safetySecretaryMagicLinkPrisma;
 }
 
 function invalidOrUsed(): ConsumeMagicLinkResult {

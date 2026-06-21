@@ -20,6 +20,7 @@ import {
 	AgentWorkflowType,
 } from "../agent/types";
 import { withTenantConnection } from "../db";
+import { readEnvRaw } from "../config/env";
 import {
 	type DispatchOptions,
 	type DispatchResult,
@@ -49,7 +50,10 @@ import {
 } from "./coach-prompt";
 
 export const II_COACH_PROMPT_PURPOSE = "ii_coach_turn";
-export const II_COACH_MOCK_SEED_PATH_ENV = "SSFW_II_COACH_MOCK_SEED_PATH";
+export const II_COACH_MOCK_SEED_PATH_ENV =
+	"SAFETYSECRETARY_II_COACH_MOCK_SEED_PATH";
+export const LEGACY_II_COACH_MOCK_SEED_PATH_ENV =
+	"SSFW_II_COACH_MOCK_SEED_PATH";
 
 const transcriptWindow = 40;
 
@@ -627,7 +631,11 @@ export function readCoachMockProviderFromEnv(
 		return undefined;
 	}
 
-	const fixturePath = env[II_COACH_MOCK_SEED_PATH_ENV];
+	const fixturePath = readEnvRaw(
+		env,
+		II_COACH_MOCK_SEED_PATH_ENV,
+		LEGACY_II_COACH_MOCK_SEED_PATH_ENV,
+	);
 
 	if (!fixturePath) {
 		return undefined;
@@ -655,9 +663,13 @@ function shouldUseFlueCoachRuntime(
 	if (dispatchOptions) {
 		return false;
 	}
-	// Flue is the live coach runtime by default. Setting SSFW_II_COACH_RUNTIME
+	// Flue is the live coach runtime by default. Setting the coach runtime env
 	// to anything else (e.g. "pi") opts back out to the dispatch/Pi path.
-	const runtime = env.SSFW_II_COACH_RUNTIME;
+	const runtime = readEnvRaw(
+		env,
+		"SAFETYSECRETARY_II_COACH_RUNTIME",
+		"SSFW_II_COACH_RUNTIME",
+	);
 	// An explicit selection is honoured as-is; otherwise a configured mock
 	// provider (test fixtures) keeps deterministic runs on the dispatch path
 	// rather than reaching the live Flue server.
@@ -693,10 +705,15 @@ function coachDispatchOptionsFromEnv(): DispatchOptions {
 
 	// The live coach defaults to the Flue runtime (handled in
 	// shouldUseFlueCoachRuntime); this dispatch path is only reached when the
-	// operator opts back out via SSFW_II_COACH_RUNTIME=pi. When selected, Pi is
+	// operator opts back out via SAFETYSECRETARY_II_COACH_RUNTIME=pi. When selected, Pi is
 	// wired as the hosted provider so dispatch's cost-cap/consent/logging rails
 	// still wrap it. PiCoachProvider falls back to OpenAI if Pi is unavailable.
-	const runtime = env.SSFW_II_COACH_RUNTIME ?? "flue";
+	const runtime =
+		readEnvRaw(
+			env,
+			"SAFETYSECRETARY_II_COACH_RUNTIME",
+			"SSFW_II_COACH_RUNTIME",
+		) ?? "flue";
 	if (runtime === "pi" && env.OPENAI_API_KEY?.trim()) {
 		return {
 			createHostedSaaSProvider: () => new PiCoachProvider({ env }),

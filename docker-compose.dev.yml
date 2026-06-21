@@ -1,20 +1,20 @@
 services:
   db:
     image: pgvector/pgvector:pg16
-    container_name: safetysecretarynext-db
+    container_name: safetysecretarydb
     environment:
-      POSTGRES_USER: safety_secretary
-      POSTGRES_PASSWORD: safety_secretary
-      POSTGRES_DB: safety_secretary
+      POSTGRES_USER: safetysecretary
+      POSTGRES_PASSWORD: safetysecretary
+      POSTGRES_DB: safetysecretary
     ports:
       - "5435:5432"
     volumes:
-      - ssfw_next_pg:/var/lib/postgresql/data
+      - safetysecretarypg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U safety_secretary"]
+      test: ["CMD-SHELL", "pg_isready -U safetysecretary"]
       interval: 5s
       timeout: 3s
       retries: 10
 
 volumes:
-  ssfw_next_pg:
+  safetysecretarypg:

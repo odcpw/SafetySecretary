@@ -6,7 +6,7 @@ import {
 	AgentSurface,
 	AgentWorkflowType,
 } from "../../../../../lib/agent/types";
-import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
+import { readSessionCookie } from "../../../../../lib/auth/cookies";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -68,7 +68,7 @@ export async function GET(
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 function isUuid(value: string | null | undefined): value is string {

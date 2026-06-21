@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../../../../lib/auth/cookies";
-import { verifyCsrfToken } from "../../../../../../../../lib/auth/csrf";
+import { readSessionCookie } from "../../../../../../../../lib/auth/cookies";
+import { verifyCsrfRequest } from "../../../../../../../../lib/auth/csrf";
+import {
+	readNamedHeader,
+	VISION_MODAL_GRANTED_HEADER_NAMES,
+} from "../../../../../../../../lib/auth/headers";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -48,7 +52,7 @@ export async function POST(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -59,7 +63,8 @@ export async function POST(
 		const analysis = await analyseCoachPhoto({
 			incidentId: id,
 			justGrantedVisionConsent:
-				request.headers.get("x-ssfw-vision-modal-granted") === "true",
+				readNamedHeader(request.headers, VISION_MODAL_GRANTED_HEADER_NAMES) ===
+				"true",
 			locale: stringValue(body.locale) || "en",
 			photoId,
 			tenantId: session.tenantId,
@@ -111,7 +116,7 @@ export async function POST(
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 function stringValue(value: unknown): string {

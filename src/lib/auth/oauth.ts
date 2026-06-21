@@ -1,8 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import {
-	isValidMagicLinkEmail,
-	normalizeMagicLinkEmail,
-} from "./magic-link";
+import { isValidMagicLinkEmail, normalizeMagicLinkEmail } from "./magic-link";
 import { normalizeLocalReturnTo } from "./return-to";
 
 export type OAuthProvider = "google" | "microsoft";
@@ -40,7 +37,8 @@ type OAuthUserInfo = Record<string, unknown>;
 type OAuthTokenClaims = Record<string, unknown>;
 
 export const OAUTH_STATE_TTL_SECONDS = 10 * 60;
-export const OAUTH_STATE_COOKIE_PREFIX = "ssfw_oauth_";
+export const OAUTH_STATE_COOKIE_PREFIX = "safetysecretary_oauth_";
+export const LEGACY_OAUTH_STATE_COOKIE_PREFIX = "ssfw_oauth_";
 
 const providerNames = new Set<OAuthProvider>(["google", "microsoft"]);
 
@@ -62,6 +60,16 @@ export function oauthStateCookieName(provider: OAuthProvider): string {
 	return `${OAUTH_STATE_COOKIE_PREFIX}${provider}`;
 }
 
+export function legacyOAuthStateCookieName(provider: OAuthProvider): string {
+	return `${LEGACY_OAUTH_STATE_COOKIE_PREFIX}${provider}`;
+}
+
+export function oauthStateCookieNames(
+	provider: OAuthProvider,
+): readonly string[] {
+	return [oauthStateCookieName(provider), legacyOAuthStateCookieName(provider)];
+}
+
 export function oauthProviderConfig(
 	provider: OAuthProvider,
 	env: EnvLike = process.env,
@@ -76,12 +84,9 @@ export function oauthProviderConfig(
 			authorizationEndpoint: `https://login.microsoftonline.com/${encodeURIComponent(
 				tenant,
 			)}/oauth2/v2.0/authorize`,
-			clientId:
-				env.MICROSOFT_OAUTH_CLIENT_ID ?? env.AZURE_AD_CLIENT_ID ?? "",
+			clientId: env.MICROSOFT_OAUTH_CLIENT_ID ?? env.AZURE_AD_CLIENT_ID ?? "",
 			clientSecret:
-				env.MICROSOFT_OAUTH_CLIENT_SECRET ??
-				env.AZURE_AD_CLIENT_SECRET ??
-				"",
+				env.MICROSOFT_OAUTH_CLIENT_SECRET ?? env.AZURE_AD_CLIENT_SECRET ?? "",
 			provider,
 			scopes: ["openid", "email", "profile"],
 			tokenEndpoint: `https://login.microsoftonline.com/${encodeURIComponent(
@@ -94,7 +99,8 @@ export function oauthProviderConfig(
 	return {
 		authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
 		clientId: env.GOOGLE_OAUTH_CLIENT_ID ?? env.GOOGLE_CLIENT_ID ?? "",
-		clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET ?? env.GOOGLE_CLIENT_SECRET ?? "",
+		clientSecret:
+			env.GOOGLE_OAUTH_CLIENT_SECRET ?? env.GOOGLE_CLIENT_SECRET ?? "",
 		provider,
 		scopes: ["openid", "email", "profile"],
 		tokenEndpoint: "https://oauth2.googleapis.com/token",
@@ -133,7 +139,10 @@ export function buildOAuthAuthorizationRequest(input: {
 	const authorizationUrl = new URL(config.authorizationEndpoint);
 
 	authorizationUrl.searchParams.set("client_id", config.clientId);
-	authorizationUrl.searchParams.set("code_challenge", pkceChallenge(codeVerifier));
+	authorizationUrl.searchParams.set(
+		"code_challenge",
+		pkceChallenge(codeVerifier),
+	);
 	authorizationUrl.searchParams.set("code_challenge_method", "S256");
 	authorizationUrl.searchParams.set("redirect_uri", redirectUri);
 	authorizationUrl.searchParams.set("response_type", "code");
@@ -203,8 +212,8 @@ export function oauthRedirectUri(
 ): string {
 	const explicit =
 		provider === "microsoft"
-			? env.MICROSOFT_OAUTH_REDIRECT_URI ?? env.AZURE_AD_REDIRECT_URI
-			: env.GOOGLE_OAUTH_REDIRECT_URI ?? env.GOOGLE_REDIRECT_URI;
+			? (env.MICROSOFT_OAUTH_REDIRECT_URI ?? env.AZURE_AD_REDIRECT_URI)
+			: (env.GOOGLE_OAUTH_REDIRECT_URI ?? env.GOOGLE_REDIRECT_URI);
 
 	if (explicit?.trim()) {
 		return explicit.trim();
@@ -255,7 +264,9 @@ export async function exchangeOAuthCode(input: {
 		id_token?: unknown;
 	};
 	if (typeof payload.access_token !== "string" || !payload.access_token) {
-		throw new Error(`${input.provider} OAuth token response did not include an access token.`);
+		throw new Error(
+			`${input.provider} OAuth token response did not include an access token.`,
+		);
 	}
 
 	return {
@@ -366,7 +377,9 @@ export function decodeOAuthStateCookie(value: string): OAuthStateCookie | null {
 	}
 }
 
-export function normalizeOAuthReturnTo(value: string | null | undefined): string {
+export function normalizeOAuthReturnTo(
+	value: string | null | undefined,
+): string {
 	return normalizeLocalReturnTo(value);
 }
 
@@ -425,7 +438,9 @@ function issuerMatches(provider: OAuthProvider, value: unknown): boolean {
 	}
 
 	if (provider === "google") {
-		return value === "https://accounts.google.com" || value === "accounts.google.com";
+		return (
+			value === "https://accounts.google.com" || value === "accounts.google.com"
+		);
 	}
 
 	return /^https:\/\/login\.microsoftonline\.com\/[^/]+\/v2\.0$/.test(value);

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import {
 	authCookieSecurityContextFromRequest,
-	LOCALE_COOKIE_NAME,
+	readLocaleCookie,
 	setSessionCookie,
 } from "../../../../lib/auth/cookies";
 import { hasTrustedAuthRequestOrigin } from "../../../../lib/auth/base-url";
@@ -13,6 +13,7 @@ import {
 	PrismaMagicLinkRateLimitStore,
 } from "../../../../lib/auth/magic-link";
 import { normalizeLocalReturnTo } from "../../../../lib/auth/return-to";
+import { envFlag, readEnvRaw } from "../../../../lib/config/env";
 import { issueSession } from "../../../../lib/auth/session";
 import { prisma, provisionTenantSchema } from "../../../../lib/db";
 import { DISCLAIMER_VERSION } from "../../../../lib/legal/disclaimer";
@@ -60,12 +61,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 	const returnTo = safeReturnTo(await readReturnTo(request));
 	// Seed the test workspace's language from the visitor's current choice (the
-	// ssfw_locale cookie the landing dropdown writes) or their browser, instead
+	// locale cookie the landing dropdown writes) or their browser, instead
 	// of forcing English — otherwise a language picked before "Try it" is lost
 	// at login because user.uiLocale outranks the cookie in the resolver.
 	const seededLocale = resolveUiLocale({
 		acceptLanguageHeader: request.headers.get("accept-language"),
-		cookieLocale: request.cookies.get(LOCALE_COOKIE_NAME)?.value,
+		cookieLocale: readLocaleCookie(request.cookies),
 	});
 	const workspace = await ensureDevWorkspace(seededLocale);
 	const session = await issueSession(
@@ -89,22 +90,35 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 }
 
 function isDevAuthBypassEnabled(): boolean {
-	// Dev convenience: bypass works in non-production when SSFW_DEV_AUTH_BYPASS=1.
+	// Dev convenience: bypass works in non-production when the dev auth flag is on.
 	if (process.env.NODE_ENV !== "production") {
 		return (
-			process.env.SSFW_PUBLIC_TEST_LOGIN === "1" ||
-			process.env.SSFW_DEV_AUTH_BYPASS === "1"
+			envFlag(
+				process.env,
+				"SAFETYSECRETARY_PUBLIC_TEST_LOGIN",
+				"SSFW_PUBLIC_TEST_LOGIN",
+			) ||
+			envFlag(
+				process.env,
+				"SAFETYSECRETARY_DEV_AUTH_BYPASS",
+				"SSFW_DEV_AUTH_BYPASS",
+			)
 		);
 	}
-	// Public test workspaces on a live (production) demo: SSFW_PUBLIC_TEST_LOGIN
-	// is NOT enough on its own — it mints credential-less sessions, so production
-	// requires a second, deliberate acknowledgement (SSFW_PUBLIC_TEST_LOGIN_ACK)
-	// confirming the operator understands this exposes a shared demo workspace.
-	// The session always lands in a dedicated demo tenant (ensureDevWorkspace),
-	// never a real customer tenant.
+	// Public test workspaces on a live production demo are credential-less, so
+	// production requires a second deliberate acknowledgement. The session always
+	// lands in a dedicated demo tenant, never a real customer tenant.
 	return (
-		process.env.SSFW_PUBLIC_TEST_LOGIN === "1" &&
-		process.env.SSFW_PUBLIC_TEST_LOGIN_ACK === "1"
+		envFlag(
+			process.env,
+			"SAFETYSECRETARY_PUBLIC_TEST_LOGIN",
+			"SSFW_PUBLIC_TEST_LOGIN",
+		) &&
+		envFlag(
+			process.env,
+			"SAFETYSECRETARY_PUBLIC_TEST_LOGIN_ACK",
+			"SSFW_PUBLIC_TEST_LOGIN_ACK",
+		)
 	);
 }
 
@@ -113,7 +127,11 @@ async function ensureDevWorkspace(
 ): Promise<DevWorkspace> {
 	const email = normalizedDevEmail();
 	const companyName =
-		process.env.SSFW_DEV_AUTH_COMPANY_NAME?.trim() || defaultDevCompanyName;
+		readEnvRaw(
+			process.env,
+			"SAFETYSECRETARY_DEV_AUTH_COMPANY_NAME",
+			"SSFW_DEV_AUTH_COMPANY_NAME",
+		)?.trim() || defaultDevCompanyName;
 
 	return prisma.$transaction(
 		async (tx) => {
@@ -204,7 +222,13 @@ async function ensureDevWorkspace(
 }
 
 function normalizedDevEmail(): string {
-	return (process.env.SSFW_DEV_AUTH_EMAIL ?? defaultDevEmail)
+	return (
+		readEnvRaw(
+			process.env,
+			"SAFETYSECRETARY_DEV_AUTH_EMAIL",
+			"SSFW_DEV_AUTH_EMAIL",
+		) ?? defaultDevEmail
+	)
 		.trim()
 		.toLowerCase();
 }

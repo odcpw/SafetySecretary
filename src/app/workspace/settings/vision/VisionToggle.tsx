@@ -18,8 +18,8 @@ type VisionToggleProps = {
 	labels: VisionToggleLabels;
 };
 
-const csrfCookieName = "ssfw_csrf";
-const csrfHeaderName = "x-ssfw-csrf";
+const csrfCookieName = "safetysecretary_csrf";
+const csrfHeaderName = "x-safetysecretary-csrf";
 
 export function VisionToggle({ initialEnabled, labels }: VisionToggleProps) {
 	const router = useRouter();

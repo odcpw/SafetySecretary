@@ -62,7 +62,7 @@ test("audit inspection draft key is scoped by tenant and user", () => {
 
 	assert.match(
 		tenantScopedKey,
-		new RegExp(`^ssfw:audit-inspection-capture:v1:${tenantId}:`),
+		new RegExp(`^safetysecretary:audit-inspection-capture:v1:${tenantId}:`),
 	);
 	assert.notEqual(
 		tenantScopedKey,

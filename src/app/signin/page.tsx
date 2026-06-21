@@ -4,10 +4,12 @@ import { type FormEvent, useEffect, useState } from "react";
 
 const SUCCESS_MESSAGE = "Check your email for a sign-in link.";
 const DEV_AUTH_BYPASS_ENABLED =
+	process.env.NEXT_PUBLIC_SAFETYSECRETARY_DEV_AUTH_BYPASS === "1" ||
 	process.env.NEXT_PUBLIC_SSFW_DEV_AUTH_BYPASS === "1";
 const MICROSOFT_OAUTH_ENABLED =
 	process.env.NEXT_PUBLIC_MICROSOFT_OAUTH_ENABLED === "1";
-const GOOGLE_OAUTH_ENABLED = process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "1";
+const GOOGLE_OAUTH_ENABLED =
+	process.env.NEXT_PUBLIC_GOOGLE_OAUTH_ENABLED === "1";
 
 export default function SigninPage() {
 	const [email, setEmail] = useState("");

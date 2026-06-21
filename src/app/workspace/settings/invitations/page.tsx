@@ -13,7 +13,7 @@ type InvitationListItem = {
 	createdByEmail?: string;
 };
 
-const csrfCookieName = "ssfw_csrf";
+const csrfCookieName = "safetysecretary_csrf";
 
 export default function InvitationsSettingsPage() {
 	const [recipientEmail, setRecipientEmail] = useState("");
@@ -65,7 +65,7 @@ export default function InvitationsSettingsPage() {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"x-ssfw-csrf": csrfToken,
+					"x-safetysecretary-csrf": csrfToken,
 				},
 				body: JSON.stringify({ recipientEmail }),
 			});

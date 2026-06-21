@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import {
-	type ChildProcess,
-	spawn,
-} from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
@@ -49,7 +46,9 @@ const { dropTenantSchema, prisma, withTenantConnection } = (await import(
 const databaseUrl = process.env.DATABASE_URL;
 
 if (!databaseUrl) {
-	throw new Error("DATABASE_URL is required. Run with `node --env-file=.env ...`.");
+	throw new Error(
+		"DATABASE_URL is required. Run with `node --env-file=.env ...`.",
+	);
 }
 
 if (!process.env.OPENAI_API_KEY) {
@@ -58,18 +57,27 @@ if (!process.env.OPENAI_API_KEY) {
 
 const runId = randomUUID();
 const reportPath =
-	process.env.SSFW_FLUE_STORY_REPORT_PATH ??
-	`.tmp/flue-incident-story-${runId}.json`;
-const port = Number(process.env.SSFW_FLUE_STORY_PORT ?? "3593");
+	readEnv(
+		"SAFETYSECRETARY_FLUE_STORY_REPORT_PATH",
+		"SSFW_FLUE_STORY_REPORT_PATH",
+	) ?? `.tmp/flue-incident-story-${runId}.json`;
+const port = Number(
+	readEnv("SAFETYSECRETARY_FLUE_STORY_PORT", "SSFW_FLUE_STORY_PORT") ?? "3593",
+);
 const baseUrl = `http://127.0.0.1:${port}`;
 const sqlitePath =
-	process.env.SSFW_FLUE_SQLITE_PATH ?? `.tmp/flue-story-${runId}.db`;
+	readEnv("SAFETYSECRETARY_FLUE_SQLITE_PATH", "SSFW_FLUE_SQLITE_PATH") ??
+	`.tmp/flue-story-${runId}.db`;
 const model = resolveFlueModel(process.env);
 
-process.env.SSFW_II_COACH_RUNTIME = "flue";
-process.env.SSFW_FLUE_BASE_URL = baseUrl;
-process.env.SSFW_FLUE_SQLITE_PATH = sqlitePath;
-process.env.SSFW_FLUE_MODEL = model;
+setEnvPair("SAFETYSECRETARY_II_COACH_RUNTIME", "SSFW_II_COACH_RUNTIME", "flue");
+setEnvPair("SAFETYSECRETARY_FLUE_BASE_URL", "SSFW_FLUE_BASE_URL", baseUrl);
+setEnvPair(
+	"SAFETYSECRETARY_FLUE_SQLITE_PATH",
+	"SSFW_FLUE_SQLITE_PATH",
+	sqlitePath,
+);
+setEnvPair("SAFETYSECRETARY_FLUE_MODEL", "SSFW_FLUE_MODEL", model);
 
 const storyTurns = [
 	"Someone got hurt near Line 2 yesterday. Can you help me investigate it?",
@@ -91,12 +99,24 @@ const expectedFindings = [
 	},
 	{ key: "hydraulic oil slip", patterns: [/hydraulic oil/i, /slip/i] },
 	{ key: "fractured wrist", patterns: [/fractur/i, /wrist/i] },
-	{ key: "leak known before incident", patterns: [/leak/i, /wednesday|two days/i] },
-	{ key: "production pressure", patterns: [/production/i, /behind|late|pressure/i] },
+	{
+		key: "leak known before incident",
+		patterns: [/leak/i, /wednesday|two days/i],
+	},
+	{
+		key: "production pressure",
+		patterns: [/production/i, /behind|late|pressure/i],
+	},
 	{ key: "empty spill kit", patterns: [/spill kit/i, /empty/i] },
 	{ key: "missing cones/barrier", patterns: [/cone|barrier|block/i] },
-	{ key: "equipment isolation action", patterns: [/stop using|isolate|removed/i] },
-	{ key: "spill kit replenishment action", patterns: [/spill kit/i, /refill|replenish/i] },
+	{
+		key: "equipment isolation action",
+		patterns: [/stop using|isolate|removed/i],
+	},
+	{
+		key: "spill kit replenishment action",
+		patterns: [/spill kit/i, /refill|replenish/i],
+	},
 	{
 		key: "supervisor escalation/briefing action",
 		patterns: [/supervisor|luis/i, /brief|block|escalat/i],
@@ -208,6 +228,7 @@ async function startFlueServer(): Promise<ChildProcess> {
 		env: {
 			...process.env,
 			PORT: String(port),
+			SAFETYSECRETARY_FLUE_SQLITE_PATH: sqlitePath,
 			SSFW_FLUE_SQLITE_PATH: sqlitePath,
 		},
 		stdio: ["ignore", "pipe", "pipe"],
@@ -218,9 +239,7 @@ async function startFlueServer(): Promise<ChildProcess> {
 	return child;
 }
 
-async function stopFlueServer(
-	child: ChildProcess,
-): Promise<void> {
+async function stopFlueServer(child: ChildProcess): Promise<void> {
 	if (hasExited(child)) {
 		return;
 	}
@@ -378,7 +397,11 @@ async function readFinalRecord(input: {
 			ORDER BY order_index ASC
 		`;
 		const actions = await tx.$queryRaw<
-			Array<{ description: string; dueDate: Date | null; ownerRole: string | null }>
+			Array<{
+				description: string;
+				dueDate: Date | null;
+				ownerRole: string | null;
+			}>
 		>`
 			SELECT action.description, action.owner_role AS "ownerRole", action.due_date AS "dueDate"
 			FROM incident_cause_action action
@@ -490,12 +513,12 @@ async function seedTenant(): Promise<{ tenantId: string; userId: string }> {
 	const tenant = await prisma.tenant.create({
 		data: {
 			defaultLanguage: "en",
-			name: `ssfw-flue-story-${randomUUID()}`,
+			name: `safetysecretary-flue-story-${randomUUID()}`,
 		},
 	});
 	const user = await prisma.user.create({
 		data: {
-			email: `ssfw-flue-story-${randomUUID()}@example.invalid`,
+			email: `safetysecretary-flue-story-${randomUUID()}@example.invalid`,
 			uiLocale: "en",
 		},
 	});
@@ -592,6 +615,21 @@ function sqlString(value: string): string {
 
 function moduleUrl(relativePath: string): string {
 	return pathToFileURL(relativePath).href;
+}
+
+function readEnv(name: string, legacyName?: string): string | undefined {
+	const value = process.env[name]?.trim();
+	if (value) {
+		return value;
+	}
+
+	const legacyValue = legacyName ? process.env[legacyName]?.trim() : "";
+	return legacyValue || undefined;
+}
+
+function setEnvPair(name: string, legacyName: string, value: string): void {
+	process.env[name] = value;
+	process.env[legacyName] = value;
 }
 
 function isLocalImport(specifier: string): boolean {

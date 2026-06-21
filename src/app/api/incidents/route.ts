@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import {
-	LOCALE_COOKIE_NAME,
-	SESSION_COOKIE_NAME,
-} from "../../../lib/auth/cookies";
+import { readLocaleCookie, readSessionCookie } from "../../../lib/auth/cookies";
 import { resolveUiLocale } from "../../../lib/auth/locale";
 import {
 	type ValidatedSession,
@@ -32,6 +29,11 @@ import {
 	EVENT_TYPE_CODES,
 	HAZARD_CATEGORY_CODES,
 } from "../../../lib/taxonomy/schema";
+import {
+	notifyOperatorCaseStarted,
+	scheduleOperatorNotification,
+	type CaseSummary,
+} from "../../../lib/operator/notifications";
 
 export const runtime = "nodejs";
 
@@ -172,6 +174,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 		payload: parsed.payload,
 		tenantId: session.tenantId,
 	});
+	queueCaseStartedNotification(incident, session);
 
 	if (wantsHtmlRedirect(request)) {
 		return NextResponse.redirect(
@@ -194,7 +197,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
  * immediately, with the form record panel as the editable surface. No payload
  * validation; everything except the sensible defaults is left null/empty for
  * the coach to fill in. Content language follows the single-source locale
- * resolution (user.uiLocale → ssfw_locale cookie → Accept-Language), so a
+ * resolution (user.uiLocale → locale cookie → Accept-Language), so a
  * French user's new incident is created with content_language='fr'.
  */
 async function createDraftIncident(
@@ -250,6 +253,7 @@ async function createDraftIncident(
 		payload,
 		tenantId: session.tenantId,
 	});
+	queueCaseStartedNotification(incident, session);
 
 	return NextResponse.json(
 		{
@@ -258,6 +262,31 @@ async function createDraftIncident(
 		},
 		{ status: 201 },
 	);
+}
+
+function queueCaseStartedNotification(
+	incident: IncidentRow,
+	session: Pick<ValidatedSession, "tenantId" | "userId">,
+): void {
+	scheduleOperatorNotification("case started", () =>
+		notifyOperatorCaseStarted({
+			caseId: incident.id,
+			tenantId: session.tenantId,
+			userId: session.userId,
+			summary: incidentSummary(incident),
+		}),
+	);
+}
+
+function incidentSummary(incident: IncidentRow): CaseSummary {
+	return {
+		caseId: incident.id,
+		caseNumber: incident.caseNumber,
+		title: incident.title,
+		workflowStage: incident.workflowStage,
+		createdAt: incident.createdAt,
+		closedAt: incident.closedAt,
+	};
 }
 
 async function listIncidents(tenantId: string): Promise<IncidentRow[]> {
@@ -455,10 +484,7 @@ async function createIncident(input: {
 			}
 			return incident;
 		} catch (error) {
-			if (
-				attempt === maxCaseNumberAttempts ||
-				!isCaseNumberConflict(error)
-			) {
+			if (attempt === maxCaseNumberAttempts || !isCaseNumberConflict(error)) {
 				throw error;
 			}
 		}
@@ -470,7 +496,7 @@ async function createIncident(input: {
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 async function readIncidentPayload(
@@ -649,12 +675,12 @@ async function loadIncidentLanguageContext(
 	]);
 
 	// The creator's effective language follows the single source of truth:
-	// persisted user.uiLocale first, then the ssfw_locale cookie, then the
+	// persisted user.uiLocale first, then the locale cookie, then the
 	// browser Accept-Language. This is what makes a new incident's stored
 	// content_language match the language the user is actually working in.
 	const creatorUiLocale = resolveUiLocale({
 		acceptLanguageHeader: request.headers.get("accept-language"),
-		cookieLocale: request.cookies.get(LOCALE_COOKIE_NAME)?.value,
+		cookieLocale: readLocaleCookie(request.cookies),
 		userLocale: user?.uiLocale,
 	});
 

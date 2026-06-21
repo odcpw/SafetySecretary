@@ -61,8 +61,8 @@ pnpm dev:bootstrap   # starts the pgvector dev DB (docker), migrates, seeds a de
 pnpm dev             # then sign in via the dev button on /signin
 ```
 
-Requires `.env` (see `.env.example`) with `SSFW_DEV_AUTH_BYPASS=1`,
-`NEXT_PUBLIC_SSFW_DEV_AUTH_BYPASS=1`, a `DATABASE_URL` pointing at the
+Requires `.env` (see `.env.example`) with `SAFETYSECRETARY_DEV_AUTH_BYPASS=1`,
+`NEXT_PUBLIC_SAFETYSECRETARY_DEV_AUTH_BYPASS=1`, a `DATABASE_URL` pointing at the
 dev container (port 5435), and an `OPENAI_API_KEY` for live coaching.
 `LLM_TEXT_MODEL` selects the model (dev default in `.env`: `gpt-5.2`;
 the provider falls back to `gpt-4o-mini` without it — too weak for
@@ -73,12 +73,12 @@ coaching quality, fine for plumbing).
 The coach calls the normal LLM dispatch chain (local override → BYOK →
 self-hosted `LLM_BASE_URL` → hosted OpenAI). In `NODE_ENV=test` the
 dispatch uses mock providers; the coach reads a sequential fixture from
-`SSFW_II_COACH_MOCK_SEED_PATH` (see
+`SAFETYSECRETARY_II_COACH_MOCK_SEED_PATH` (see
 `tests/fixtures/llm/ii-coach-chat.json`).
 
 ## Flue runtime
 
-Set `SSFW_II_COACH_RUNTIME=flue` to route chat turns through the packaged
+Set `SAFETYSECRETARY_II_COACH_RUNTIME=flue` to route chat turns through the packaged
 Flue agent in `.flue/agents/incident-investigation.ts`. The Flue agent
 instance id encodes tenant id + incident id, so the durable agent boundary is
 one case, not one browser tab or one logged-in user.
@@ -121,11 +121,11 @@ pnpm flue:prune
 
 Relevant knobs:
 
-- `SSFW_FLUE_SQLITE_PATH` selects the Flue SQLite file.
-- `SSFW_FLUE_STREAM_RETENTION_HOURS` controls legacy timestamped stream
+- `SAFETYSECRETARY_FLUE_SQLITE_PATH` selects the Flue SQLite file.
+- `SAFETYSECRETARY_FLUE_STREAM_RETENTION_HOURS` controls legacy timestamped stream
   retention on pre-1.0 SQLite files. Flue 1.0 event streams do not expose a
   stream-created timestamp, so the pruner does not delete them by age.
-- `SSFW_FLUE_PRUNE_VACUUM=1` runs `VACUUM` and a WAL truncate checkpoint to
+- `SAFETYSECRETARY_FLUE_PRUNE_VACUUM=1` runs `VACUUM` and a WAL truncate checkpoint to
   reclaim disk after pruning.
 
 ## Tests

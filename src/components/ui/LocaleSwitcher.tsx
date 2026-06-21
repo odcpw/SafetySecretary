@@ -6,8 +6,8 @@ import { t } from "../../lib/i18n/t";
 import { LOCALES, type Locale } from "../../lib/i18n/types";
 import Select from "./Select";
 
-const CSRF_COOKIE_NAME = "ssfw_csrf";
-const CSRF_HEADER_NAME = "x-ssfw-csrf";
+const CSRF_COOKIE_NAME = "safetysecretary_csrf";
+const CSRF_HEADER_NAME = "x-safetysecretary-csrf";
 
 export type LocaleSwitcherProps = {
 	locale: Locale;

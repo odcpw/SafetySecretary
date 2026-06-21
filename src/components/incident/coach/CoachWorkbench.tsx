@@ -233,7 +233,7 @@ export default function CoachWorkbench({
 		return () => {
 			cancelled = true;
 		};
-		}, [genericChatError, incidentId]);
+	}, [genericChatError, incidentId]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll to the newest message whenever the conversation grows.
 	useEffect(() => {
@@ -369,7 +369,7 @@ export default function CoachWorkbench({
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+						"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 					},
 					method: "POST",
 					signal: controller.signal,
@@ -459,7 +459,7 @@ export default function CoachWorkbench({
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+						"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 					},
 					method: "POST",
 				},
@@ -531,11 +531,13 @@ export default function CoachWorkbench({
 				locale: coachReplyLocale,
 			}),
 			{ focusComposer: false },
-		).then((accepted) => {
-			if (!accepted) {
-				requeueConsistencyChanges(changes);
-			}
-		}).catch(() => requeueConsistencyChanges(changes));
+		)
+			.then((accepted) => {
+				if (!accepted) {
+					requeueConsistencyChanges(changes);
+				}
+			})
+			.catch(() => requeueConsistencyChanges(changes));
 	}
 
 	function requeueConsistencyChanges(
@@ -581,7 +583,7 @@ export default function CoachWorkbench({
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+						"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 					},
 					method: "POST",
 				},

@@ -12,7 +12,7 @@ type DeleteCompanyButtonProps = {
 	submitLabel: string;
 };
 
-const csrfHeaderName = "x-ssfw-csrf";
+const csrfHeaderName = "x-safetysecretary-csrf";
 
 export function DeleteCompanyButton({
 	confirmationLabel,

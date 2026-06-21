@@ -74,7 +74,9 @@ export default function SafetyWalkCaptureClient({
 			const response = await fetch("/api/findings/safety-walk", {
 				body: formData,
 				credentials: "same-origin",
-				headers: { "x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME) },
+				headers: {
+					"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+				},
 				method: "POST",
 			});
 

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { ensureCsrfToken } from "../../lib/auth/csrf-client";
 
-const csrfHeaderName = "x-ssfw-csrf";
+const csrfHeaderName = "x-safetysecretary-csrf";
 
 export function SubmitWithCsrfScript() {
 	useEffect(() => {
@@ -14,7 +14,9 @@ export function SubmitWithCsrfScript() {
 				return;
 			}
 
-			if (!form.matches("[data-ssfw-csrf-form]")) {
+			if (
+				!form.matches("[data-safetysecretary-csrf-form], [data-ssfw-csrf-form]")
+			) {
 				return;
 			}
 
@@ -24,13 +26,13 @@ export function SubmitWithCsrfScript() {
 
 		document.addEventListener("submit", handleSubmit);
 		const state = window as Window & {
-			__ssfwCsrfFormHandlerReady?: boolean;
+			__safetySecretaryCsrfFormHandlerReady?: boolean;
 		};
-		state.__ssfwCsrfFormHandlerReady = true;
+		state.__safetySecretaryCsrfFormHandlerReady = true;
 
 		return () => {
 			document.removeEventListener("submit", handleSubmit);
-			state.__ssfwCsrfFormHandlerReady = false;
+			state.__safetySecretaryCsrfFormHandlerReady = false;
 		};
 	}, []);
 
@@ -52,7 +54,9 @@ async function submitWithCsrf(
 	let csrfToken = "";
 
 	try {
-		csrfToken = ensureCsrfToken(form.dataset.csrfCookie || "ssfw_csrf");
+		csrfToken = ensureCsrfToken(
+			form.dataset.csrfCookie || "safetysecretary_csrf",
+		);
 	} catch {
 		setStatus(form, form.dataset.errorMessage ?? "");
 		return;
@@ -84,9 +88,10 @@ async function submitWithCsrf(
 			return;
 		}
 
-		const payload = (await response.json().catch(() => null)) as
-			| { incident?: { id?: unknown }; redirectTo?: unknown }
-			| null;
+		const payload = (await response.json().catch(() => null)) as {
+			incident?: { id?: unknown };
+			redirectTo?: unknown;
+		} | null;
 		const redirectTo =
 			typeof payload?.redirectTo === "string" ? payload.redirectTo : null;
 		if (redirectTo) {
@@ -144,7 +149,10 @@ function formDataObject(
 }
 
 function setStatus(form: HTMLFormElement, message: string): void {
-	const status = form.querySelector<HTMLElement>("[data-ssfw-csrf-form-status]");
+	const status =
+		form.querySelector<HTMLElement>(
+			"[data-safetysecretary-csrf-form-status]",
+		) ?? form.querySelector<HTMLElement>("[data-ssfw-csrf-form-status]");
 
 	if (!status) {
 		return;

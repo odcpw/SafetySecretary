@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
+import { readSessionCookie } from "../../../../../lib/auth/cookies";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -237,7 +237,7 @@ async function loadUserLocale(userId: string): Promise<Locale> {
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 function bytesResponse(

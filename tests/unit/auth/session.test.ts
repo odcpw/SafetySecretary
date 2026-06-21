@@ -25,8 +25,11 @@ registerHooks({
 
 			if (specifier.endsWith("/lib/auth/cookies")) {
 				return dataModuleUrl(`
-					export const CSRF_COOKIE_NAME = "ssfw_csrf";
-					export const SESSION_COOKIE_NAME = "ssfw_session";
+					export const CSRF_COOKIE_NAME = "safetysecretary_csrf";
+					export const SESSION_COOKIE_NAME = "safetysecretary_session";
+					export function readSessionCookie(cookies) {
+						return cookies.get("safetysecretary_session")?.value ?? cookies.get("ssfw_session")?.value;
+					}
 				`);
 			}
 
@@ -123,10 +126,9 @@ const {
 	authCookieSecurityContextFromHeaders,
 	buildSessionCookieOptions,
 	shouldUseSecureAuthCookies,
-} =
-	(await import(
-		cookiesModulePath
-	)) as typeof import("../../../src/lib/auth/cookies");
+} = (await import(
+	cookiesModulePath
+)) as typeof import("../../../src/lib/auth/cookies");
 const {
 	DESKTOP_SESSION_TTL_SECONDS,
 	MOBILE_SESSION_TTL_SECONDS,
@@ -580,6 +582,14 @@ test("proxy strips forged identity headers from public paths", async () => {
 		response.headers.get("x-middleware-request-x-ssfw-tenant-id"),
 		null,
 	);
+	assert.equal(
+		response.headers.get("x-middleware-request-x-safetysecretary-user-id"),
+		null,
+	);
+	assert.equal(
+		response.headers.get("x-middleware-request-x-safetysecretary-tenant-id"),
+		null,
+	);
 });
 
 test("member-removal API is protected even though other auth APIs are public", async () => {
@@ -753,7 +763,10 @@ test("proxy accepts a session-bound CSRF token for state-changing requests", asy
 			"x-ssfw-csrf": csrfValue,
 		},
 	});
-	const response = await authorizeRequest(requestWithToken, async () => session);
+	const response = await authorizeRequest(
+		requestWithToken,
+		async () => session,
+	);
 
 	assert.equal(hasValidCsrfToken(requestWithToken, session.id), true);
 	assert.equal(response.status, 200);
@@ -790,12 +803,20 @@ test("proxy replaces forged identity headers with the validated session", async 
 
 	assert.equal(response.status, 200);
 	assert.equal(
-		response.headers.get("x-middleware-request-x-ssfw-user-id"),
+		response.headers.get("x-middleware-request-x-safetysecretary-user-id"),
 		"user-1",
 	);
 	assert.equal(
-		response.headers.get("x-middleware-request-x-ssfw-tenant-id"),
+		response.headers.get("x-middleware-request-x-safetysecretary-tenant-id"),
 		"tenant-a",
+	);
+	assert.equal(
+		response.headers.get("x-middleware-request-x-ssfw-user-id"),
+		null,
+	);
+	assert.equal(
+		response.headers.get("x-middleware-request-x-ssfw-tenant-id"),
+		null,
 	);
 });
 

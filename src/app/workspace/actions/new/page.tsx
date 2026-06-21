@@ -6,7 +6,7 @@ import {
 } from "../../../../lib/actions/finding-queue";
 import { actionBoardLabels } from "../../../../lib/actions/fixtures";
 import { getActionItemDetail } from "../../../../lib/actions/queries";
-import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
+import { readSessionCookie } from "../../../../lib/auth/cookies";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -98,9 +98,7 @@ async function resolveSessionContext(): Promise<{
 	locale: Locale;
 	session: Pick<ValidatedSession, "tenantId" | "userId"> | null;
 }> {
-	const session = await validateSession(
-		(await cookies()).get(SESSION_COOKIE_NAME)?.value,
-	);
+	const session = await validateSession(readSessionCookie(await cookies()));
 
 	if (!session) {
 		return { locale: DEFAULT_LOCALE, session: null };

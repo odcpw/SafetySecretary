@@ -86,7 +86,7 @@ export default function IncidentRowMenu({
 				credentials: "same-origin",
 				headers: {
 					accept: "application/json",
-					"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+					"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 				},
 				method: "DELETE",
 			});

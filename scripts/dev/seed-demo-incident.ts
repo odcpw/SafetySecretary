@@ -38,6 +38,15 @@ function moduleUrl(relativePath: string): string {
 	return pathToFileURL(relativePath).href;
 }
 
+function readEnv(name: string, legacyName: string): string | undefined {
+	const value = process.env[name]?.trim();
+	if (value) {
+		return value;
+	}
+
+	return process.env[legacyName]?.trim() || undefined;
+}
+
 const { prisma, provisionTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../src/lib/db/index");
@@ -45,17 +54,25 @@ const { DISCLAIMER_VERSION } = (await import(
 	moduleUrl("src/lib/legal/disclaimer.ts")
 )) as typeof import("../../src/lib/legal/disclaimer");
 
-const devEmail = (process.env.SSFW_DEV_AUTH_EMAIL ?? "tester@safetysecretary.local")
+const devEmail = (
+	readEnv("SAFETYSECRETARY_DEV_AUTH_EMAIL", "SSFW_DEV_AUTH_EMAIL") ??
+	"tester@safetysecretary.local"
+)
 	.trim()
 	.toLowerCase();
 const companyName =
-	process.env.SSFW_DEV_AUTH_COMPANY_NAME?.trim() ||
-	"Safety Secretary Test Workspace";
+	readEnv(
+		"SAFETYSECRETARY_DEV_AUTH_COMPANY_NAME",
+		"SSFW_DEV_AUTH_COMPANY_NAME",
+	) || "Safety Secretary Test Workspace";
 const demoTitle = "Forklift reversed close to pedestrian at gate 3";
 
 async function main(): Promise<void> {
 	const workspace = await ensureDevWorkspace();
-	const incidentId = await ensureDemoIncident(workspace.tenantId, workspace.userId);
+	const incidentId = await ensureDemoIncident(
+		workspace.tenantId,
+		workspace.userId,
+	);
 
 	console.log("Dev workspace ready.");
 	console.log(`  user:     ${devEmail}`);
@@ -63,9 +80,7 @@ async function main(): Promise<void> {
 	console.log(`  incident: ${incidentId}`);
 	console.log("");
 	console.log("Start the app with: pnpm dev");
-	console.log(
-		"Then sign in via the dev button on /signin and open:",
-	);
+	console.log("Then sign in via the dev button on /signin and open:");
 	console.log(`  http://localhost:3000/incidents/${incidentId}/coach`);
 }
 

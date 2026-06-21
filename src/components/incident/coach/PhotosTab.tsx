@@ -56,7 +56,7 @@ export default function PhotosTab({
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+						"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
 					},
 					method: "PATCH",
 				},
@@ -99,9 +99,7 @@ export default function PhotosTab({
 							>
 								<Image
 									alt={
-										photo.caption ??
-										photo.filename ??
-										copy.photos.incidentPhoto
+										photo.caption ?? photo.filename ?? copy.photos.incidentPhoto
 									}
 									className="h-28 w-full object-cover"
 									height={112}

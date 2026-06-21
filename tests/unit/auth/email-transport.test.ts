@@ -58,7 +58,7 @@ test("ResendEmailTransport sends magic links through the email API", async () =>
 		apiKey: "re_test",
 		endpoint: "https://resend.example.test/emails",
 		fetchImpl,
-		userAgent: "SafetySecretaryNext/test",
+		userAgent: "SafetySecretary/test",
 	});
 
 	await transport.sendMagicLink({
@@ -75,7 +75,7 @@ test("ResendEmailTransport sends magic links through the email API", async () =>
 	assert.deepEqual(calls[0]?.init?.headers, {
 		authorization: "Bearer re_test",
 		"content-type": "application/json",
-		"user-agent": "SafetySecretaryNext/test",
+		"user-agent": "SafetySecretary/test",
 	});
 
 	const body = JSON.parse(String(calls[0]?.init?.body)) as Record<
@@ -99,7 +99,7 @@ test("ResendEmailTransport sends invitation emails through the email API", async
 		apiKey: "re_test",
 		endpoint: "https://resend.example.test/emails",
 		fetchImpl,
-		userAgent: "SafetySecretaryNext/test",
+		userAgent: "SafetySecretary/test",
 	});
 
 	await transport.sendInvitation({
@@ -116,7 +116,7 @@ test("ResendEmailTransport sends invitation emails through the email API", async
 	assert.deepEqual(calls[0]?.init?.headers, {
 		authorization: "Bearer re_test",
 		"content-type": "application/json",
-		"user-agent": "SafetySecretaryNext/test",
+		"user-agent": "SafetySecretary/test",
 	});
 
 	const body = JSON.parse(String(calls[0]?.init?.body)) as Record<
@@ -125,9 +125,54 @@ test("ResendEmailTransport sends invitation emails through the email API", async
 	>;
 	assert.equal(body.from, "Safety Secretary <invite@example.test>");
 	assert.equal(body.to, "user@example.test");
-	assert.equal(body.subject, "Invitation to Alpha Safety AG on Safety Secretary");
-	assert.match(String(body.text), /https:\/\/app\.example\.test\/invite\/token-a/);
+	assert.equal(
+		body.subject,
+		"Invitation to Alpha Safety AG on Safety Secretary",
+	);
+	assert.match(
+		String(body.text),
+		/https:\/\/app\.example\.test\/invite\/token-a/,
+	);
 	assert.match(String(body.html), /Accept invitation/);
+});
+
+test("ResendEmailTransport sends transactional attachments through the email API", async () => {
+	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+	const fetchImpl: typeof fetch = async (input, init) => {
+		calls.push({ init, input });
+		return new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+	};
+	const transport = new ResendEmailTransport({
+		apiKey: "re_test",
+		endpoint: "https://resend.example.test/emails",
+		fetchImpl,
+		userAgent: "SafetySecretary/test",
+	});
+
+	await transport.sendTransactional({
+		from: "Safety Secretary <alerts@example.test>",
+		to: "owner@example.test",
+		subject: "Case finished",
+		text: "PDF attached",
+		html: "<p>PDF attached</p>",
+		attachments: [
+			{
+				filename: "case.pdf",
+				contentType: "application/pdf",
+				content: Buffer.from("pdf-bytes"),
+			},
+		],
+	});
+
+	const body = JSON.parse(String(calls[0]?.init?.body)) as {
+		attachments?: Array<{ filename: string; content: string }>;
+	};
+	assert.deepEqual(body.attachments, [
+		{
+			filename: "case.pdf",
+			content: Buffer.from("pdf-bytes").toString("base64"),
+		},
+	]);
 });
 
 test("ResendEmailTransport fails loudly when the API rejects a send", async () => {
@@ -170,7 +215,7 @@ test("PostmarkEmailTransport sends magic links through the email API without tra
 		fetchImpl,
 		messageStream: "outbound",
 		serverToken: "pm_test",
-		userAgent: "SafetySecretaryNext/test",
+		userAgent: "SafetySecretary/test",
 	});
 
 	await transport.sendMagicLink({
@@ -187,7 +232,7 @@ test("PostmarkEmailTransport sends magic links through the email API without tra
 	assert.deepEqual(calls[0]?.init?.headers, {
 		accept: "application/json",
 		"content-type": "application/json",
-		"user-agent": "SafetySecretaryNext/test",
+		"user-agent": "SafetySecretary/test",
 		"x-postmark-server-token": "pm_test",
 	});
 
@@ -201,7 +246,10 @@ test("PostmarkEmailTransport sends magic links through the email API without tra
 	assert.equal(body.MessageStream, "outbound");
 	assert.equal(body.TrackLinks, "None");
 	assert.equal(body.TrackOpens, false);
-	assert.match(String(body.TextBody), /https:\/\/app\.example\.test\/api\/auth/);
+	assert.match(
+		String(body.TextBody),
+		/https:\/\/app\.example\.test\/api\/auth/,
+	);
 	assert.match(String(body.HtmlBody), /token=a&amp;next=\/workspace/);
 });
 
@@ -245,7 +293,7 @@ test("PostmarkEmailTransport sends invitation emails through the email API witho
 		fetchImpl,
 		messageStream: "outbound",
 		serverToken: "pm_test",
-		userAgent: "SafetySecretaryNext/test",
+		userAgent: "SafetySecretary/test",
 	});
 
 	await transport.sendInvitation({
@@ -262,7 +310,7 @@ test("PostmarkEmailTransport sends invitation emails through the email API witho
 	assert.deepEqual(calls[0]?.init?.headers, {
 		accept: "application/json",
 		"content-type": "application/json",
-		"user-agent": "SafetySecretaryNext/test",
+		"user-agent": "SafetySecretary/test",
 		"x-postmark-server-token": "pm_test",
 	});
 
@@ -272,12 +320,65 @@ test("PostmarkEmailTransport sends invitation emails through the email API witho
 	>;
 	assert.equal(body.From, "SafetySecretary <invite@example.test>");
 	assert.equal(body.To, "user@example.test");
-	assert.equal(body.Subject, "Invitation to Alpha Safety AG on Safety Secretary");
+	assert.equal(
+		body.Subject,
+		"Invitation to Alpha Safety AG on Safety Secretary",
+	);
 	assert.equal(body.MessageStream, "outbound");
 	assert.equal(body.TrackLinks, "None");
 	assert.equal(body.TrackOpens, false);
-	assert.match(String(body.TextBody), /https:\/\/app\.example\.test\/invite\/token-a/);
+	assert.match(
+		String(body.TextBody),
+		/https:\/\/app\.example\.test\/invite\/token-a/,
+	);
 	assert.match(String(body.HtmlBody), /Accept invitation/);
+});
+
+test("PostmarkEmailTransport sends transactional attachments through the email API", async () => {
+	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+	const fetchImpl: typeof fetch = async (input, init) => {
+		calls.push({ init, input });
+		return new Response(
+			JSON.stringify({ MessageID: "email-1", ErrorCode: 0 }),
+			{ status: 200 },
+		);
+	};
+	const transport = new PostmarkEmailTransport({
+		endpoint: "https://postmark.example.test/email",
+		fetchImpl,
+		serverToken: "pm_test",
+		userAgent: "SafetySecretary/test",
+	});
+
+	await transport.sendTransactional({
+		from: "SafetySecretary <alerts@example.test>",
+		to: "owner@example.test",
+		subject: "Case finished",
+		text: "PDF attached",
+		html: "<p>PDF attached</p>",
+		attachments: [
+			{
+				filename: "case.pdf",
+				contentType: "application/pdf",
+				content: Buffer.from("pdf-bytes"),
+			},
+		],
+	});
+
+	const body = JSON.parse(String(calls[0]?.init?.body)) as {
+		Attachments?: Array<{
+			Name: string;
+			Content: string;
+			ContentType: string;
+		}>;
+	};
+	assert.deepEqual(body.Attachments, [
+		{
+			Name: "case.pdf",
+			Content: Buffer.from("pdf-bytes").toString("base64"),
+			ContentType: "application/pdf",
+		},
+	]);
 });
 
 test("MailgunEmailTransport sends magic links through the messages API without tracking", async () => {
@@ -293,7 +394,7 @@ test("MailgunEmailTransport sends magic links through the messages API without t
 		baseUrl: "https://api.eu.mailgun.example.test/",
 		domain: "mg.example.test",
 		fetchImpl,
-		userAgent: "SafetySecretaryNext/test",
+		userAgent: "SafetySecretary/test",
 	});
 
 	await transport.sendMagicLink({
@@ -313,7 +414,7 @@ test("MailgunEmailTransport sends magic links through the messages API without t
 	assert.deepEqual(calls[0]?.init?.headers, {
 		authorization: `Basic ${Buffer.from("api:mg_test").toString("base64")}`,
 		"content-type": "application/x-www-form-urlencoded",
-		"user-agent": "SafetySecretaryNext/test",
+		"user-agent": "SafetySecretary/test",
 	});
 
 	assert.ok(calls[0]?.init?.body instanceof URLSearchParams);
@@ -324,7 +425,10 @@ test("MailgunEmailTransport sends magic links through the messages API without t
 	assert.equal(body.get("o:tracking"), "no");
 	assert.equal(body.get("o:tracking-clicks"), "no");
 	assert.equal(body.get("o:tracking-opens"), "no");
-	assert.match(String(body.get("text")), /https:\/\/app\.example\.test\/api\/auth/);
+	assert.match(
+		String(body.get("text")),
+		/https:\/\/app\.example\.test\/api\/auth/,
+	);
 	assert.match(String(body.get("html")), /token=a&amp;next=\/workspace/);
 });
 
@@ -383,7 +487,7 @@ test("MailgunEmailTransport sends invitation emails through the messages API wit
 		baseUrl: "https://api.eu.mailgun.example.test/",
 		domain: "mg.example.test",
 		fetchImpl,
-		userAgent: "SafetySecretaryNext/test",
+		userAgent: "SafetySecretary/test",
 	});
 
 	await transport.sendInvitation({
@@ -403,7 +507,7 @@ test("MailgunEmailTransport sends invitation emails through the messages API wit
 	assert.deepEqual(calls[0]?.init?.headers, {
 		authorization: `Basic ${Buffer.from("api:mg_test").toString("base64")}`,
 		"content-type": "application/x-www-form-urlencoded",
-		"user-agent": "SafetySecretaryNext/test",
+		"user-agent": "SafetySecretary/test",
 	});
 
 	assert.ok(calls[0]?.init?.body instanceof URLSearchParams);
@@ -417,6 +521,47 @@ test("MailgunEmailTransport sends invitation emails through the messages API wit
 	assert.equal(body.get("o:tracking"), "no");
 	assert.equal(body.get("o:tracking-clicks"), "no");
 	assert.equal(body.get("o:tracking-opens"), "no");
-	assert.match(String(body.get("text")), /https:\/\/app\.example\.test\/invite\/token-a/);
+	assert.match(
+		String(body.get("text")),
+		/https:\/\/app\.example\.test\/invite\/token-a/,
+	);
 	assert.match(String(body.get("html")), /Accept invitation/);
+});
+
+test("MailgunEmailTransport sends transactional attachments as multipart", async () => {
+	const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+	const fetchImpl: typeof fetch = async (input, init) => {
+		calls.push({ init, input });
+		return new Response(JSON.stringify({ id: "email-1", message: "Queued" }), {
+			status: 200,
+		});
+	};
+	const transport = new MailgunEmailTransport({
+		apiKey: "mg_test",
+		baseUrl: "https://api.eu.mailgun.example.test/",
+		domain: "mg.example.test",
+		fetchImpl,
+		userAgent: "SafetySecretary/test",
+	});
+
+	await transport.sendTransactional({
+		from: "SafetySecretary <alerts@example.test>",
+		to: "owner@example.test",
+		subject: "Case finished",
+		text: "PDF attached",
+		html: "<p>PDF attached</p>",
+		attachments: [
+			{
+				filename: "case.pdf",
+				contentType: "application/pdf",
+				content: Buffer.from("pdf-bytes"),
+			},
+		],
+	});
+
+	assert.ok(calls[0]?.init?.body instanceof FormData);
+	assert.deepEqual(calls[0]?.init?.headers, {
+		authorization: `Basic ${Buffer.from("api:mg_test").toString("base64")}`,
+		"user-agent": "SafetySecretary/test",
+	});
 });

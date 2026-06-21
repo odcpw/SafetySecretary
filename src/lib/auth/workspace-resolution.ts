@@ -14,6 +14,7 @@ export type ResolvedWorkspace = {
 	workspaceKind: WorkspaceKind;
 	domain: string;
 	createdTenant: boolean;
+	joinedTenant: boolean;
 };
 
 export type ResolveWorkspaceInput = {
@@ -131,7 +132,11 @@ async function resolvePersonalWorkspace(input: {
 	});
 
 	if (existingTenant) {
-		await ensureMembership(input.tx, existingTenant.id, input.userId);
+		const joinedTenant = await ensureMembership(
+			input.tx,
+			existingTenant.id,
+			input.userId,
+		);
 		return {
 			email: input.email,
 			userId: input.userId,
@@ -139,6 +144,7 @@ async function resolvePersonalWorkspace(input: {
 			workspaceKind: "personal",
 			domain: input.domain,
 			createdTenant: false,
+			joinedTenant,
 		};
 	}
 
@@ -152,7 +158,11 @@ async function resolvePersonalWorkspace(input: {
 	});
 
 	await input.provisionTenantSchema(tenant.id, input.tx);
-	await ensureMembership(input.tx, tenant.id, input.userId);
+	const joinedTenant = await ensureMembership(
+		input.tx,
+		tenant.id,
+		input.userId,
+	);
 
 	return {
 		email: input.email,
@@ -161,6 +171,7 @@ async function resolvePersonalWorkspace(input: {
 		workspaceKind: "personal",
 		domain: input.domain,
 		createdTenant: true,
+		joinedTenant,
 	};
 }
 
@@ -194,11 +205,16 @@ async function resolveCompanyWorkspace(input: {
 		const autoJoinAllowed =
 			existingDomain.tenant.createdByUserId === input.userId ||
 			existingDomain.tenant.domainAutoJoinEnabled;
+		let joinedTenant = false;
 
 		if (autoJoinAllowed) {
-			await ensureMembership(input.tx, existingDomain.tenantId, input.userId);
+			joinedTenant = await ensureMembership(
+				input.tx,
+				existingDomain.tenantId,
+				input.userId,
+			);
 		} else {
-			await acceptPendingInvitationMembership({
+			joinedTenant = await acceptPendingInvitationMembership({
 				email: input.email,
 				tenantId: existingDomain.tenantId,
 				tx: input.tx,
@@ -213,6 +229,7 @@ async function resolveCompanyWorkspace(input: {
 			workspaceKind: "company",
 			domain: input.domain,
 			createdTenant: false,
+			joinedTenant,
 		};
 	}
 
@@ -233,7 +250,11 @@ async function resolveCompanyWorkspace(input: {
 			domain: input.domain,
 		},
 	});
-	await ensureMembership(input.tx, tenant.id, input.userId);
+	const joinedTenant = await ensureMembership(
+		input.tx,
+		tenant.id,
+		input.userId,
+	);
 
 	return {
 		email: input.email,
@@ -242,6 +263,7 @@ async function resolveCompanyWorkspace(input: {
 		workspaceKind: "company",
 		domain: input.domain,
 		createdTenant: true,
+		joinedTenant,
 	};
 }
 
@@ -250,7 +272,7 @@ async function acceptPendingInvitationMembership(input: {
 	tenantId: string;
 	tx: WorkspaceTransactionClient;
 	userId: string;
-}): Promise<void> {
+}): Promise<boolean> {
 	const now = new Date();
 	const invitations = await input.tx.$queryRaw<Array<{ id: string }>>`
 		SELECT id::text AS "id"
@@ -266,34 +288,36 @@ async function acceptPendingInvitationMembership(input: {
 	const invitation = invitations[0];
 
 	if (!invitation) {
-		return;
+		return false;
 	}
 
-	await ensureMembership(input.tx, input.tenantId, input.userId);
+	const joinedTenant = await ensureMembership(
+		input.tx,
+		input.tenantId,
+		input.userId,
+	);
 	await input.tx.invitation.update({
 		where: { id: invitation.id },
 		data: { consumedAt: now },
 	});
+
+	return joinedTenant;
 }
 
 async function ensureMembership(
 	tx: WorkspaceTransactionClient,
 	tenantId: string,
 	userId: string,
-): Promise<void> {
-	await tx.tenantMembership.upsert({
-		where: {
-			tenantId_userId: {
-				tenantId,
-				userId,
-			},
-		},
-		update: {},
-		create: {
+): Promise<boolean> {
+	const result = await tx.tenantMembership.createMany({
+		data: {
 			tenantId,
 			userId,
 		},
+		skipDuplicates: true,
 	});
+
+	return result.count > 0;
 }
 
 function isUniqueConflict(error: unknown): boolean {

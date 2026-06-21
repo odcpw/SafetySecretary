@@ -10,14 +10,15 @@ import { setCsrfCookie } from "./csrf";
 import { pickInitialUiLocale } from "./locale";
 import { hasActiveTenantMembership } from "./membership";
 import { normalizeLocalReturnTo } from "./return-to";
-import {
-	issueSession,
-	SessionTenantMembershipError,
-} from "./session";
+import { issueSession, SessionTenantMembershipError } from "./session";
 import {
 	type ResolvedWorkspace,
 	resolveOrCreateWorkspaceForEmail,
 } from "./workspace-resolution";
+import {
+	notifyOperatorTenantAccess,
+	scheduleOperatorNotification,
+} from "../operator/notifications";
 
 export const INVITATION_REQUIRED_MESSAGE =
 	"This workspace requires an invitation before you can sign in.";
@@ -33,12 +34,12 @@ export type VerifiedEmailSignInResult =
 			response: NextResponse;
 			tenantId: string;
 			userId: string;
-		  }
+	  }
 	| {
 			code: VerifiedEmailSignInFailureCode;
 			ok: false;
 			response: NextResponse;
-		  };
+	  };
 
 type WorkspaceResolver = (input: {
 	defaultLanguage: Language;
@@ -117,6 +118,7 @@ export async function signInVerifiedEmail(input: {
 	const cookieSecurity = authCookieSecurityContextFromRequest(input.request);
 	setSessionCookie(response, session, cookieSecurity);
 	setCsrfCookie(response, session.cookieValue, cookieSecurity);
+	queueTenantAccessNotification(workspace);
 
 	return {
 		ok: true,
@@ -124,6 +126,22 @@ export async function signInVerifiedEmail(input: {
 		tenantId: workspace.tenantId,
 		userId: workspace.userId,
 	};
+}
+
+function queueTenantAccessNotification(workspace: ResolvedWorkspace): void {
+	if (!workspace.createdTenant && !workspace.joinedTenant) {
+		return;
+	}
+
+	scheduleOperatorNotification("tenant access", () =>
+		notifyOperatorTenantAccess({
+			action: workspace.createdTenant ? "created" : "joined",
+			tenantId: workspace.tenantId,
+			userId: workspace.userId,
+			userEmail: workspace.email,
+			workspaceKind: workspace.workspaceKind,
+		}),
+	);
 }
 
 async function captureUiLocaleOnFirstSignIn(

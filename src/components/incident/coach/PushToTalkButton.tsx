@@ -17,11 +17,7 @@ type RecorderState = "idle" | "recording" | "transcribing";
 // MediaRecorder MIME preference, most broadly accepted by gpt-4o-transcribe
 // first. Chrome/Firefox produce webm/opus; Safari produces mp4. We pick the
 // first the browser actually supports.
-const preferredMimeTypes = [
-	"audio/webm",
-	"audio/ogg",
-	"audio/mp4",
-];
+const preferredMimeTypes = ["audio/webm", "audio/ogg", "audio/mp4"];
 
 const filenameByMime: Record<string, string> = {
 	"audio/webm": "speech.webm",
@@ -90,7 +86,9 @@ export default function PushToTalkButton({
 					{
 						body: formData,
 						credentials: "same-origin",
-						headers: { "x-ssfw-csrf": ensureCsrfToken(CSRF_COOKIE_NAME) },
+						headers: {
+							"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+						},
 						method: "POST",
 						signal: controller.signal,
 					},

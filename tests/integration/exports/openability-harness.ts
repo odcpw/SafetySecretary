@@ -77,6 +77,7 @@ async function main() {
 
 function resolveFixtureDir(): string {
 	const candidates = [
+		process.env.SAFETYSECRETARY_EXPORT_FIXTURE_DIR,
 		process.env.SSFW_EXPORT_FIXTURE_DIR,
 		join(process.cwd(), "fixtures", "exports", "golden"),
 		join(
@@ -94,7 +95,7 @@ function resolveFixtureDir(): string {
 
 	if (!fixtureDir) {
 		throw new Error(
-			`Export fixtures not found. Set SSFW_EXPORT_FIXTURE_DIR to the directory containing manifest.json. Checked: ${candidates.join(", ")}`,
+			`Export fixtures not found. Set SAFETYSECRETARY_EXPORT_FIXTURE_DIR to the directory containing manifest.json. Checked: ${candidates.join(", ")}`,
 		);
 	}
 

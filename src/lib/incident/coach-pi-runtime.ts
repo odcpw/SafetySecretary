@@ -1,4 +1,5 @@
 import { pathToFileURL } from "node:url";
+import { readEnvRaw } from "../config/env";
 import { createOpenAIProviderFromEnv } from "../llm/openai";
 import type {
 	LLMProvider,
@@ -17,7 +18,7 @@ import type {
  * normal OpenAI provider if Pi is unavailable.
  */
 
-// Resolved from node_modules by default. Set SSFW_PI_SDK_MODULE_PATH to an
+// Resolved from node_modules by default. Set SAFETYSECRETARY_PI_SDK_MODULE_PATH to an
 // absolute path on hosts where the Pi SDK is installed elsewhere (e.g. a global
 // npm prefix); a bare specifier here keeps any host-specific path out of the repo.
 const defaultPiModuleSpecifier = "@earendil-works/pi-coding-agent";
@@ -76,9 +77,16 @@ export async function runCoachPromptViaPi(
 		throw new CoachPiUnavailableError("OPENAI_API_KEY is not set");
 	}
 
-	const [provider, modelId] = splitModel(env.SSFW_PI_MODEL ?? defaultPiModel);
+	const [provider, modelId] = splitModel(
+		readEnvRaw(env, "SAFETYSECRETARY_PI_MODEL", "SSFW_PI_MODEL") ??
+			defaultPiModel,
+	);
 	const importSpecifier = resolvePiSdkImportSpecifier(
-		env.SSFW_PI_SDK_MODULE_PATH,
+		readEnvRaw(
+			env,
+			"SAFETYSECRETARY_PI_SDK_MODULE_PATH",
+			"SSFW_PI_SDK_MODULE_PATH",
+		),
 	);
 	const sdk = await runtimeImport<PiSdk>(importSpecifier).catch((error) => {
 		throw new CoachPiUnavailableError(
@@ -91,7 +99,12 @@ export async function runCoachPromptViaPi(
 	modelRegistry.registerProvider(provider, {
 		api: "openai-completions",
 		apiKey,
-		baseUrl: env.SSFW_PI_OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+		baseUrl:
+			readEnvRaw(
+				env,
+				"SAFETYSECRETARY_PI_OPENAI_BASE_URL",
+				"SSFW_PI_OPENAI_BASE_URL",
+			) ?? "https://api.openai.com/v1",
 		models: [
 			{
 				contextWindow: 256000,
@@ -209,6 +222,6 @@ export function resolvePiSdkImportSpecifier(
 	}
 
 	throw new CoachPiUnavailableError(
-		"SSFW_PI_SDK_MODULE_PATH must be the default package name, a file:// URL, or an absolute filesystem path",
+		"SAFETYSECRETARY_PI_SDK_MODULE_PATH must be the default package name, a file:// URL, or an absolute filesystem path",
 	);
 }

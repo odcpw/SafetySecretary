@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "../../../../../lib/auth/cookies";
+import { readSessionCookie } from "../../../../../lib/auth/cookies";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -78,7 +78,7 @@ export async function POST(
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "userId" | "tenantId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 function serializeApprovalSnapshot(snapshot: ApprovalSnapshot) {

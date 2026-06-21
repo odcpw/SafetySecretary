@@ -1,13 +1,35 @@
 import type { NextResponse } from "next/server";
 import type { IssuedSession } from "./session";
 
-export const SESSION_COOKIE_NAME = "ssfw_session";
-export const CSRF_COOKIE_NAME = "ssfw_csrf";
+export const SESSION_COOKIE_NAME = "safetysecretary_session";
+export const LEGACY_SESSION_COOKIE_NAME = "ssfw_session";
+export const SESSION_COOKIE_NAMES = [
+	SESSION_COOKIE_NAME,
+	LEGACY_SESSION_COOKIE_NAME,
+] as const;
+
+export const CSRF_COOKIE_NAME = "safetysecretary_csrf";
+export const LEGACY_CSRF_COOKIE_NAME = "ssfw_csrf";
+export const CSRF_COOKIE_NAMES = [
+	CSRF_COOKIE_NAME,
+	LEGACY_CSRF_COOKIE_NAME,
+] as const;
 // __Host- prefixed carrier used wherever Secure cookies are guaranteed. The
 // prefix forbids a Domain attribute and requires Secure + Path=/, so a
 // subdomain attacker cannot overwrite it. See lib/auth/csrf.ts.
-export const CSRF_HOST_COOKIE_NAME = "__Host-ssfw_csrf";
-export const LOCALE_COOKIE_NAME = "ssfw_locale";
+export const CSRF_HOST_COOKIE_NAME = "__Host-safetysecretary_csrf";
+export const LEGACY_CSRF_HOST_COOKIE_NAME = "__Host-ssfw_csrf";
+export const CSRF_HOST_COOKIE_NAMES = [
+	CSRF_HOST_COOKIE_NAME,
+	LEGACY_CSRF_HOST_COOKIE_NAME,
+] as const;
+
+export const LOCALE_COOKIE_NAME = "safetysecretary_locale";
+export const LEGACY_LOCALE_COOKIE_NAME = "ssfw_locale";
+export const LOCALE_COOKIE_NAMES = [
+	LOCALE_COOKIE_NAME,
+	LEGACY_LOCALE_COOKIE_NAME,
+] as const;
 
 export type SessionCookieOptions = {
 	httpOnly: true;
@@ -19,6 +41,10 @@ export type SessionCookieOptions = {
 
 type SessionCookieWriter = {
 	set(name: string, value: string, options: SessionCookieOptions): void;
+};
+
+export type CookieReader = {
+	get(name: string): { readonly value?: string } | undefined;
 };
 
 type EnvLike = Pick<NodeJS.ProcessEnv, string>;
@@ -115,9 +141,53 @@ export function setSessionCookieValue(
 	session: Pick<IssuedSession, "cookieValue" | "maxAgeSeconds">,
 	context: AuthCookieSecurityContext = {},
 ): void {
-	cookieWriter.set(
-		SESSION_COOKIE_NAME,
-		session.cookieValue,
-		buildSessionCookieOptions(session.maxAgeSeconds, context),
-	);
+	const options = buildSessionCookieOptions(session.maxAgeSeconds, context);
+
+	for (const cookieName of SESSION_COOKIE_NAMES) {
+		cookieWriter.set(cookieName, session.cookieValue, options);
+	}
+}
+
+export function readNamedCookie(
+	cookies: CookieReader,
+	names: readonly string[],
+): string | undefined {
+	for (const name of names) {
+		const value = cookies.get(name)?.value;
+		if (value) {
+			return value;
+		}
+	}
+
+	return undefined;
+}
+
+export function readSessionCookie(cookies: CookieReader): string | undefined {
+	return readNamedCookie(cookies, SESSION_COOKIE_NAMES);
+}
+
+export function readLocaleCookie(cookies: CookieReader): string | undefined {
+	return readNamedCookie(cookies, LOCALE_COOKIE_NAMES);
+}
+
+export function readPlainCsrfCookie(cookies: CookieReader): string | undefined {
+	return readNamedCookie(cookies, CSRF_COOKIE_NAMES);
+}
+
+export function readHostCsrfCookie(cookies: CookieReader): string | undefined {
+	return readNamedCookie(cookies, CSRF_HOST_COOKIE_NAMES);
+}
+
+export function readCookieMapValue(
+	cookies: ReadonlyMap<string, string>,
+	names: readonly string[],
+): string | undefined {
+	for (const name of names) {
+		const value = cookies.get(name);
+		if (value) {
+			return value;
+		}
+	}
+
+	return undefined;
 }

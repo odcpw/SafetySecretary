@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { appRedirectOrigin } from "../../../../lib/auth/base-url";
-import { SESSION_COOKIE_NAME } from "../../../../lib/auth/cookies";
-import { verifyCsrfToken } from "../../../../lib/auth/csrf";
+import { readSessionCookie } from "../../../../lib/auth/cookies";
+import { verifyCsrfRequest } from "../../../../lib/auth/csrf";
 import { hasActiveTenantMembership } from "../../../../lib/auth/membership";
 import {
 	type ValidatedSession,
@@ -28,7 +28,7 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
-	if (!verifyCsrfToken(request.headers.get("x-ssfw-csrf"), session.id)) {
+	if (!verifyCsrfRequest(request.headers, session.id)) {
 		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
 	}
 
@@ -138,7 +138,7 @@ async function deleteCompanyWorkspace(
 async function resolveSession(
 	request: NextRequest,
 ): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
-	return validateSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(request.cookies));
 }
 
 async function readBody(request: NextRequest): Promise<Map<string, unknown>> {

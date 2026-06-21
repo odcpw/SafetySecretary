@@ -49,7 +49,11 @@ import { buildFlueIncidentRecordView } from "../../src/lib/incident/coach-flue-r
 import { KindEnum } from "../../src/lib/llm/types";
 
 export const route: AgentRouteHandler = async (c, next) => {
-	const expectedToken = process.env.SSFW_FLUE_TOKEN?.trim();
+	const expectedToken = (
+		process.env.SAFETYSECRETARY_FLUE_TOKEN ??
+		process.env.SSFW_FLUE_TOKEN ??
+		""
+	).trim();
 
 	if (expectedToken) {
 		const authorization = c.req.header("authorization") ?? "";

@@ -85,8 +85,8 @@ export function IncidentVisionAction({
 					credentials: "same-origin",
 					headers: {
 						"content-type": "application/json",
-						"x-ssfw-csrf": csrfToken,
-						"x-ssfw-vision-modal-granted": "true",
+						"x-safetysecretary-csrf": csrfToken,
+						"x-safetysecretary-vision-modal-granted": "true",
 					},
 					method: "POST",
 				},

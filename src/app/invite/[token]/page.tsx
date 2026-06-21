@@ -4,12 +4,10 @@ import { redirect } from "next/navigation";
 import { authBaseUrlForRequest } from "../../../lib/auth/base-url";
 import {
 	authCookieSecurityContextFromHeaders,
-	SESSION_COOKIE_NAME,
+	readSessionCookie,
 	setSessionCookieValue,
 } from "../../../lib/auth/cookies";
-import {
-	setCsrfCookieValue,
-} from "../../../lib/auth/csrf";
+import { setCsrfCookieValue } from "../../../lib/auth/csrf";
 import { INVITE_PAGE_COPY } from "../../../lib/auth/invitation-copy";
 import {
 	INVITATION_ALREADY_USED_MESSAGE,
@@ -139,7 +137,7 @@ async function acceptInviteAction(formData: FormData) {
 
 async function resolveSession() {
 	const requestCookies = await cookies();
-	return validateSession(requestCookies.get(SESSION_COOKIE_NAME)?.value);
+	return validateSession(readSessionCookie(requestCookies));
 }
 
 async function switchInviteSession(input: {

@@ -30,9 +30,7 @@ registerHooks({
 });
 
 test("resolvePiSdkImportSpecifier accepts the default package and absolute paths", async () => {
-	const {
-		resolvePiSdkImportSpecifier,
-	} = await importCoachPiRuntime();
+	const { resolvePiSdkImportSpecifier } = await importCoachPiRuntime();
 	assert.equal(
 		resolvePiSdkImportSpecifier(undefined),
 		"@earendil-works/pi-coding-agent",
@@ -52,21 +50,19 @@ test("resolvePiSdkImportSpecifier accepts the default package and absolute paths
 });
 
 test("resolvePiSdkImportSpecifier rejects relative or arbitrary package overrides", async () => {
-	const {
-		CoachPiUnavailableError,
-		resolvePiSdkImportSpecifier,
-	} = await importCoachPiRuntime();
+	const { CoachPiUnavailableError, resolvePiSdkImportSpecifier } =
+		await importCoachPiRuntime();
 	assert.throws(
 		() => resolvePiSdkImportSpecifier("./node_modules/pi/index.mjs"),
 		(error: unknown) =>
 			error instanceof CoachPiUnavailableError &&
-			/SSFW_PI_SDK_MODULE_PATH/.test(error.message),
+			/SAFETYSECRETARY_PI_SDK_MODULE_PATH/.test(error.message),
 	);
 	assert.throws(
 		() => resolvePiSdkImportSpecifier("left-pad"),
 		(error: unknown) =>
 			error instanceof CoachPiUnavailableError &&
-			/SSFW_PI_SDK_MODULE_PATH/.test(error.message),
+			/SAFETYSECRETARY_PI_SDK_MODULE_PATH/.test(error.message),
 	);
 });
 

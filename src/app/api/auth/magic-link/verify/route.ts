@@ -25,6 +25,10 @@ import {
 } from "../../../../../lib/auth/verified-email-signin";
 import { resolveOrCreateWorkspaceForEmail } from "../../../../../lib/auth/workspace-resolution";
 import { prisma } from "../../../../../lib/db";
+import {
+	notifyOperatorTenantAccess,
+	scheduleOperatorNotification,
+} from "../../../../../lib/operator/notifications";
 
 export const runtime = "nodejs";
 
@@ -85,6 +89,10 @@ async function verifyMagicLink(
 			return {
 				userId: workspace.userId,
 				tenantId: workspace.tenantId,
+				email: workspace.email,
+				workspaceKind: workspace.workspaceKind,
+				createdTenant: workspace.createdTenant,
+				joinedTenant: workspace.joinedTenant,
 			};
 		},
 	});
@@ -149,8 +157,30 @@ async function verifyMagicLink(
 	const cookieSecurity = authCookieSecurityContextFromRequest(request);
 	setSessionCookie(response, session, cookieSecurity);
 	setCsrfCookie(response, session.cookieValue, cookieSecurity);
+	queueTenantAccessNotification(result);
 
 	return response;
+}
+
+function queueTenantAccessNotification(
+	result: Extract<
+		Awaited<ReturnType<typeof consumeMagicLinkToken>>,
+		{ ok: true }
+	>,
+): void {
+	if (!result.createdTenant && !result.joinedTenant) {
+		return;
+	}
+
+	scheduleOperatorNotification("tenant access", () =>
+		notifyOperatorTenantAccess({
+			action: result.createdTenant ? "created" : "joined",
+			tenantId: result.tenantId,
+			userId: result.userId,
+			userEmail: result.email,
+			workspaceKind: result.workspaceKind,
+		}),
+	);
 }
 
 async function readToken(request: NextRequest): Promise<string> {

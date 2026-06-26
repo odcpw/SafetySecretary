@@ -13,16 +13,49 @@ describe("case study replay model", () => {
 	test("builds a mechanical amputation study with mechanical expectations, not HCN criteria", () => {
 		const study = buildCaseStudyFromBundle(mechanicalBundle());
 
-		assert.equal(study.expected.hazardCategoryCode, "MECHANICAL");
-		assert.equal(study.expected.eventType, "CUT_PUNCTURE");
-		assert.equal(study.expected.potentialSeverityCode, "B");
-		assert.equal(study.facts.some((fact) => fact.text.includes("Rettungsdienst")), true);
-		assert.match(study.id, /spänen/);
-		assert.match(study.id, /fräser/);
+		assert.equal(study.version, 1);
+		assert.equal(study.actualCase.classification.hazardCategoryCode, "MECHANICAL");
+		assert.equal(study.actualCase.classification.eventType, "CUT_PUNCTURE");
+		assert.equal(study.actualCase.classification.potentialSeverityCode, "B");
+		assert.equal(
+			study.actualCase.facts.some((fact) => fact.text.includes("Rettungsdienst")),
+			true,
+		);
+		assert.match(study.actualCase.id, /spänen/);
+		assert.match(study.actualCase.id, /fräser/);
+		assert.equal("expected" in study, false);
+		assert.equal("facts" in study, false);
+		assert.equal("causeThemes" in study, false);
+		assert.equal("actionThemes" in study, false);
 		assert.equal(
 			JSON.stringify(study).toLowerCase().includes("hcn"),
 			false,
 			"mechanical study must not inherit HCN-specific criteria",
+		);
+	});
+
+	test("extracts an Actual Case as the canonical benchmark artifact", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const { actualCase } = study;
+
+		assert.match(actualCase.narrative.summary, /Fräsmaschine/);
+		assert.match(actualCase.narrative.summary, /Metallmassstab/);
+		assert.equal(actualCase.classification.potentialSeverityCode, "B");
+		assert.equal(actualCase.facts.some((fact) => fact.id === "case-field-location"), true);
+		assert.equal(
+			actualCase.facts.some((fact) => fact.text.includes("Mechanische Werkstatt")),
+			true,
+		);
+		assert.equal(actualCase.facts.some((fact) => fact.source === "action"), false);
+		assert.deepEqual(
+			actualCase.causes.map((cause) => cause.statement),
+			[
+				"Der Metallmassstab war unmittelbar verfügbar und die Einzugsgefahr war nicht bewusst.",
+			],
+		);
+		assert.deepEqual(
+			actualCase.measures.map((measure) => measure.description),
+			["Spänehaken an der Maschine bereitstellen und Nutzung instruieren."],
 		);
 	});
 
@@ -39,7 +72,7 @@ describe("case study replay model", () => {
 			coachMessages: [],
 		});
 
-		assert.equal(study.expected.potentialSeverityCode, "A");
+		assert.equal(study.actualCase.classification.potentialSeverityCode, "A");
 	});
 
 	test("infers fatal HCN potential from alarm exposure facts without literal fatal wording", () => {
@@ -56,7 +89,7 @@ describe("case study replay model", () => {
 			coachMessages: [],
 		});
 
-		assert.equal(study.expected.potentialSeverityCode, "A");
+		assert.equal(study.actualCase.classification.potentialSeverityCode, "A");
 	});
 
 	test("infers fatal Blausäure potential without removing diacritics", () => {
@@ -73,8 +106,8 @@ describe("case study replay model", () => {
 			coachMessages: [],
 		});
 
-		assert.equal(study.expected.potentialSeverityCode, "A");
-		assert.match(study.id, /blausäure/);
+		assert.equal(study.actualCase.classification.potentialSeverityCode, "A");
+		assert.match(study.actualCase.id, /blausäure/);
 	});
 
 	test("adaptive user reveals matching facts only when the coach asks into that topic", () => {
@@ -94,7 +127,7 @@ describe("case study replay model", () => {
 		assert.match(injury.message, /Finger|Rettungsdienst|Chirurgie/);
 	});
 
-	test("case-study evaluator grades against the study's own expected classification", () => {
+	test("case-study evaluator grades against the Actual Case classification", () => {
 		const study = buildCaseStudyFromBundle(mechanicalBundle());
 		const evaluation = evaluateCaseStudyRun({
 			finalRecord: {
@@ -146,15 +179,26 @@ function mechanicalBundle() {
 			hazard_category_code: "MECHANICAL",
 			incident_type: "ACCIDENT",
 			injury_nature: "Finger teilweise verkürzt",
+			location: "Mechanische Werkstatt",
 			potential_outcome_text:
 				"Schwere Schnitt- oder Quetschverletzung am Finger bis hin zu bleibender Funktionsbeeinträchtigung oder Teilamputation.",
 			potential_severity_code: "B",
+			work_activity: "Späne an der Fräsmaschine entfernen",
 			title: "Finger geriet beim Entfernen von Spänen in rotierenden Fräser",
 		},
 		causeNodes: [
 			{
+				id: "cause-1",
 				statement:
 					"Der Metallmassstab war unmittelbar verfügbar und die Einzugsgefahr war nicht bewusst.",
+			},
+		],
+		causeActions: [
+			{
+				cause_node_id: "cause-1",
+				description: "Spänehaken an der Maschine bereitstellen und Nutzung instruieren.",
+				id: "measure-1",
+				owner_role: "Werkstattleiter",
 			},
 		],
 		coachMessages: [

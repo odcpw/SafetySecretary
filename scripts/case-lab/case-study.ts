@@ -10,7 +10,22 @@ export type CaseBundle = {
 	readonly coachMessages?: readonly JsonRecord[];
 };
 
+export type CaseStudyEvidenceRef = {
+	readonly field?: string;
+	readonly id?: string;
+	readonly index?: number;
+	readonly kind:
+		| "case-field"
+		| "coach-message"
+		| "record-fact"
+		| "timeline-event"
+		| "cause-node"
+		| "cause-action";
+	readonly label?: string;
+};
+
 export type CaseStudyFact = {
+	readonly evidence?: readonly CaseStudyEvidenceRef[];
 	readonly id: string;
 	readonly required: boolean;
 	readonly source: "user" | "record" | "timeline" | "cause" | "action";
@@ -18,29 +33,60 @@ export type CaseStudyFact = {
 	readonly topics: readonly string[];
 };
 
-export type CaseStudy = {
-	readonly version: 1;
+export type ActualCaseClassification = {
+	readonly actualInjuryOutcome?: string;
+	readonly eventType?: string;
+	readonly hazardCategoryCode?: string;
+	readonly incidentType?: string;
+	readonly potentialOutcomeText?: string;
+	readonly potentialSeverityCode?: string;
+};
+
+export type ActualCaseCause = {
+	readonly evidence?: readonly CaseStudyEvidenceRef[];
 	readonly id: string;
-	readonly caseNumber?: string;
-	readonly title: string;
-	readonly language: string;
-	readonly openingMessage: string;
-	readonly expected: {
-		readonly actualInjuryOutcome?: string;
-		readonly eventType?: string;
-		readonly hazardCategoryCode?: string;
-		readonly incidentType?: string;
-		readonly potentialOutcomeText?: string;
-		readonly potentialSeverityCode?: string;
-	};
+	readonly isRootCause?: boolean;
+	readonly parentId?: string;
+	readonly question?: string;
+	readonly statement: string;
+	readonly topics: readonly string[];
+};
+
+export type ActualCaseMeasure = {
+	readonly actionType?: string;
+	readonly dueDate?: string;
+	readonly evidence?: readonly CaseStudyEvidenceRef[];
+	readonly id: string;
+	readonly linkedCauseId?: string;
+	readonly ownerRole?: string;
+	readonly status?: string;
+	readonly description: string;
+	readonly topics: readonly string[];
+};
+
+export type ActualCase = {
+	readonly classification: ActualCaseClassification;
+	readonly causes: readonly ActualCaseCause[];
 	readonly facts: readonly CaseStudyFact[];
-	readonly causeThemes: readonly string[];
-	readonly actionThemes: readonly string[];
+	readonly id: string;
+	readonly language: string;
+	readonly measures: readonly ActualCaseMeasure[];
+	readonly narrative: {
+		readonly opening: string;
+		readonly summary: string;
+	};
 	readonly source: {
 		readonly caseId?: string;
 		readonly caseNumber?: string;
 		readonly title: string;
 	};
+	readonly title: string;
+	readonly uncertainties: readonly string[];
+};
+
+export type CaseStudy = {
+	readonly version: 1;
+	readonly actualCase: ActualCase;
 };
 
 export type CaseStudyState = {
@@ -78,7 +124,7 @@ export type CaseStudyEvaluation = {
 	};
 };
 
-export const CASE_STUDY_CRITERIA_VERSION = "case-study-criteria-v0.3.0";
+export const CASE_STUDY_CRITERIA_VERSION = "case-study-criteria-v0.4.0";
 
 export function buildCaseStudyFromBundle(bundle: CaseBundle): CaseStudy {
 	const sourceCase = requireCase(bundle);
@@ -89,73 +135,137 @@ export function buildCaseStudyFromBundle(bundle: CaseBundle): CaseStudy {
 		.filter((message) => !isMethodSwitchMessage(message));
 	const title = String(sourceCase.title ?? "Untitled case");
 	const openingMessage = userMessages[0] ?? fallbackOpening(sourceCase);
-	const factCandidates = [
-		...userMessages.slice(1).map((text, index) => fact(`user-${index + 1}`, text, "user", true)),
+	const id = safeId(String(sourceCase.id ?? sourceCase.case_number ?? title));
+	const classification = actualCaseClassification(sourceCase);
+	const source = {
+		caseId: stringOrUndefined(sourceCase.id),
+		caseNumber: stringOrUndefined(sourceCase.case_number),
+		title,
+	};
+	const actualFacts = dedupeFacts([
+		...caseFieldFacts(sourceCase),
+		...userMessages.slice(1).map((text, index) =>
+			fact(`user-${index + 1}`, text, "user", true, [
+				{ index: index + 1, kind: "coach-message", label: "user message" },
+			]),
+		),
 		...(bundle.facts ?? []).map((row, index) =>
-			fact(`record-fact-${index + 1}`, String(row.text ?? ""), "record", true),
+			fact(`record-fact-${index + 1}`, String(row.text ?? ""), "record", true, [
+				{ id: stringOrUndefined(row.id), index: index + 1, kind: "record-fact" },
+			]),
 		),
 		...(bundle.timelineEvents ?? []).map((row, index) =>
-			fact(`timeline-${index + 1}`, String(row.text ?? row.narrative ?? ""), "timeline", false),
+			fact(`timeline-${index + 1}`, String(row.text ?? row.narrative ?? ""), "timeline", false, [
+				{ id: stringOrUndefined(row.id), index: index + 1, kind: "timeline-event" },
+			]),
 		),
-		...(bundle.causeActions ?? []).map((row, index) =>
-			fact(`action-${index + 1}`, String(row.description ?? ""), "action", false),
-		),
-	].filter((item) => item.text.length > 0);
-
-	return {
-		actionThemes: uniqueText(
-			(bundle.causeActions ?? []).map((row) => String(row.description ?? "")).filter(Boolean),
-		),
-		caseNumber: stringOrUndefined(sourceCase.case_number),
-		causeThemes: uniqueText(
-			(bundle.causeNodes ?? []).map((row) => String(row.statement ?? "")).filter(Boolean),
-		),
-		expected: {
-			actualInjuryOutcome: stringOrUndefined(sourceCase.actual_injury_outcome),
-			eventType: stringOrUndefined(sourceCase.event_type),
-			hazardCategoryCode: stringOrUndefined(sourceCase.hazard_category_code),
-			incidentType: stringOrUndefined(sourceCase.incident_type),
-			potentialOutcomeText: stringOrUndefined(sourceCase.potential_outcome_text),
-			potentialSeverityCode: inferExpectedPotentialSeverity(sourceCase),
-		},
-		facts: dedupeFacts(factCandidates),
-		id: safeId(String(sourceCase.id ?? sourceCase.case_number ?? title)),
+	]).filter((item) => item.text.length > 0);
+	const causes = buildActualCauses(bundle.causeNodes ?? []);
+	const measures = buildActualMeasures(bundle.causeActions ?? []);
+	const actualCase: ActualCase = {
+		classification,
+		causes,
+		facts: actualFacts,
+		id,
 		language: String(sourceCase.content_language ?? guessLanguage(openingMessage)),
-		openingMessage,
-		source: {
-			caseId: stringOrUndefined(sourceCase.id),
-			caseNumber: stringOrUndefined(sourceCase.case_number),
-			title,
+		measures,
+		narrative: {
+			opening: openingMessage,
+			summary: actualCaseSummary(sourceCase, actualFacts, causes, measures),
 		},
+		source,
 		title,
+		uncertainties: actualCaseUncertainties(sourceCase, actualFacts, causes, measures),
+	};
+	return {
+		actualCase,
 		version: 1,
 	};
 }
 
 export function caseStudyMarkdown(study: CaseStudy): string {
+	const { actualCase } = study;
 	const lines = [
-		`# ${study.caseNumber ? `${study.caseNumber}: ` : ""}${study.title}`,
+		`# ${actualCase.source.caseNumber ? `${actualCase.source.caseNumber}: ` : ""}${actualCase.title}`,
 		"",
-		`Language: ${study.language}`,
-		`Opening: ${study.openingMessage}`,
+		`Language: ${actualCase.language}`,
+		`Actual Case: ${actualCase.id}`,
+		`Opening: ${actualCase.narrative.opening}`,
+		"",
+		"## Actual Case Narrative",
+		"",
+		actualCase.narrative.summary,
 		"",
 		"## Expected Classification",
 		"",
-		...Object.entries(study.expected).map(([key, value]) => `- ${key}: ${value ?? "unknown"}`),
-		"",
-		"## Case Facts",
-		"",
-		...study.facts.map(
-			(item) => `- ${item.id} [${item.topics.join(", ")}]: ${item.text}`,
+		...Object.entries(actualCase.classification).map(
+			([key, value]) => `- ${key}: ${value ?? "unknown"}`,
 		),
 		"",
-		"## Cause Themes",
+		"## Actual Facts",
 		"",
-		...(study.causeThemes.length > 0 ? study.causeThemes.map((text) => `- ${text}`) : ["- none"]),
+		...actualCase.facts.map((item) => `- ${item.id} [${item.topics.join(", ")}]: ${item.text}`),
 		"",
-		"## Action Themes",
+		"## Actual Causes",
 		"",
-		...(study.actionThemes.length > 0 ? study.actionThemes.map((text) => `- ${text}`) : ["- none"]),
+		...(actualCase.causes.length > 0
+			? actualCase.causes.map((cause) => `- ${cause.id}: ${cause.statement}`)
+			: ["- none"]),
+		"",
+		"## Actual Measures",
+		"",
+		...(actualCase.measures.length > 0
+			? actualCase.measures.map((measure) => `- ${measure.id}: ${measure.description}`)
+			: ["- none"]),
+		"",
+		"## Uncertainties",
+		"",
+		...(actualCase.uncertainties.length > 0
+			? actualCase.uncertainties.map((text) => `- ${text}`)
+			: ["- none"]),
+		"",
+	];
+	return `${lines.join("\n")}\n`;
+}
+
+export function actualCaseMarkdown(actualCase: ActualCase): string {
+	const lines = [
+		`# Actual Case: ${actualCase.source.caseNumber ? `${actualCase.source.caseNumber}: ` : ""}${actualCase.title}`,
+		"",
+		`Language: ${actualCase.language}`,
+		`Source case id: ${actualCase.source.caseId ?? "unknown"}`,
+		"",
+		"## Narrative",
+		"",
+		actualCase.narrative.summary,
+		"",
+		"## Classification",
+		"",
+		...Object.entries(actualCase.classification).map(
+			([key, value]) => `- ${key}: ${value ?? "unknown"}`,
+		),
+		"",
+		"## Facts",
+		"",
+		...actualCase.facts.map((item) => `- ${item.id} [${item.topics.join(", ")}]: ${item.text}`),
+		"",
+		"## Causes",
+		"",
+		...(actualCase.causes.length > 0
+			? actualCase.causes.map((cause) => `- ${cause.id}: ${cause.statement}`)
+			: ["- none"]),
+		"",
+		"## Measures",
+		"",
+		...(actualCase.measures.length > 0
+			? actualCase.measures.map((measure) => `- ${measure.id}: ${measure.description}`)
+			: ["- none"]),
+		"",
+		"## Uncertainties",
+		"",
+		...(actualCase.uncertainties.length > 0
+			? actualCase.uncertainties.map((text) => `- ${text}`)
+			: ["- none"]),
 		"",
 	];
 	return `${lines.join("\n")}\n`;
@@ -166,17 +276,18 @@ export function nextCaseStudyUserTurn(input: {
 	readonly state: CaseStudyState;
 	readonly study: CaseStudy;
 }): CaseStudyUserTurn {
+	const simulationFacts = simulationFactsForActualCase(input.study.actualCase);
 	const revealed = new Set(input.state.revealedFactIds);
 	if (revealed.size === 0 && !input.assistantText) {
 		return {
 			matchedTopics: ["opening"],
-			message: input.study.openingMessage,
+			message: input.study.actualCase.narrative.opening,
 			reason: "opening",
 			revealedFactIds: [],
 		};
 	}
 
-	const unrevealedRequired = input.study.facts.filter(
+	const unrevealedRequired = simulationFacts.filter(
 		(item) => item.required && !revealed.has(item.id),
 	);
 	if (unrevealedRequired.length === 0) {
@@ -231,7 +342,7 @@ export function nextCaseStudyUserTurn(input: {
 
 	return {
 		matchedTopics: questionTopics,
-		message: fallbackNoMatch(input.study.language),
+		message: fallbackNoMatch(input.study.actualCase.language),
 		reason: "no-matching-case-fact",
 		revealedFactIds: [],
 	};
@@ -243,7 +354,7 @@ function optionalMatchingTurn(
 	assistantText: string,
 ): CaseStudyUserTurn | null {
 	const questionTopics = assistantTopics(assistantText);
-	const matching = study.facts
+	const matching = simulationFactsForActualCase(study.actualCase)
 		.filter((item) => !item.required && !revealed.has(item.id))
 		.find((item) => item.topics.some((topic) => questionTopics.includes(topic)));
 	if (!matching) {
@@ -270,6 +381,8 @@ export function evaluateCaseStudyRun(input: {
 	readonly study: CaseStudy;
 	readonly transcript: readonly JsonRecord[];
 }): CaseStudyEvaluation {
+	const { actualCase } = input.study;
+	const simulationFacts = simulationFactsForActualCase(actualCase);
 	const incident = input.finalRecord.incident ?? {};
 	const recordText = normalize(JSON.stringify(input.finalRecord));
 	const revealedFactIds = new Set(
@@ -277,29 +390,29 @@ export function evaluateCaseStudyRun(input: {
 			Array.isArray(turn.revealedFactIds) ? turn.revealedFactIds.map(String) : [],
 		),
 	);
-	const requiredFacts = input.study.facts.filter((item) => item.required);
+	const requiredFacts = simulationFacts.filter((item) => item.required);
 	const revealedRequiredFacts = requiredFacts.filter((item) =>
 		revealedFactIds.has(item.id),
 	);
-	const revealedActionFacts = input.study.facts.filter(
+	const revealedActionFacts = simulationFacts.filter(
 		(item) => item.source === "action" && revealedFactIds.has(item.id),
 	);
 	const revealedFactsCaptured = revealedRequiredFacts.filter((item) =>
 		containsCaseText(recordText, item.text),
 	);
 	const checks: CaseStudyCheck[] = [
-		expectedFieldCheck(input.study, incident, "incidentType", "incidentType", 3),
-		expectedFieldCheck(input.study, incident, "actualInjuryOutcome", "actualInjuryOutcome", 3),
-		expectedFieldCheck(input.study, incident, "hazardCategoryCode", "hazardCategoryCode", 3),
-		expectedFieldCheck(input.study, incident, "eventType", "eventType", 3),
-		expectedSeverityCheck(input.study, incident),
+		expectedFieldCheck(actualCase, incident, "incidentType", "incidentType", 3),
+		expectedFieldCheck(actualCase, incident, "actualInjuryOutcome", "actualInjuryOutcome", 3),
+		expectedFieldCheck(actualCase, incident, "hazardCategoryCode", "hazardCategoryCode", 3),
+		expectedFieldCheck(actualCase, incident, "eventType", "eventType", 3),
+		expectedSeverityCheck(actualCase, incident),
 		ratioCheck(
 			"fact_capture",
 			"revealed facts captured",
 			12,
 			revealedFactsCaptured.length,
 			Math.max(revealedRequiredFacts.length, 1),
-			`${revealedFactsCaptured.length}/${revealedRequiredFacts.length} revealed required case-study facts appear in final record`,
+			`${revealedFactsCaptured.length}/${revealedRequiredFacts.length} revealed required Actual Case facts appear in final record`,
 		),
 		ratioCheck(
 			"questioning",
@@ -307,17 +420,20 @@ export function evaluateCaseStudyRun(input: {
 			8,
 			revealedRequiredFacts.length,
 			Math.max(requiredFacts.length, 1),
-			`${revealedRequiredFacts.length}/${requiredFacts.length} required case-study facts were surfaced by matching coach questions`,
+			`${revealedRequiredFacts.length}/${requiredFacts.length} required Actual Case facts were surfaced by matching coach questions`,
 		),
 		ratioCheck(
 			"investigation_logic",
-			"cause themes captured",
+			"actual causes captured",
 			8,
-			countThemes(recordText, input.study.causeThemes),
-			Math.max(input.study.causeThemes.length, 1),
-			"Final record should reflect the case-study cause themes.",
+			countThemes(
+				recordText,
+				actualCase.causes.map((cause) => cause.statement),
+			),
+			Math.max(actualCase.causes.length, 1),
+			"Final record should reflect the Actual Case causes.",
 		),
-		measuresCheck(input.study, input.finalRecord, recordText, revealedActionFacts),
+		measuresCheck(actualCase, input.finalRecord, recordText, revealedActionFacts),
 		weightedCheck(
 			"operation_safety",
 			"no empty action fabrication",
@@ -392,6 +508,185 @@ export function caseStudyEvaluationMarkdown(evaluation: CaseStudyEvaluation): st
 	return `${lines.join("\n")}\n`;
 }
 
+function simulationFactsForActualCase(actualCase: ActualCase): readonly CaseStudyFact[] {
+	return dedupeFacts([
+		...actualCase.facts,
+		...actualCase.measures.map((measure, index) =>
+			fact(
+				`action-${index + 1}`,
+				measure.description,
+				"action",
+				false,
+				measure.evidence ?? [],
+			),
+		),
+	]);
+}
+
+function actualCaseClassification(sourceCase: JsonRecord): ActualCaseClassification {
+	return {
+		actualInjuryOutcome: stringOrUndefined(sourceCase.actual_injury_outcome),
+		eventType: stringOrUndefined(sourceCase.event_type),
+		hazardCategoryCode: stringOrUndefined(sourceCase.hazard_category_code),
+		incidentType: stringOrUndefined(sourceCase.incident_type),
+		potentialOutcomeText: stringOrUndefined(sourceCase.potential_outcome_text),
+		potentialSeverityCode: inferExpectedPotentialSeverity(sourceCase),
+	};
+}
+
+function buildActualCauses(rows: readonly JsonRecord[]): readonly ActualCaseCause[] {
+	const causes: ActualCaseCause[] = [];
+	for (const [index, row] of rows.entries()) {
+		const statement = String(row.statement ?? "").trim();
+		if (!statement) {
+			continue;
+		}
+		causes.push({
+			evidence: [
+				{ id: stringOrUndefined(row.id), index: index + 1, kind: "cause-node" },
+			],
+			id: stringOrUndefined(row.id) ?? `cause-${index + 1}`,
+			isRootCause: typeof row.is_root_cause === "boolean" ? row.is_root_cause : undefined,
+			parentId: stringOrUndefined(row.parent_id),
+			question: stringOrUndefined(row.question),
+			statement,
+			topics: topicsForText(statement),
+		});
+	}
+	return causes;
+}
+
+function buildActualMeasures(rows: readonly JsonRecord[]): readonly ActualCaseMeasure[] {
+	const measures: ActualCaseMeasure[] = [];
+	for (const [index, row] of rows.entries()) {
+		const description = String(row.description ?? "").trim();
+		if (!description) {
+			continue;
+		}
+		measures.push({
+			actionType: stringOrUndefined(row.action_type),
+			dueDate: stringOrUndefined(row.due_date),
+			evidence: [
+				{ id: stringOrUndefined(row.id), index: index + 1, kind: "cause-action" },
+			],
+			id: stringOrUndefined(row.id) ?? `measure-${index + 1}`,
+			linkedCauseId: stringOrUndefined(row.cause_node_id),
+			ownerRole: stringOrUndefined(row.owner_role),
+			status: stringOrUndefined(row.status),
+			description,
+			topics: topicsForText(description),
+		});
+	}
+	return measures;
+}
+
+function caseFieldFacts(sourceCase: JsonRecord): readonly CaseStudyFact[] {
+	const fields: readonly [string, string, unknown][] = [
+		["incident_at", "Incident date/time", sourceCase.incident_at],
+		["incident_time_note", "Incident time note", sourceCase.incident_time_note],
+		["location", "Location", sourceCase.location],
+		["department_text", "Department", sourceCase.department_text],
+		["area_text", "Area", sourceCase.area_text],
+		["shift_text", "Shift", sourceCase.shift_text],
+		["work_activity", "Work activity", sourceCase.work_activity],
+		["work_type", "Work type", sourceCase.work_type],
+		["process_involved", "Process involved", sourceCase.process_involved],
+		["injury_nature", "Injury nature", sourceCase.injury_nature],
+		["body_part", "Body part", sourceCase.body_part],
+		["lost_days", "Lost days", sourceCase.lost_days],
+		["ppe_required", "PPE required", sourceCase.ppe_required],
+		["ppe_worn", "PPE worn", sourceCase.ppe_worn],
+		["control_failure", "Control failure", sourceCase.control_failure],
+		["immediate_cause", "Immediate cause", sourceCase.immediate_cause],
+		["contributing_causes", "Contributing causes", sourceCase.contributing_causes],
+		["actual_severity_reason", "Actual severity reason", sourceCase.actual_severity_reason],
+	];
+	return fields
+		.map(([fieldName, label, value]) => {
+			const text = caseFieldText(label, value);
+			if (!text) {
+				return null;
+			}
+			return fact(`case-field-${safeId(fieldName)}`, text, "record", false, [
+				{ field: fieldName, kind: "case-field", label },
+			]);
+		})
+		.filter((item): item is CaseStudyFact => Boolean(item));
+}
+
+function caseFieldText(label: string, value: unknown): string | undefined {
+	if (Array.isArray(value)) {
+		const items = value.map((item) => String(item ?? "").trim()).filter(Boolean);
+		return items.length > 0 ? `${label}: ${items.join("; ")}` : undefined;
+	}
+	if (typeof value === "number" || typeof value === "boolean") {
+		return `${label}: ${String(value)}`;
+	}
+	if (typeof value !== "string" || !value.trim()) {
+		return undefined;
+	}
+	return `${label}: ${value.trim()}`;
+}
+
+function actualCaseSummary(
+	sourceCase: JsonRecord,
+	facts: readonly CaseStudyFact[],
+	causes: readonly ActualCaseCause[],
+	measures: readonly ActualCaseMeasure[],
+): string {
+	const core = [
+		stringOrUndefined(sourceCase.title),
+		stringOrUndefined(sourceCase.location),
+		stringOrUndefined(sourceCase.work_activity),
+		stringOrUndefined(sourceCase.injury_nature),
+		stringOrUndefined(sourceCase.potential_outcome_text),
+	]
+		.filter(Boolean)
+		.join(". ");
+	const factSummary = facts
+		.filter((item) => item.required)
+		.slice(0, 3)
+		.map((item) => item.text)
+		.join(" ");
+	const causeSummary =
+		causes.length > 0
+			? `Actual causes: ${causes.map((cause) => cause.statement).join(" / ")}.`
+			: "";
+	const measureSummary =
+		measures.length > 0
+			? `Actual measures: ${measures.map((measure) => measure.description).join(" / ")}.`
+			: "";
+	return [core, factSummary, causeSummary, measureSummary]
+		.filter((part) => part.trim().length > 0)
+		.join(" ")
+		.trim();
+}
+
+function actualCaseUncertainties(
+	sourceCase: JsonRecord,
+	facts: readonly CaseStudyFact[],
+	causes: readonly ActualCaseCause[],
+	measures: readonly ActualCaseMeasure[],
+): readonly string[] {
+	const uncertainties = [];
+	if (!stringOrUndefined(sourceCase.potential_outcome_text)) {
+		uncertainties.push("Potential outcome text is missing from the exported source case.");
+	}
+	if (!stringOrUndefined(sourceCase.potential_severity_code)) {
+		uncertainties.push("Stored potential severity code is missing from the exported source case.");
+	}
+	if (facts.filter((item) => item.required).length === 0) {
+		uncertainties.push("No required narrative or record facts were extracted.");
+	}
+	if (causes.length === 0) {
+		uncertainties.push("No persisted cause nodes were exported.");
+	}
+	if (measures.length === 0) {
+		uncertainties.push("No persisted corrective measures were exported.");
+	}
+	return uncertainties;
+}
+
 function requireCase(bundle: CaseBundle): JsonRecord {
 	if (!bundle.case || typeof bundle.case !== "object") {
 		throw new Error("case bundle does not contain a case object.");
@@ -404,8 +699,10 @@ function fact(
 	text: string,
 	source: CaseStudyFact["source"],
 	required: boolean,
+	evidence: readonly CaseStudyEvidenceRef[] = [],
 ): CaseStudyFact {
 	return {
+		evidence,
 		id,
 		required,
 		source,
@@ -459,13 +756,13 @@ function assistantTopics(value: string): readonly string[] {
 }
 
 function expectedFieldCheck(
-	study: CaseStudy,
+	actualCase: ActualCase,
 	incident: JsonRecord,
-	expectedKey: keyof CaseStudy["expected"],
+	expectedKey: keyof ActualCaseClassification,
 	recordKey: string,
 	weight: number,
 ): CaseStudyCheck {
-	const expected = study.expected[expectedKey];
+	const expected = actualCase.classification[expectedKey];
 	if (!expected) {
 		return {
 			category: "classification",
@@ -484,13 +781,13 @@ function expectedFieldCheck(
 	);
 }
 
-function expectedSeverityCheck(study: CaseStudy, incident: JsonRecord): CaseStudyCheck {
-	const expected = study.expected.potentialSeverityCode;
+function expectedSeverityCheck(actualCase: ActualCase, incident: JsonRecord): CaseStudyCheck {
+	const expected = actualCase.classification.potentialSeverityCode;
 	const actual = incident.potentialSeverityCode;
 	const status = expected ? (actual === expected ? "pass" : "fail") : actual ? "warn" : "fail";
 	return {
 		category: "classification",
-		evidence: `expected=${JSON.stringify(expected)}, actual=${JSON.stringify(actual)}, outcome=${JSON.stringify(study.expected.potentialOutcomeText)}`,
+		evidence: `expected=${JSON.stringify(expected)}, actual=${JSON.stringify(actual)}, outcome=${JSON.stringify(actualCase.classification.potentialOutcomeText)}`,
 		hardFailure: status === "fail" && Boolean(expected),
 		name: "potential severity",
 		status,
@@ -499,18 +796,18 @@ function expectedSeverityCheck(study: CaseStudy, incident: JsonRecord): CaseStud
 }
 
 function measuresCheck(
-	study: CaseStudy,
+	actualCase: ActualCase,
 	finalRecord: { readonly causeActions?: readonly JsonRecord[] },
 	recordText: string,
 	revealedActionFacts: readonly CaseStudyFact[],
 ): CaseStudyCheck {
-	if (study.actionThemes.length === 0) {
+	if (actualCase.measures.length === 0) {
 		return weightedCheck(
 			"measures",
-			"action themes captured",
+			"actual measures captured",
 			5,
 			true,
-			"Study contains no action themes; measures are not required for this run.",
+			"Actual Case contains no measures; measures are not required for this run.",
 		);
 	}
 
@@ -518,8 +815,8 @@ function measuresCheck(
 		return {
 			category: "measures",
 			evidence:
-				"Study has source actions, but no action facts were revealed by the simulated user in this run.",
-			name: "action themes captured",
+				"Actual Case has measures, but no measure facts were revealed by the simulated user in this run.",
+			name: "actual measures captured",
 			status: "warn",
 			weight: 5,
 		};
@@ -527,7 +824,7 @@ function measuresCheck(
 
 	return ratioCheck(
 		"measures",
-		"action themes captured",
+		"actual measures captured",
 		5,
 		countThemes(
 			recordText,

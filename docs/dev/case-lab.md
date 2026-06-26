@@ -1,16 +1,18 @@
 # Case Lab
 
 Case Lab is the local experimentation harness for Incident Investigation coach
-quality. It replays case studies, not old chat transcripts. It keeps four
+quality. It replays case studies, not old chat transcripts. It keeps five
 things separate:
 
 - **Corpus export**: immutable evidence pulled from a selected real case.
 - **Lab import**: a local tenant that mirrors the exported final case for
   inspection and regression fixture work.
-- **Case study**: a structured case file with opening narrative, facts,
-  expected classification, cause themes, and action themes.
+- **Actual Case**: the canonical extracted benchmark from the history: case
+  narrative, facts, expected classification, causes, actual measures,
+  uncertainties, and evidence references.
+- **Case study**: a replay wrapper around the Actual Case.
 - **Study run**: a fresh local tenant/case where an adaptive simulated user
-  answers from the case study while a coach skill/runtime investigates.
+  answers from the Actual Case while a coach skill/runtime investigates.
 
 This is intentionally command-line and artifact-first. A UI or optimization
 loop can sit on top later.
@@ -20,8 +22,8 @@ loop can sit on top later.
 - `scripts/operator/export-incident-case-corpus.mjs`: read-only selected-case
   exporter.
 - `scripts/case-lab/case-lab.ts`: Case Lab CLI orchestration.
-- `scripts/case-lab/case-study.ts`: case-study builder, adaptive simulator,
-  and per-study evaluator.
+- `scripts/case-lab/case-study.ts`: Actual Case extractor, case-study builder,
+  adaptive simulator, and per-study evaluator.
 - `tests/unit/case-lab/case-study.test.ts`: focused case-study tests.
 - `skills/case-lab/SKILL.md`: agent-facing operating procedure for this
   subsystem.
@@ -50,7 +52,7 @@ ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/s
   pnpm case-lab:import -- --case-folder .tmp/case-corpus-full/<case-folder>
 ```
 
-Build a reusable study:
+Build the Actual Case and reusable study:
 
 ```bash
 pnpm case-lab:study -- --case-folder .tmp/case-corpus-full/<case-folder>
@@ -66,7 +68,7 @@ ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/s
 
 The simulation seed is cold: it does not copy source facts into the new case.
 The coach has to surface the narrative by asking useful questions. The
-simulated user only answers from the case study.
+simulated user only answers from the Actual Case embedded in the study.
 
 Re-score an existing replay report:
 
@@ -92,6 +94,8 @@ when you intentionally want to remove imported `case-lab-source-*` tenants too.
 
 `case-lab:study` writes:
 
+- `actual-case.json`
+- `actual-case.md`
 - `case-study.json`
 - `case-study.md`
 
@@ -108,9 +112,9 @@ the source case can be inspected locally.
 
 ## Evaluator Method
 
-The case-study evaluator is a weighted rubric, not an operation-count or
-transcript-similarity check. Counts are useful diagnostics, but they are not
-the quality target.
+The case-study evaluator is a weighted rubric against the Actual Case, not an
+operation-count or transcript-similarity check. Counts are useful diagnostics,
+but they are not the quality target.
 
 The current executable criteria version is emitted in every `evaluation.json`
 and `evaluation.md`.
@@ -118,11 +122,11 @@ and `evaluation.md`.
 Current case-study categories:
 
 - `classification`: incident type, outcome, hazard, event type, and potential
-  severity match the study's expected case logic.
-- `fact_capture`: required case-study facts appear in the final record.
+  severity match the Actual Case logic.
+- `fact_capture`: required Actual Case facts appear in the final record.
 - `questioning`: important facts were surfaced by relevant coach questions.
-- `investigation_logic`: cause themes from the case study appear in the record.
-- `measures`: action themes appear when the study reaches measures.
+- `investigation_logic`: Actual Case causes appear in the record.
+- `measures`: Actual Case measures appear when the study reaches measures.
 - `operation_safety`: the coach does not fabricate actions when the study has
   none.
 - `runtime`: the study run completed and produced a usable artifact.
@@ -134,11 +138,11 @@ respiratory harm without fatal wording must still be defensible as `A` or `B`.
 Fatality severity mismatch is a hard failure and cannot be averaged away by
 other passing checks. Avoid treating "not equal to production" as a pass.
 
-Do not compare unrelated cases with one case's rubric. A Fräsmaschine finger
+Do not compare unrelated cases with one Actual Case rubric. A Fräsmaschine finger
 amputation case is scored against mechanical/amputation expectations. An HCN
 near miss is scored against hazardous-substance/fatal-exposure expectations.
 Shared code handles invariants and study mechanics; case-specific expectations
-come from the study.
+come from the Actual Case.
 
 ## Optimization Loop
 
@@ -150,8 +154,8 @@ source tenant.
 
 The default target is the Flue incident investigation agent described in
 `docs/dev/incident-investigation-agent.md`. Case Lab should judge whether that
-agent uncovers and structures the case well, not whether a transcript resembles
-an old conversation or whether a single prompt sounds plausible.
+agent uncovers and structures the Actual Case well, not whether a transcript
+resembles an old conversation or whether a single prompt sounds plausible.
 
 For comparison:
 

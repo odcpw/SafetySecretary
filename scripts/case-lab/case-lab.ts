@@ -40,6 +40,7 @@ registerHooks({
 });
 
 const {
+	actualCaseMarkdown,
 	buildCaseStudyFromBundle,
 	caseStudyEvaluationMarkdown,
 	caseStudyMarkdown,
@@ -185,21 +186,27 @@ async function runStudy(args: ParsedArgs): Promise<void> {
 
 	const bundle = readJson<CaseBundle>(bundlePath);
 	const study = buildCaseStudyFromBundle(bundle);
+	const { actualCase } = study;
 	const studyDir = resolve(
 		optionalString(args.outDir, "--out-dir") ?? ".tmp/case-lab/studies",
-		`${timestamp(new Date())}-${safeSegment(String(study.caseNumber ?? study.id))}`,
+		`${timestamp(new Date())}-${safeSegment(String(actualCase.source.caseNumber ?? actualCase.id))}`,
 	);
 	mkdirSync(studyDir, { recursive: true });
+	writeJson(join(studyDir, "actual-case.json"), actualCase);
+	writeFileSync(join(studyDir, "actual-case.md"), actualCaseMarkdown(actualCase), "utf8");
 	writeJson(join(studyDir, "case-study.json"), study);
 	writeFileSync(join(studyDir, "case-study.md"), caseStudyMarkdown(study), "utf8");
 	console.log(
 		JSON.stringify(
 			{
-				caseNumber: study.caseNumber,
-				facts: study.facts.length,
+				actualCasePath: join(studyDir, "actual-case.json"),
+				caseNumber: actualCase.source.caseNumber,
+				causes: actualCase.causes.length,
+				facts: actualCase.facts.length,
+				measures: actualCase.measures.length,
 				studyDir,
 				studyPath: join(studyDir, "case-study.json"),
-				title: study.title,
+				title: actualCase.title,
 			},
 			null,
 			2,
@@ -217,7 +224,7 @@ async function runStudyReplay(args: ParsedArgs): Promise<void> {
 	}
 	const artifactDir = resolve(
 		optionalString(args.outDir, "--out-dir") ?? ".tmp/case-lab/study-runs",
-		`${timestamp(new Date())}-${safeSegment(String(study.caseNumber ?? study.id))}`,
+		`${timestamp(new Date())}-${safeSegment(String(study.actualCase.source.caseNumber ?? study.actualCase.id))}`,
 	);
 	mkdirSync(artifactDir, { recursive: true });
 
@@ -264,10 +271,10 @@ async function runStudyReplay(args: ParsedArgs): Promise<void> {
 		await insertSeedIncidentCase({
 			caseId: incidentId,
 			sourceCase: {
-				content_language: study.language,
+				content_language: study.actualCase.language,
 				coordinator_role: "Investigation coordinator",
-				incident_type: study.expected.incidentType ?? "NEAR_MISS",
-				title: study.title,
+				incident_type: study.actualCase.classification.incidentType ?? "NEAR_MISS",
+				title: study.actualCase.title,
 				vision_consent: "ASK",
 			},
 			tenantId,
@@ -288,7 +295,7 @@ async function runStudyReplay(args: ParsedArgs): Promise<void> {
 			const before = await readCaseRecord({ incidentId, tenantId });
 			const result = await runCoachChatTurn({
 				incidentId,
-				locale: study.language,
+				locale: study.actualCase.language,
 				message: simulated.message,
 				onProgress: (event) => {
 					progressEvents.push({ event: toJson(event), turnIndex: index });

@@ -4,7 +4,11 @@ Use these principles when interpreting or changing `scripts/case-lab/case-study.
 
 ## Frames
 
-- **Case study**: the structured case file used by the adaptive simulated user.
+- **Actual Case**: the canonical extracted benchmark used by the adaptive
+  simulated user and evaluator. It contains the narrative, facts,
+  classification, causes, actual measures, uncertainties, and evidence
+  references.
+- **Case study**: the replay wrapper around the Actual Case.
 - **Production baseline**: what the real case stored. Useful evidence, never assumed to be correct.
 - **Adjudicated quality**: what a good investigation should have captured, asked, classified, and turned into causes/measures. This is the headline judgment.
 - **Runtime mechanics**: whether the replay path, tenant lifecycle, operations, and artifacts behaved correctly.
@@ -36,11 +40,11 @@ If the user description does not reveal the credible worst case, the coach shoul
 
 ## Weighted Categories
 
-- `classification`: type, actual outcome, hazard, event type, and potential severity match this study.
-- `fact_capture`: required case-study facts appear in the final record.
+- `classification`: type, actual outcome, hazard, event type, and potential severity match the Actual Case.
+- `fact_capture`: required Actual Case facts appear in the final record.
 - `questioning`: the coach surfaced important facts by asking into the right topics.
-- `investigation_logic`: cause branches track this case's actual logic.
-- `measures`: action themes appear only when the study provides them.
+- `investigation_logic`: cause branches track this Actual Case's logic.
+- `measures`: actual measures appear only when the Actual Case provides them.
 - `operation_safety`: no invented timestamps, measures, owners, or corrective actions.
 - `runtime`: replay artifacts are complete and tenant cleanup succeeds.
 

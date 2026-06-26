@@ -5,7 +5,7 @@ description: Local SafetySecretaryNext Incident Investigation case replay and ev
 
 # Case Lab
 
-Use Case Lab as a local-only case-study replay subsystem, not as transcript replay. A case study is a structured source of truth plus an adaptive simulated user. The goal is to compare which coach skills/prompts/runtimes lead to the best investigation outcome.
+Use Case Lab as a local-only case-study replay subsystem, not as transcript replay. The Actual Case is the canonical extracted benchmark: narrative, facts, classification, causes, actual measures, uncertainties, and evidence references. A case study wraps that Actual Case for adaptive replay. The goal is to compare which coach skills/prompts/runtimes reconstruct and improve the real case investigation outcome.
 
 The primary subject under test is the Flue incident investigation agent: Flue
 agent instructions, the incident-investigation skill, typed tools, record
@@ -14,8 +14,8 @@ work to prompt wording alone.
 
 1. `operator:export-case` pulls a selected production case into `.tmp/case-corpus*`.
 2. `case-lab:import` mirrors the final case into a persistent local `case-lab-source-*` tenant for inspection.
-3. `case-lab:study` builds a reusable `case-study.json` from the exported case.
-4. `case-lab:replay` plays that study through a coach skill/runtime using an adaptive simulated user.
+3. `case-lab:study` builds `actual-case.json` plus a reusable `case-study.json` wrapper from the exported case.
+4. `case-lab:replay` plays that Actual Case through a coach skill/runtime using an adaptive simulated user.
 
 ## Guardrails
 
@@ -42,7 +42,7 @@ ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/s
   pnpm case-lab:import -- --case-folder .tmp/case-corpus/<case-folder>
 ```
 
-Build a case study:
+Build the Actual Case and case study:
 
 ```bash
 pnpm case-lab:study -- --case-folder .tmp/case-corpus/<case-folder>

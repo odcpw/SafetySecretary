@@ -60,6 +60,11 @@ If the user description does not reveal the credible worst case, the coach shoul
 - `measures`: actual measures appear only when the Actual Case provides them.
 - `case_chain`: surfaced facts support captured causes; measures are linked to
   causes and are implementable enough to assign and follow up.
+- `cause_graph`: cause parent/child links, depth, root-cause placement,
+  terminal action targets, and blame-free wording match the Actual Case logic.
+- `output_readiness`: the final structured record is useful input for the
+  manager one-pager: event story/timeline, renderable cause tree, and
+  follow-up-ready linked actions.
 - `operation_safety`: no corrective actions before agreed measures are revealed,
   no measures hidden in fact rows, and no invented owners or due dates.
 - `agent_reasoning`: the coach's proposed operations were right before backend guards normalized them.
@@ -68,6 +73,16 @@ If the user description does not reveal the credible worst case, the coach shoul
 Treat a vague action such as "discuss this" without a cause link, owner, and due
 date as weak even if it technically creates a stop action. A useful measure
 should answer: what condition changes, who owns it, and by when.
+
+Treat the cause graph as product output, not decoration. A useful graph chains
+conditions when one explains another, marks the deepest actionable cause as the
+root, avoids blame labels, and links actions to terminal causes rather than to
+surface symptoms that still have deeper unresolved children.
+
+Treat the manager one-pager as an output consumer. The evaluator should reward
+records that can generate a plain manager summary from structured timeline
+events, causes, and linked actions. It should not reward a replay that leaves
+the essential story only in chat or stores agreed measures as generic facts.
 
 ## Known Limitation
 

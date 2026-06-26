@@ -111,6 +111,37 @@ describe("case study replay model", () => {
 		assert.match(study.actualCase.id, /blausäure/);
 	});
 
+	test("fact capture tokenization handles accented words as real evidence", () => {
+		const study = buildCaseStudyFromBundle({
+			case: {
+				content_language: "fr",
+				incident_type: "NEAR_MISS",
+				title: "Incident",
+			},
+			coachMessages: [{ content: "Îlot côté sûr.", role: "user" }],
+		});
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [],
+				causeNodes: [],
+				facts: [],
+				incident: {
+					incidentType: "NEAR_MISS",
+					title: "Incident",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [{ reason: "opening", revealedFactIds: ["user-opening"] }],
+			study,
+			transcript: [{ assistant: { content: "Que s'est-il passé ?", operations: [] } }],
+		});
+
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "revealed facts captured")?.status,
+			"fail",
+		);
+	});
+
 	test("uses a cold fallback opening without leaking the potential outcome", () => {
 		const study = buildCaseStudyFromBundle({
 			case: {
@@ -392,6 +423,151 @@ describe("case study replay model", () => {
 		assert.equal(implementable?.status, "fail");
 	});
 
+	test("cause-graph and output-readiness evaluation rewards linked root-cause output", () => {
+		const study = buildCaseStudyFromBundle(deepMechanicalBundle());
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [
+					{
+						causeNodeId: "final-root",
+						description:
+							"Spänehaken an der Maschine bereitstellen und Nutzung beim Schichtstart instruieren.",
+						dueDate: "2026-07-01",
+						ownerRole: "Werkstattleiter",
+					},
+				],
+				causeNodes: [
+					{
+						id: "final-surface",
+						statement:
+							"Späne wurden mit einem Metallmassstab nahe am rotierenden Fräser entfernt.",
+					},
+					{
+						id: "final-root",
+						isRootCause: true,
+						parentId: "final-surface",
+						statement:
+							"Ein Spänehaken war an der Maschine nicht verfügbar und die Nutzung war nicht eingeübt.",
+					},
+				],
+				facts: [
+					{
+						text:
+							"Der Unfall ereignete sich an einer konventionellen Fräsmaschine. Als ich versucht habe die Späne mit dem Metallmassstab wegzunehmen, wurde der Massstab eingezogen.",
+					},
+				],
+				incident: {
+					actualInjuryOutcome: "IRREVERSIBLE_INJURY",
+					eventType: "CUT_PUNCTURE",
+					hazardCategoryCode: "MECHANICAL",
+					incidentAt: "2026-06-13T09:00:00.000Z",
+					incidentType: "ACCIDENT",
+					location: "Mechanische Werkstatt",
+					potentialSeverityCode: "B",
+					title: "Finger geriet beim Entfernen von Spänen in rotierenden Fräser",
+				},
+				timelineEvents: [
+					{
+						text:
+							"Der Mitarbeiter entfernte Späne an der Fräsmaschine mit einem Metallmassstab; der Massstab wurde eingezogen.",
+					},
+				],
+			},
+			simulationTurns: [
+				{ reason: "opening", revealedFactIds: ["user-opening"] },
+				{ reason: "answered-question", revealedFactIds: ["cause-1"] },
+				{ reason: "answered-question", revealedFactIds: ["cause-2"] },
+				{ reason: "answered-question", revealedFactIds: ["action-1"] },
+			],
+			study,
+			transcript: [{ assistant: { content: "Welche Massnahme wurde vereinbart?", operations: [] } }],
+		});
+
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "actual cause links preserved")?.status,
+			"pass",
+		);
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "root marks deepest actionable causes")
+				?.status,
+			"pass",
+		);
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "one-pager draft has all three sections")
+				?.status,
+			"pass",
+		);
+	});
+
+	test("cause-graph and output-readiness evaluation rejects shallow blame-centered output", () => {
+		const study = buildCaseStudyFromBundle(deepMechanicalBundle());
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [
+					{
+						causeNodeId: "final-surface",
+						description: "Besprechen.",
+					},
+				],
+				causeNodes: [
+					{
+						id: "final-surface",
+						isRootCause: true,
+						statement: "Operator error: the worker was careless.",
+					},
+					{
+						id: "final-deeper",
+						parentId: "final-surface",
+						statement:
+							"Ein Spänehaken war an der Maschine nicht verfügbar und die Nutzung war nicht eingeübt.",
+					},
+				],
+				facts: [
+					{
+						text:
+							"Der Unfall ereignete sich an einer konventionellen Fräsmaschine.",
+					},
+				],
+				incident: {
+					actualInjuryOutcome: "IRREVERSIBLE_INJURY",
+					eventType: "CUT_PUNCTURE",
+					hazardCategoryCode: "MECHANICAL",
+					incidentType: "ACCIDENT",
+					potentialSeverityCode: "B",
+					title: "Finger geriet beim Entfernen von Spänen in rotierenden Fräser",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [
+				{ reason: "opening", revealedFactIds: ["user-opening"] },
+				{ reason: "answered-question", revealedFactIds: ["cause-1"] },
+				{ reason: "answered-question", revealedFactIds: ["cause-2"] },
+				{ reason: "answered-question", revealedFactIds: ["action-1"] },
+			],
+			study,
+			transcript: [{ assistant: { content: "Welche Massnahme wurde vereinbart?", operations: [] } }],
+		});
+
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "root marks deepest actionable causes")
+				?.status,
+			"fail",
+		);
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "actions target terminal causes")?.status,
+			"fail",
+		);
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "cause language is blame-free")?.status,
+			"fail",
+		);
+		assert.equal(
+			evaluation.checks.find((check) => check.name === "manager actions are follow-up ready")
+				?.status,
+			"fail",
+		);
+	});
+
 	test("operation safety rejects measures stored as facts and fabricated metadata", () => {
 		const study = buildCaseStudyFromBundle(mechanicalBundle());
 		const evaluation = evaluateCaseStudyRun({
@@ -613,4 +789,34 @@ function hcnStudy() {
 		},
 		coachMessages: [],
 	});
+}
+
+function deepMechanicalBundle() {
+	return {
+		...mechanicalBundle(),
+		causeNodes: [
+			{
+				id: "cause-surface",
+				statement:
+					"Späne wurden mit einem Metallmassstab nahe am rotierenden Fräser entfernt.",
+			},
+			{
+				id: "cause-root",
+				is_root_cause: true,
+				parent_id: "cause-surface",
+				statement:
+					"Ein Spänehaken war an der Maschine nicht verfügbar und die Nutzung war nicht eingeübt.",
+			},
+		],
+		causeActions: [
+			{
+				cause_node_id: "cause-root",
+				description:
+					"Spänehaken an der Maschine bereitstellen und Nutzung beim Schichtstart instruieren.",
+				due_date: "2026-07-01",
+				id: "measure-root",
+				owner_role: "Werkstattleiter",
+			},
+		],
+	};
 }

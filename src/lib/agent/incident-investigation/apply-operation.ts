@@ -960,12 +960,12 @@ async function nearDuplicateActionId(
 		return null;
 	}
 
-	// SAFETY GATE: only ever fold a new measure into an existing row that looks
-	// like an UNFINISHED earlier proposal — one still missing an owner or a due
-	// date. That is exactly the bug pattern (early ownerless measure → refined
-	// owner+dated version). A genuinely-different, FINISHED measure (owner AND
-	// due date set) can never be a merge target, so we cannot silently destroy a
-	// complete distinct control even if the wording happens to look similar.
+	// SAFETY GATE: only ever fold a new measure into an existing row that still
+	// looks unfinished — missing owner and/or due date. That covers the common
+	// refinement pattern (early ownerless or dateless measure -> refined
+	// owner+dated version). A finished measure with both owner and due date can
+	// never be a merge target, so we cannot silently destroy a complete distinct
+	// control even if the wording happens to look similar.
 	const rows = await tx.$queryRaw<
 		Array<{ id: string; description: string | null }>
 	>`

@@ -20,6 +20,7 @@ reviewable operations.
 | Perception tools | Expose the current app-owned record, proposal ledger, cause-tree digest, and phase signal. | `read_incident_record`, `src/lib/incident/coach-flue-record-view.ts`, `src/lib/incident/cause-tree.ts` |
 | Action tools | Convert intended record changes into validated structured operations. | `propose_incident_fields`, `propose_evidence`, `propose_cause_tree`, `propose_action_plan`, `propose_hira_followup` |
 | Safety rails | Enforce enum validity, tenant scope, severity invariants, duplicate/cycle prevention, and apply-time correctness. | `src/lib/incident/coach-flue-operation-tools.ts`, `src/lib/agent/incident-investigation/apply-operation.ts`, `src/lib/incident/classification.ts` |
+| Manager one-pager | Consumes the final structured record after investigation and drafts/exports manager-facing PPTX output. It is downstream of the investigation agent, not a Flue tool. | `src/lib/incident/onepager-draft.ts`, `src/lib/exports/ii/onepager.ts` |
 | Case Lab | Replays real case studies through agent variants and judges investigation quality. | `docs/dev/case-lab.md`, `scripts/case-lab/` |
 
 ## Intelligence Boundary
@@ -41,6 +42,12 @@ the Flue agent plus Flue skill and tools.
 Backend guards are not the intelligence. They are last-resort safety rails. A
 good agent should propose the right severity, fact, cause, and measure before an
 apply-time guard has to correct or reject it.
+
+The manager one-pager is a downstream output consumer. The Flue agent should
+produce the structured facts, timeline, cause graph, and linked actions that
+make the one-pager useful; it does not draft or persist the one-pager text
+during the investigation turn. Case Lab scores output readiness from the final
+record, while `test:exports:onepager` guards the PPTX/draft export path.
 
 ## Turn Loop
 
@@ -85,6 +92,7 @@ After changing Flue behavior, run:
 ```bash
 pnpm test:incidents:coach-flue
 pnpm test:case-lab
+pnpm test:exports:onepager
 pnpm typecheck
 pnpm flue:build
 ```

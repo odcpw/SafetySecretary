@@ -133,6 +133,38 @@ test("flue evidence proposals keep sequence out of facts and measures out of fac
 	]);
 });
 
+test("flue evidence proposals reject multilingual measures but keep causal facts", () => {
+	const causalFact = buildFlueEvidenceOperations({
+		facts: [
+			{
+				text: "Training for clearing chips at the milling machine was missing.",
+			},
+		],
+	});
+
+	assert.equal(causalFact.ok, true);
+	assert.deepEqual(causalFact.operations, [
+		{
+			kind: AgentOperationKind.Fact,
+			payload: {
+				text: "Training for clearing chips at the milling machine was missing.",
+			},
+		},
+	]);
+
+	const measures = buildFlueEvidenceOperations({
+		facts: [
+			{ text: "Massnahme: Spänehaken bereitstellen und Nutzung instruieren." },
+			{ text: "Mesure: installer une barrière et former l'équipe." },
+			{ text: "Azione: sostituire il tubo e assegnare un responsabile." },
+		],
+	});
+
+	assert.equal(measures.ok, false);
+	assert.match(measures.errors.join("\n"), /looks like a measure/i);
+	assert.deepEqual(measures.operations, []);
+});
+
 test("flue evidence proposals keep occurredAt validation and accepted operation order", () => {
 	const result = buildFlueEvidenceOperations({
 		facts: [{ text: "The spill kit was empty." }],

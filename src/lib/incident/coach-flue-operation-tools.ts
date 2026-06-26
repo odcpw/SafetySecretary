@@ -533,9 +533,24 @@ export function validateFlueRawIncidentOperations(input: {
 }
 
 export function looksLikeActionMeasureText(text: string): boolean {
-	return /\b(action|measure|fix|repair|replace|refill|replenish|brief|train|block|barrier|cone|isolate|stop using|remove from service|escalat|owner|due|deadline|by \d{4}-\d{2}-\d{2})\b/i.test(
-		text,
+	const normalized = text.toLowerCase().normalize("NFC");
+	const actionNoun =
+		/\b(action|measure|fix|corrective|preventive|stop action|owner|due|deadline|massnahme|massnahmen|maßnahme|maßnahmen|aktion|frist|verantwortlich|zuständig|zustaendig|mesure|mesures|responsable|échéance|echeance|azione|azioni|misura|misure|scadenza|responsabile)\b/u.test(
+			normalized,
+		);
+	const deadline = /\b(?:by|bis|avant|entro)\s+\d{4}-\d{2}-\d{2}\b/u.test(
+		normalized,
 	);
+	const commitment =
+		/\b(will|shall|must|should|needs to|agreed|assigned|wird|werden|soll|muss|vereinbart|attribué|attribue|doit|devra|convenu|deve|dovrà|dovra|concordato)\b/u.test(
+			normalized,
+		);
+	const actionVerb =
+		/\b(repair|replace|refill|replenish|brief|train|block|barrier|cone|isolate|install|provide|remove from service|stop using|escalat|reparieren|ersetzen|auffüllen|auffuellen|bereitstellen|instruieren|schulen|absperren|blockieren|isolieren|entfernen|réparer|reparer|remplacer|remplir|former|instruire|bloquer|isoler|installer|fournir|ritirare|riparare|sostituire|rifornire|formare|istruire|bloccare|isolare|installare|fornire)\b/u.test(
+			normalized,
+		);
+
+	return actionNoun || deadline || (commitment && actionVerb);
 }
 
 function findNearDuplicateText(

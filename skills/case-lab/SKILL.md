@@ -18,6 +18,12 @@ pragmatic, useful, implementable measures with enough ownership and timing that
 a manager can act on them. Classification and severity are safety invariants
 inside that chain, not the purpose of the lab.
 
+Treat the cause graph and manager output as first-class outputs. A strong run
+builds a linked cause tree with roots on the deepest actionable conditions,
+keeps cause wording blame-free, links actions to terminal causes, and leaves
+enough structured timeline/cause/action data for the manager one-pager to
+explain the case without relying on chat transcript prose.
+
 1. `operator:export-case` pulls a selected production case into `.tmp/case-corpus*`.
 2. `case-lab:import` mirrors the final case into a persistent local `case-lab-source-*` tenant for inspection.
 3. `case-lab:study` builds `actual-case.json` plus a reusable `case-study.json` wrapper from the exported case.
@@ -33,6 +39,9 @@ inside that chain, not the purpose of the lab.
 - Never judge quality by operation count or transcript similarity alone.
 - In `evaluation.json`, hard-fail fatality severity mismatches. Treat failed operation application, schema/provisioning failures, tenant leaks, and unsafe data export surfaces as run-invalid operator failures even if the evaluator cannot score them.
 - Treat unlinked, vague, ownerless, or timeless measures as investigation-quality failures even when they increase action count.
+- Treat a flat cause list, root labels above deeper whys, blame-centred cause
+  labels, or a final record without timeline/cause/action structure as
+  investigation-quality failures even when classification fields are correct.
 
 ## Workflow
 

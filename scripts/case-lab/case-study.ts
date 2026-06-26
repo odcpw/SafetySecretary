@@ -131,7 +131,7 @@ export type CaseStudyEvaluation = {
 	};
 };
 
-export const CASE_STUDY_CRITERIA_VERSION = "case-study-criteria-v0.5.0";
+export const CASE_STUDY_CRITERIA_VERSION = "case-study-criteria-v0.6.0";
 
 export function buildCaseStudyFromBundle(bundle: CaseBundle): CaseStudy {
 	const sourceCase = requireCase(bundle);
@@ -481,7 +481,14 @@ export function evaluateCaseStudyRun(input: {
 			Math.max(actualCase.causes.length, 1),
 			"Final record should reflect the Actual Case causes.",
 		),
+		...causeGraphChecks(actualCase, input.finalRecord),
 		measuresCheck(actualCase, input.finalRecord, recordText, revealedActionFacts),
+		...managerOutputChecks({
+			actualCase,
+			finalRecord: input.finalRecord,
+			revealedActionFacts,
+			revealedFactsCaptured,
+		}),
 		...operationSafetyChecks(actualCase, input.finalRecord, revealedActionFacts),
 		weightedCheck(
 			"runtime",
@@ -1014,6 +1021,238 @@ function proposedPotentialSeverityCodes(transcript: readonly JsonRecord[]): read
 	return proposals;
 }
 
+type FinalCauseNode = {
+	readonly id?: string;
+	readonly parentId?: string;
+	readonly statement: string;
+	readonly isRootCause: boolean;
+	readonly branchStatus?: string;
+};
+
+type FinalAction = {
+	readonly causeNodeId?: string;
+	readonly description?: string;
+	readonly dueDate?: string;
+	readonly ownerRole?: string;
+};
+
+type CauseGraphAnalysis = {
+	readonly childrenById: ReadonlyMap<string, readonly FinalCauseNode[]>;
+	readonly cycles: number;
+	readonly maxDepth: number;
+	readonly nodesMissingId: number;
+	readonly rootNodes: readonly FinalCauseNode[];
+	readonly rootWithChildren: readonly FinalCauseNode[];
+	readonly unknownParentCount: number;
+};
+
+function causeGraphChecks(
+	actualCase: ActualCase,
+	finalRecord: {
+		readonly causeActions?: readonly JsonRecord[];
+		readonly causeNodes?: readonly JsonRecord[];
+	},
+): readonly CaseStudyCheck[] {
+	const finalNodes = normalizeFinalCauseNodes(finalRecord.causeNodes ?? []);
+	const finalActions = normalizeFinalActions(finalRecord.causeActions ?? []);
+	const graph = analyseFinalCauseGraph(finalNodes);
+	const expectedLinkCount = actualCase.causes.filter((cause) =>
+		Boolean(cause.parentId && actualCase.causes.some((parent) => parent.id === cause.parentId)),
+	).length;
+	const preservedLinkCount = countPreservedCauseLinks(actualCase.causes, finalNodes);
+	const actualGraph = analyseFinalCauseGraph(
+		actualCase.causes.map((cause) => ({
+			id: cause.id,
+			isRootCause: cause.isRootCause === true,
+			parentId: cause.parentId,
+			statement: cause.statement,
+		})),
+	);
+	const expectedRoots = actualCase.causes.filter((cause) => cause.isRootCause === true);
+	const actionLinksToNonLeaf = finalActions.filter((action) => {
+		if (!action.causeNodeId) {
+			return false;
+		}
+		return (graph.childrenById.get(action.causeNodeId) ?? []).length > 0;
+	}).length;
+	const blameStatements = finalNodes
+		.map((node) => node.statement)
+		.filter(looksBlameCentred);
+
+	return [
+		{
+			category: "cause_graph",
+			evidence:
+				expectedLinkCount === 0
+					? "Actual Case has no persisted parent/child cause links to compare."
+					: `${preservedLinkCount}/${expectedLinkCount} Actual Case parent-child cause links are preserved in the final graph.`,
+			name: "actual cause links preserved",
+			status:
+				expectedLinkCount === 0
+					? "warn"
+					: preservedLinkCount >= expectedLinkCount
+						? "pass"
+						: preservedLinkCount > 0
+							? "warn"
+							: "fail",
+			weight: 6,
+		},
+		{
+			category: "cause_graph",
+			evidence: `actualMaxDepth=${actualGraph.maxDepth}, finalMaxDepth=${graph.maxDepth}, finalNodes=${finalNodes.length}`,
+			name: "cause graph has linked depth",
+			status:
+				actualGraph.maxDepth <= 1
+					? finalNodes.length > 0
+						? "pass"
+						: "fail"
+					: graph.maxDepth >= Math.min(actualGraph.maxDepth, 2)
+						? "pass"
+						: "fail",
+			weight: 5,
+		},
+		{
+			category: "cause_graph",
+			evidence:
+				expectedRoots.length > 0
+					? `expectedRoots=${expectedRoots.length}, finalRoots=${graph.rootNodes.length}, rootsWithChildren=${graph.rootWithChildren.length}`
+					: `finalRoots=${graph.rootNodes.length}, rootsWithChildren=${graph.rootWithChildren.length}`,
+			name: "root marks deepest actionable causes",
+			status:
+				expectedRoots.length > 0
+					? graph.rootNodes.length > 0 && graph.rootWithChildren.length === 0
+						? "pass"
+						: "fail"
+					: graph.rootWithChildren.length === 0
+						? graph.rootNodes.length > 0 || finalNodes.length <= 1
+							? "pass"
+							: "warn"
+						: "fail",
+			weight: 5,
+		},
+		{
+			category: "cause_graph",
+			evidence: `${actionLinksToNonLeaf}/${finalActions.length} final actions are linked to causes that still have child causes below them.`,
+			name: "actions target terminal causes",
+			status:
+				finalActions.length === 0
+					? actualCase.measures.length === 0
+						? "pass"
+						: "warn"
+					: actionLinksToNonLeaf === 0
+						? "pass"
+						: "fail",
+			weight: 4,
+		},
+		{
+			category: "cause_graph",
+			evidence:
+				blameStatements.length > 0
+					? blameStatements.map((statement) => `"${statement}"`).join("; ")
+					: "No blame-centred cause wording detected.",
+			name: "cause language is blame-free",
+			status: blameStatements.length === 0 ? "pass" : "fail",
+			weight: 4,
+		},
+	];
+}
+
+function managerOutputChecks(input: {
+	readonly actualCase: ActualCase;
+	readonly finalRecord: {
+		readonly causeActions?: readonly JsonRecord[];
+		readonly causeNodes?: readonly JsonRecord[];
+		readonly facts?: readonly JsonRecord[];
+		readonly incident?: JsonRecord;
+		readonly timelineEvents?: readonly JsonRecord[];
+	};
+	readonly revealedActionFacts: readonly CaseStudyFact[];
+	readonly revealedFactsCaptured: readonly CaseStudyFact[];
+}): readonly CaseStudyCheck[] {
+	const incident = input.finalRecord.incident ?? {};
+	const finalNodes = normalizeFinalCauseNodes(input.finalRecord.causeNodes ?? []);
+	const finalActions = normalizeFinalActions(input.finalRecord.causeActions ?? []);
+	const timelineCount = (input.finalRecord.timelineEvents ?? []).filter((event) =>
+		Boolean(stringField(event, "text", "narrative", "title")),
+	).length;
+	const factCount = (input.finalRecord.facts ?? []).filter((factRow) =>
+		Boolean(stringField(factRow, "text")),
+	).length;
+	const hasTitle = Boolean(stringField(incident, "title"));
+	const hasWhereOrWhen = Boolean(
+		stringField(incident, "location") ??
+			stringField(incident, "incidentAt", "incident_at", "incidentTimeNote"),
+	);
+	const graph = analyseFinalCauseGraph(finalNodes);
+	const graphRenderable =
+		finalNodes.length > 0 &&
+		graph.nodesMissingId === 0 &&
+		graph.unknownParentCount === 0 &&
+		graph.cycles === 0;
+	const linkedActions = finalActions.filter((action) => Boolean(action.causeNodeId));
+	const implementableActions = finalActions.filter(isImplementableFinalAction);
+
+	return [
+		{
+			category: "output_readiness",
+			evidence: `title=${hasTitle}, whereOrWhen=${hasWhereOrWhen}, timelineEvents=${timelineCount}, facts=${factCount}, capturedFacts=${input.revealedFactsCaptured.length}`,
+			name: "manager one-pager has event story",
+			status:
+				hasTitle &&
+				hasWhereOrWhen &&
+				timelineCount > 0 &&
+				input.revealedFactsCaptured.length > 0
+					? "pass"
+					: hasTitle && (timelineCount > 0 || factCount > 0)
+						? "warn"
+						: "fail",
+			weight: 5,
+		},
+		{
+			category: "output_readiness",
+			evidence: `${finalNodes.length} cause nodes, renderable=${graphRenderable}, unknownParents=${graph.unknownParentCount}, cycles=${graph.cycles}`,
+			name: "one-pager cause tree can render",
+			status:
+				finalNodes.length === 0
+					? input.actualCase.causes.length === 0
+						? "warn"
+						: "fail"
+					: graphRenderable
+						? "pass"
+						: "fail",
+			weight: 5,
+		},
+		{
+			category: "output_readiness",
+			evidence: `${linkedActions.length}/${finalActions.length} actions linked; ${implementableActions.length}/${finalActions.length} actions have description, owner, and due date.`,
+			name: "manager actions are follow-up ready",
+			status:
+				input.revealedActionFacts.length === 0
+					? input.actualCase.measures.length === 0
+						? "pass"
+						: "warn"
+					: finalActions.length > 0 &&
+						  linkedActions.length === finalActions.length &&
+						  implementableActions.length === finalActions.length
+						? "pass"
+						: "fail",
+			weight: 5,
+		},
+		{
+			category: "output_readiness",
+			evidence: `causes=${finalNodes.length}, actions=${finalActions.length}, timelineEvents=${timelineCount}`,
+			name: "one-pager draft has all three sections",
+			status:
+				timelineCount > 0 && finalNodes.length > 0 && finalActions.length > 0
+					? "pass"
+					: timelineCount > 0 && (finalNodes.length > 0 || finalActions.length > 0)
+						? "warn"
+						: "fail",
+			weight: 4,
+		},
+	];
+}
+
 function measuresCheck(
 	actualCase: ActualCase,
 	finalRecord: { readonly causeActions?: readonly JsonRecord[] },
@@ -1109,6 +1348,182 @@ function operationSafetyChecks(
 			weight: 4,
 		},
 	];
+}
+
+function normalizeFinalCauseNodes(rows: readonly JsonRecord[]): readonly FinalCauseNode[] {
+	return rows
+		.map((row, index) => {
+			const statement =
+				stringField(row, "statement", "label", "text") ??
+				stringField(row, "question") ??
+				"";
+			return {
+				id: stringField(row, "id"),
+				isRootCause:
+					booleanField(row, "isRootCause", "is_root_cause") ||
+					stringField(row, "branchStatus", "branch_status") === "ROOT_REACHED",
+				parentId: stringField(row, "parentId", "parent_id"),
+				statement,
+				...(stringField(row, "branchStatus", "branch_status")
+					? { branchStatus: stringField(row, "branchStatus", "branch_status") }
+					: {}),
+			};
+		})
+		.filter((node) => node.statement.trim().length > 0);
+}
+
+function normalizeFinalActions(rows: readonly JsonRecord[]): readonly FinalAction[] {
+	return rows.map((row) => ({
+		causeNodeId: stringField(row, "causeNodeId", "cause_node_id", "linkedCauseNodeId"),
+		description: stringField(row, "description", "title"),
+		dueDate: stringField(row, "dueDate", "due_date"),
+		ownerRole: stringField(row, "ownerRole", "owner_role", "owner"),
+	}));
+}
+
+function analyseFinalCauseGraph(nodes: readonly FinalCauseNode[]): CauseGraphAnalysis {
+	const byId = new Map<string, FinalCauseNode>();
+	let nodesMissingId = 0;
+
+	for (const [index, node] of nodes.entries()) {
+		const id = node.id ?? `__cause_${index + 1}`;
+		if (!node.id) {
+			nodesMissingId += 1;
+		}
+		byId.set(id, { ...node, id });
+	}
+
+	const childrenById = new Map<string, FinalCauseNode[]>();
+	let unknownParentCount = 0;
+	const roots: FinalCauseNode[] = [];
+
+	for (const node of byId.values()) {
+		const parentId = node.parentId;
+		if (parentId && parentId !== node.id && byId.has(parentId)) {
+			const siblings = childrenById.get(parentId) ?? [];
+			siblings.push(node);
+			childrenById.set(parentId, siblings);
+		} else {
+			if (parentId && parentId !== node.id) {
+				unknownParentCount += 1;
+			}
+			roots.push(node);
+		}
+	}
+
+	let cycles = 0;
+	let maxDepth = 0;
+	const visited = new Set<string>();
+	const active = new Set<string>();
+
+	const walk = (node: FinalCauseNode, depth: number): void => {
+		const id = node.id;
+		if (!id) {
+			return;
+		}
+		if (active.has(id)) {
+			cycles += 1;
+			return;
+		}
+		if (visited.has(id)) {
+			return;
+		}
+
+		active.add(id);
+		visited.add(id);
+		maxDepth = Math.max(maxDepth, depth);
+
+		for (const child of childrenById.get(id) ?? []) {
+			walk(child, depth + 1);
+		}
+
+		active.delete(id);
+	};
+
+	for (const root of roots) {
+		walk(root, 1);
+	}
+
+	for (const node of byId.values()) {
+		if (node.id && !visited.has(node.id)) {
+			walk(node, 1);
+		}
+	}
+
+	const rootNodes = [...byId.values()].filter((node) => node.isRootCause);
+	const rootWithChildren = rootNodes.filter((node) =>
+		Boolean(node.id && (childrenById.get(node.id) ?? []).length > 0),
+	);
+
+	return {
+		childrenById,
+		cycles,
+		maxDepth,
+		nodesMissingId,
+		rootNodes,
+		rootWithChildren,
+		unknownParentCount,
+	};
+}
+
+function countPreservedCauseLinks(
+	actualCauses: readonly ActualCaseCause[],
+	finalNodes: readonly FinalCauseNode[],
+): number {
+	let preserved = 0;
+
+	for (const actualCause of actualCauses) {
+		if (!actualCause.parentId) {
+			continue;
+		}
+		const actualParent = actualCauses.find((candidate) => candidate.id === actualCause.parentId);
+		if (!actualParent) {
+			continue;
+		}
+		const finalChild = findFinalCauseByStatement(finalNodes, actualCause.statement);
+		const finalParent = findFinalCauseByStatement(finalNodes, actualParent.statement);
+
+		if (
+			finalChild?.parentId &&
+			finalParent?.id &&
+			finalChild.parentId === finalParent.id
+		) {
+			preserved += 1;
+		}
+	}
+
+	return preserved;
+}
+
+function findFinalCauseByStatement(
+	finalNodes: readonly FinalCauseNode[],
+	statement: string,
+): FinalCauseNode | undefined {
+	return finalNodes.find((node) => containsCaseText(normalize(node.statement), statement));
+}
+
+function looksBlameCentred(value: string): boolean {
+	return /\b(careless|negligent|operator error|human error|not paying attention|should have been more careful|schuld|selber schuld|fahrlässig|fahrlaessig|nachlässig|nachlaessig|unaufmerksam)\b/i.test(
+		value,
+	);
+}
+
+function isImplementableFinalAction(action: FinalAction): boolean {
+	return Boolean(
+		action.description &&
+			action.description.length >= 12 &&
+			action.ownerRole &&
+			action.dueDate,
+	);
+}
+
+function booleanField(record: JsonRecord, ...keys: readonly string[]): boolean {
+	for (const key of keys) {
+		if (typeof record[key] === "boolean") {
+			return record[key] === true;
+		}
+	}
+	return false;
 }
 
 function ratioCheck(
@@ -1209,7 +1624,7 @@ function countThemes(recordText: string, themes: readonly string[]): number {
 
 function meaningfulTokens(value: string): string[] {
 	return normalize(value)
-		.split(/[^a-z0-9äöüßéèàç]+/i)
+		.split(/[^\p{L}\p{N}]+/u)
 		.map((token) => token.trim())
 		.filter((token) => token.length >= 4)
 		.filter(

@@ -106,7 +106,7 @@ test("manager one-pager PPTX opens and contains title, summaries, and three less
 	const slideNames = Object.keys(zip.files).filter((name) =>
 		/^ppt\/slides\/slide\d+\.xml$/.test(name),
 	);
-	assert.equal(slideNames.length, 1, "expected exactly one slide");
+	assert.equal(slideNames.length, 2, "expected summary slide plus cause-tree slide");
 
 	const slideText = await pptxSlideText(zip);
 
@@ -122,10 +122,11 @@ test("manager one-pager PPTX opens and contains title, summaries, and three less
 	assert.match(slideText, /As a team member/i);
 	assert.match(slideText, /As a frontline manager/i);
 	assert.match(slideText, /As executive management/i);
+	assert.match(slideText, /Cause tree/i);
 
-	// One embedded photo.
+	// One selected photo plus one rendered cause-tree image.
 	const media = pptxMedia(zip);
-	assert.equal(media.length, 1);
+	assert.equal(media.length, 2);
 
 	// Disclaimer footer lands in the slide master/layout.
 	const masterText = await pptxMasterText(zip);
@@ -174,8 +175,8 @@ test("manager one-pager PPTX adapts to two and three selected photos", async () 
 		const zip = await JSZip.loadAsync(pptx);
 		assert.equal(
 			pptxMedia(zip).length,
-			count,
-			`expected ${count} embedded photos`,
+			count + 1,
+			`expected ${count} embedded photos plus one cause-tree image`,
 		);
 		const slideText = await pptxSlideText(zip);
 		assert.match(slideText, new RegExp(`Layout test with ${count} photos`));
@@ -196,10 +197,11 @@ test("manager one-pager PPTX renders without photos", async () => {
 	);
 
 	const zip = await JSZip.loadAsync(pptx);
-	assert.equal(pptxMedia(zip).length, 0);
+	assert.equal(pptxMedia(zip).length, 1);
 	const slideText = await pptxSlideText(zip);
 	assert.match(slideText, /No photo incident/);
 	assert.match(slideText, /As executive management/i);
+	assert.match(slideText, /Cause tree/i);
 });
 
 async function pptxSlideText(zip: JSZip): Promise<string> {

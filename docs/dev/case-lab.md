@@ -135,6 +135,10 @@ Current case-study categories:
 - `measures`: Actual Case measures appear when the study reaches measures.
 - `case_chain`: facts lead to captured causes, and causes lead to linked,
   implementable measures.
+- `cause_graph`: parent/child cause links, graph depth, root-cause placement,
+  terminal action targets, and blame-free cause wording.
+- `output_readiness`: the final structured record contains the timeline,
+  cause tree, and follow-up-ready actions needed by the manager one-pager.
 - `operation_safety`: the coach does not fabricate actions, hide measures in
   fact rows, or invent owners/due dates.
 - `agent_reasoning`: fatal-potential severity was proposed correctly by the
@@ -176,14 +180,19 @@ For comparison:
   abort before the weighted evaluator can score.
 - Hard-fail fatal-potential severity mismatches in `evaluation.json`.
 - Score investigation quality with the rubric: facts, timeline, severity,
-  causal logic, fact-to-cause-to-measure chain, next question, operation safety,
-  coach reasoning before guards, and method-switch behavior.
+  causal logic, cause-tree structure, fact-to-cause-to-measure chain,
+  one-pager output readiness, next question, operation safety, coach reasoning
+  before guards, and method-switch behavior.
 - Compare artifact directories, not chat transcripts alone. `report.json`
   contains the normalized turns, assistant messages, operations, applied
   records, final case state, progress events, and Flue SQLite trace.
 - Keep action counts as diagnostics only. More operations are not better unless
   they improve the case record. A vague, unlinked, ownerless, or timeless action
   is weak even when it increases the count.
+- Treat the manager one-pager as a consumer of the final structured record, not
+  as a separate transcript summary. If the replay leaves the story only in
+  chat, flattens the cause graph, or omits linked owner/date actions, it is not
+  output-ready even if the conversation sounded good.
 
 Codex CLI/OAuth can be added as a separate evaluator or simulator lane by
 running `codex exec` over the Case Lab artifacts. Keep that outside the

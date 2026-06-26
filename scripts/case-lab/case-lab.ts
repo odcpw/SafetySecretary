@@ -1269,7 +1269,7 @@ function errorMessage(error: unknown): string {
 }
 
 function printHelp(): void {
-	console.log(`SafetySecretary Case Lab
+	console.log(`Case Lab
 
 Usage:
   pnpm case-lab:import -- --case-folder .tmp/case-corpus-full/<case>

@@ -1,12 +1,14 @@
 import {
 	LIKELIHOOD_CODES,
 	RISK_BAND_CODES,
-	SEVERITY_CODES,
 	type LikelihoodCode,
 	type RiskBandCode,
 	type SeverityCode,
 } from "../taxonomy/schema";
 import { lookupRiskBand } from "../methodology/risk-matrix";
+import { parsePotentialSeverity as parseSharedPotentialSeverity } from "./potential-severity";
+
+export { normalizePotentialSeverityForEvidence } from "./potential-severity";
 
 export type IncidentType = "NEAR_MISS" | "ACCIDENT" | "PROPERTY_DAMAGE";
 
@@ -40,7 +42,6 @@ const incidentTypeSet = new Set<string>(INCIDENT_TYPE_CODES);
 const actualInjuryOutcomeSet = new Set<string>(
 	INCIDENT_ACTUAL_INJURY_OUTCOME_CODES,
 );
-const severitySet = new Set<string>(SEVERITY_CODES);
 const likelihoodSet = new Set<string>(LIKELIHOOD_CODES);
 const riskBandSet = new Set<string>(RISK_BAND_CODES);
 
@@ -100,78 +101,11 @@ export function normalizeIncidentClassification(row: {
 }
 
 export function parseSeverity(value: unknown): SeverityCode | null {
-	const text = stringValue(value);
-	return severitySet.has(text) ? (text as SeverityCode) : null;
+	return parseSharedPotentialSeverity(value) as SeverityCode | null;
 }
 
 export function parsePotentialSeverity(value: unknown): SeverityCode | null {
 	return parseSeverity(value);
-}
-
-const severityRank: Record<SeverityCode, number> = {
-	A: 0,
-	B: 1,
-	C: 2,
-	D: 3,
-	E: 4,
-};
-
-export function normalizePotentialSeverityForEvidence(
-	proposed: SeverityCode,
-	evidence: string,
-): SeverityCode {
-	const text = normalizeSeverityEvidence(evidence);
-	if (hasCredibleFatalToxicExposure(text) || hasFatalPath(text)) {
-		return "A";
-	}
-	if (hasIrreversibleInjuryPath(text) && isLessSevereThan(proposed, "B")) {
-		return "B";
-	}
-	if (hasLostTimeOrHospitalPath(text) && isLessSevereThan(proposed, "C")) {
-		return "C";
-	}
-	return proposed;
-}
-
-function isLessSevereThan(
-	proposed: SeverityCode,
-	minimum: SeverityCode,
-): boolean {
-	return severityRank[proposed] > severityRank[minimum];
-}
-
-function hasFatalPath(text: string): boolean {
-	return /\b(fatal|fatality|death|dead|die|died|killed|kill|lethal|tod|tödlich|toedlich|todlich)\b/.test(
-		text,
-	);
-}
-
-function hasCredibleFatalToxicExposure(text: string): boolean {
-	const hasToxicAgent =
-		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausäure|blausaure|blausaeure)\b/.test(
-			text,
-		) || /\b(toxic|toxisch|poison|poisoning|vergiftung|gas)\b/.test(text);
-	const hasExposurePath =
-		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzögert|verzoegert|verzogert|alarmierung)\b/.test(
-			text,
-		);
-	return hasToxicAgent && hasExposurePath;
-}
-
-function hasIrreversibleInjuryPath(text: string): boolean {
-	return /\b(amput|teilamput|irreversible|permanent|lasting|dauerhaft|bleibend|disab|invalid|verkürzt|verkurzt|verkuerzt|funktionsbeeinträchtigung|funktionsbeeintraechtigung|funktionsbeeintrachtigung|tendon|nerve|sehne|nerv)\b/.test(
-		text,
-	);
-}
-
-function hasLostTimeOrHospitalPath(text: string): boolean {
-	return /\b(hospital|hospitalisation|hospitalization|admitted|admission|clinic|chirurgie|luks|spital|krankenhaus|arbeitsausfall|lost time|missed work|off work|days off|ausfall|stationär|stationaer|stationar)\b/.test(
-		text,
-	);
-}
-
-function normalizeSeverityEvidence(value: string): string {
-	return value.toLowerCase().normalize("NFC");
 }
 
 export function deriveActualSeverityFromOutcome(

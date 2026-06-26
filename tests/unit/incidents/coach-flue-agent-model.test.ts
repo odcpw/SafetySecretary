@@ -101,6 +101,6 @@ test("flue incident agent contract stays agent-first, not prompt-only", async ()
 	assert.match(caseLabDoc, /Flue agent\s+instructions/);
 	assert.match(
 		caseLabDoc,
-		/not whether a transcript resembles\s+an old conversation/,
+		/not whether a transcript\s+resembles\s+an old conversation/,
 	);
 });

@@ -17,6 +17,12 @@ things separate:
 This is intentionally command-line and artifact-first. A UI or optimization
 loop can sit on top later.
 
+The primary quality question is whether the coach helps turn surfaced facts
+into causal conditions, then into pragmatic measures a manager can implement
+and follow up. Severity and classification matter, especially for dangerous
+misclassification, but they are supporting invariants inside that investigation
+chain rather than the center of the lab.
+
 ## Subsystem Layout
 
 - `scripts/operator/export-incident-case-corpus.mjs`: read-only selected-case
@@ -127,8 +133,12 @@ Current case-study categories:
 - `questioning`: important facts were surfaced by relevant coach questions.
 - `investigation_logic`: Actual Case causes appear in the record.
 - `measures`: Actual Case measures appear when the study reaches measures.
-- `operation_safety`: the coach does not fabricate actions when the study has
-  none.
+- `case_chain`: facts lead to captured causes, and causes lead to linked,
+  implementable measures.
+- `operation_safety`: the coach does not fabricate actions, hide measures in
+  fact rows, or invent owners/due dates.
+- `agent_reasoning`: fatal-potential severity was proposed correctly by the
+  coach itself, not only rescued by backend guards.
 - `runtime`: the study run completed and produced a usable artifact.
 
 For high-potential chemical exposures, the important severity criterion is
@@ -136,7 +146,9 @@ consistency: if the potential outcome text says fatal, death, killed, or
 lethal, severity must be `A`. Serious, toxic, poisoning, irreversible, or
 respiratory harm without fatal wording must still be defensible as `A` or `B`.
 Fatality severity mismatch is a hard failure and cannot be averaged away by
-other passing checks. Avoid treating "not equal to production" as a pass.
+other passing checks. Non-fatal severity drift is a weighted classification
+failure, not automatically a critical hard failure. Avoid treating "not equal
+to production" as a pass.
 
 Do not compare unrelated cases with one Actual Case rubric. A Fräsmaschine finger
 amputation case is scored against mechanical/amputation expectations. An HCN
@@ -159,15 +171,19 @@ resembles an old conversation or whether a single prompt sounds plausible.
 
 For comparison:
 
-- Hard-fail broken schema, failed operation application, tenant leaks, or
-  dangerous classification contradictions.
+- Treat broken schema, failed operation application, tenant leaks, or unsafe
+  export surfaces as invalid runs. These are operator/runtime defects that may
+  abort before the weighted evaluator can score.
+- Hard-fail fatal-potential severity mismatches in `evaluation.json`.
 - Score investigation quality with the rubric: facts, timeline, severity,
-  causal logic, next question, operation safety, and method-switch behavior.
+  causal logic, fact-to-cause-to-measure chain, next question, operation safety,
+  coach reasoning before guards, and method-switch behavior.
 - Compare artifact directories, not chat transcripts alone. `report.json`
   contains the normalized turns, assistant messages, operations, applied
   records, final case state, progress events, and Flue SQLite trace.
 - Keep action counts as diagnostics only. More operations are not better unless
-  they improve the case record.
+  they improve the case record. A vague, unlinked, ownerless, or timeless action
+  is weak even when it increases the count.
 
 Codex CLI/OAuth can be added as a separate evaluator or simulator lane by
 running `codex exec` over the Case Lab artifacts. Keep that outside the

@@ -218,7 +218,7 @@ async function runStudyReplay(args: ParsedArgs): Promise<void> {
 	requireAdminDatabaseUrl("case-lab replay provisions and drops a simulation tenant schema");
 	const studyPath = requiredPath(args.study, "--study");
 	const study = readJson<CaseStudy>(studyPath);
-	const maxTurns = Number(optionalString(args.maxTurns, "--max-turns") ?? "12");
+	const maxTurns = Number(optionalString(args.maxTurns, "--max-turns") ?? "18");
 	if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 50) {
 		throw new Error("--max-turns must be an integer from 1 to 50.");
 	}
@@ -322,7 +322,10 @@ async function runStudyReplay(args: ParsedArgs): Promise<void> {
 			});
 			assistantText = result.assistantMessage.content;
 			state = {
-				lastNoMatch: simulated.reason === "no-matching-case-fact",
+				noMatchCount:
+					simulated.reason === "no-matching-case-fact"
+						? (state.noMatchCount ?? 0) + 1
+						: 0,
 				revealedFactIds: [...state.revealedFactIds, ...simulated.revealedFactIds],
 			};
 		}
@@ -1285,7 +1288,7 @@ Commands:
 Key options:
   --case-folder <path>   Folder produced by operator:export-case.
   --study <path>         case-study.json produced by case-lab study.
-  --max-turns <n>        Maximum adaptive user turns. Default is 12.
+  --max-turns <n>        Maximum adaptive user turns. Default is 18.
   --out-dir <path>       Output root.
   --model <name>         Flue model override.
   --port <n>             Flue server port override.

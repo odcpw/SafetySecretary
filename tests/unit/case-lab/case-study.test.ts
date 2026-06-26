@@ -21,6 +21,7 @@ describe("case study replay model", () => {
 			study.actualCase.facts.some((fact) => fact.text.includes("Rettungsdienst")),
 			true,
 		);
+		assert.equal(study.actualCase.facts[0]?.id, "user-opening");
 		assert.match(study.actualCase.id, /spänen/);
 		assert.match(study.actualCase.id, /fräser/);
 		assert.equal("expected" in study, false);
@@ -110,6 +111,31 @@ describe("case study replay model", () => {
 		assert.match(study.actualCase.id, /blausäure/);
 	});
 
+	test("uses a cold fallback opening without leaking the potential outcome", () => {
+		const study = buildCaseStudyFromBundle({
+			case: {
+				content_language: "en",
+				hazard_category_code: "HAZARDOUS_SUBSTANCES",
+				incident_type: "NEAR_MISS",
+				location: "Plating line",
+				potential_outcome_text: "Potential fatal toxic HCN exposure.",
+				potential_severity_code: "E",
+				title: "HCN alarm",
+				work_activity: "Tank inspection",
+			},
+			coachMessages: [],
+		});
+		const opening = nextCaseStudyUserTurn({
+			state: { revealedFactIds: [] },
+			study,
+		});
+
+		assert.equal(opening.reason, "opening");
+		assert.match(opening.message, /HCN alarm/);
+		assert.doesNotMatch(opening.message, /fatal|toxic|exposure/i);
+		assert.doesNotMatch(study.actualCase.narrative.opening, /Potential fatal toxic HCN exposure/);
+	});
+
 	test("adaptive user reveals matching facts only when the coach asks into that topic", () => {
 		const study = buildCaseStudyFromBundle(mechanicalBundle());
 		const opening = nextCaseStudyUserTurn({
@@ -123,8 +149,99 @@ describe("case study replay model", () => {
 		});
 
 		assert.equal(opening.reason, "opening");
+		assert.deepEqual(opening.revealedFactIds, ["user-opening"]);
 		assert.equal(injury.reason, "answered-question");
 		assert.match(injury.message, /Finger|Rettungsdienst|Chirurgie/);
+	});
+
+	test("adaptive user can reveal Actual Case causes and measures when the coach investigates them", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const cause = nextCaseStudyUserTurn({
+			assistantText: "Warum konnte der Metallmassstab in den Fräser geraten?",
+			state: { revealedFactIds: ["user-opening"] },
+			study,
+		});
+		const measure = nextCaseStudyUserTurn({
+			assistantText: "Welche Massnahme wurde tatsächlich vereinbart?",
+			state: { revealedFactIds: ["user-opening"] },
+			study,
+		});
+
+		assert.equal(cause.reason, "answered-question");
+		assert.deepEqual(cause.revealedFactIds, ["cause-1"]);
+		assert.match(cause.message, /Einzugsgefahr/);
+		assert.equal(measure.reason, "answered-question");
+		assert.deepEqual(measure.revealedFactIds, ["action-1"]);
+		assert.match(measure.message, /Spänehaken/);
+	});
+
+	test("adaptive user handles French and Italian investigation questions", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const cause = nextCaseStudyUserTurn({
+			assistantText: "Pourquoi cette situation a-t-elle pu arriver ?",
+			state: { revealedFactIds: ["user-opening"] },
+			study,
+		});
+		const measure = nextCaseStudyUserTurn({
+			assistantText: "Quale misura è stata concordata?",
+			state: { revealedFactIds: ["user-opening"] },
+			study,
+		});
+
+		assert.equal(cause.reason, "answered-question");
+		assert.deepEqual(cause.revealedFactIds, ["cause-1"]);
+		assert.equal(measure.reason, "answered-question");
+		assert.deepEqual(measure.revealedFactIds, ["action-1"]);
+	});
+
+	test("measure matching is not triggered by incidental names or by-phrasing", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const response = nextCaseStudyUserTurn({
+			assistantText: "Was Hans standing by the machine?",
+			state: { revealedFactIds: ["user-opening", "user-1", "cause-1"] },
+			study,
+		});
+
+		assert.notDeepEqual(response.revealedFactIds, ["action-1"]);
+	});
+
+	test("adaptive user tolerates three no-match turns before completing", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const state = {
+			revealedFactIds: [
+				...study.actualCase.facts
+					.filter((fact) => fact.id !== "user-1")
+					.map((fact) => fact.id),
+				"cause-1",
+				"action-1",
+			],
+		};
+		const first = nextCaseStudyUserTurn({
+			assistantText: "Wann genau war das?",
+			state,
+			study,
+		});
+		const second = nextCaseStudyUserTurn({
+			assistantText: "Wann genau war das?",
+			state: { ...state, noMatchCount: 1 },
+			study,
+		});
+		const third = nextCaseStudyUserTurn({
+			assistantText: "Wann genau war das?",
+			state: { ...state, noMatchCount: 2 },
+			study,
+		});
+		const fourth = nextCaseStudyUserTurn({
+			assistantText: "Wann genau war das?",
+			state: { ...state, noMatchCount: 3 },
+			study,
+		});
+
+		assert.equal(first.reason, "no-matching-case-fact");
+		assert.equal(second.reason, "no-matching-case-fact");
+		assert.equal(third.reason, "no-matching-case-fact");
+		assert.equal(fourth.reason, "complete");
+		assert.equal(fourth.done, true);
 	});
 
 	test("case-study evaluator grades against the Actual Case classification", () => {
@@ -139,6 +256,10 @@ describe("case study replay model", () => {
 					},
 				],
 				facts: [
+					{
+						text:
+							"Der Unfall ereignete sich an einer konventionellen Fräsmaschine und der Metallmassstab wurde eingezogen.",
+					},
 					{ text: "Der Finger wurde teilweise verkürzt." },
 					{ text: "Der Rettungsdienst behandelte vor Ort." },
 				],
@@ -154,7 +275,7 @@ describe("case study replay model", () => {
 				timelineEvents: [],
 			},
 			simulationTurns: [
-				{ reason: "opening", revealedFactIds: [] },
+				{ reason: "opening", revealedFactIds: ["user-opening"] },
 				{ reason: "answered-question", revealedFactIds: ["user-1"] },
 			],
 			study,
@@ -167,6 +288,267 @@ describe("case study replay model", () => {
 			evaluation.checks.find((check) => check.name === "hazardCategoryCode")?.status,
 			"pass",
 		);
+	});
+
+	test("case-chain evaluation rewards pragmatic linked measures", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [
+					{
+						causeNodeId: "cause-final-1",
+						description:
+							"Spänehaken an der Maschine bereitstellen und Nutzung instruieren.",
+						dueDate: "2026-07-01",
+						ownerRole: "Werkstattleiter",
+					},
+				],
+				causeNodes: [
+					{
+						id: "cause-final-1",
+						statement:
+							"Der Metallmassstab war unmittelbar verfügbar und die Einzugsgefahr war nicht bewusst.",
+					},
+				],
+				facts: [
+					{
+						text:
+							"Der Unfall ereignete sich an einer konventionellen Fräsmaschine und der Metallmassstab wurde eingezogen.",
+					},
+					{ text: "Der Finger wurde teilweise verkürzt." },
+				],
+				incident: {
+					actualInjuryOutcome: "IRREVERSIBLE_INJURY",
+					eventType: "CUT_PUNCTURE",
+					hazardCategoryCode: "MECHANICAL",
+					incidentType: "ACCIDENT",
+					potentialSeverityCode: "B",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [
+				{ reason: "opening", revealedFactIds: ["user-opening"] },
+				{ reason: "answered-question", revealedFactIds: ["user-1"] },
+				{ reason: "answered-question", revealedFactIds: ["action-1"] },
+			],
+			study,
+			transcript: [{ assistant: { content: "Welche Massnahme wurde vereinbart?", operations: [] } }],
+		});
+		const chainChecks = evaluation.checks.filter((check) => check.category === "case_chain");
+
+		assert.deepEqual(
+			chainChecks.map((check) => [check.name, check.status]),
+			[
+				["facts lead to causes", "pass"],
+				["causes lead to linked measures", "pass"],
+				["measures are implementable", "pass"],
+			],
+		);
+	});
+
+	test("case-chain evaluation rejects vague or unlinked measures", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [{ description: "Besprechen." }],
+				causeNodes: [
+					{
+						id: "cause-final-1",
+						statement:
+							"Der Metallmassstab war unmittelbar verfügbar und die Einzugsgefahr war nicht bewusst.",
+					},
+				],
+				facts: [
+					{
+						text:
+							"Der Unfall ereignete sich an einer konventionellen Fräsmaschine und der Metallmassstab wurde eingezogen.",
+					},
+				],
+				incident: {
+					actualInjuryOutcome: "IRREVERSIBLE_INJURY",
+					eventType: "CUT_PUNCTURE",
+					hazardCategoryCode: "MECHANICAL",
+					incidentType: "ACCIDENT",
+					potentialSeverityCode: "B",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [
+				{ reason: "opening", revealedFactIds: ["user-opening"] },
+				{ reason: "answered-question", revealedFactIds: ["user-1"] },
+				{ reason: "answered-question", revealedFactIds: ["action-1"] },
+			],
+			study,
+			transcript: [{ assistant: { content: "Welche Massnahme wurde vereinbart?", operations: [] } }],
+		});
+		const linked = evaluation.checks.find(
+			(check) => check.name === "causes lead to linked measures",
+		);
+		const implementable = evaluation.checks.find(
+			(check) => check.name === "measures are implementable",
+		);
+
+		assert.equal(linked?.status, "fail");
+		assert.equal(implementable?.status, "fail");
+	});
+
+	test("operation safety rejects measures stored as facts and fabricated metadata", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [
+					{
+						causeNodeId: "cause-final-1",
+						description:
+							"Spänehaken an der Maschine bereitstellen und Nutzung instruieren.",
+						dueDate: "2026-08-15",
+						ownerRole: "Unbekannt",
+					},
+				],
+				causeNodes: [
+					{
+						id: "cause-final-1",
+						statement:
+							"Der Metallmassstab war unmittelbar verfügbar und die Einzugsgefahr war nicht bewusst.",
+					},
+				],
+				facts: [
+					{
+						text:
+							"Spänehaken an der Maschine bereitstellen und Nutzung instruieren.",
+					},
+				],
+				incident: {
+					actualInjuryOutcome: "IRREVERSIBLE_INJURY",
+					eventType: "CUT_PUNCTURE",
+					hazardCategoryCode: "MECHANICAL",
+					incidentType: "ACCIDENT",
+					potentialSeverityCode: "B",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [
+				{ reason: "opening", revealedFactIds: ["user-opening"] },
+				{ reason: "answered-question", revealedFactIds: ["user-1"] },
+				{ reason: "answered-question", revealedFactIds: ["action-1"] },
+			],
+			study,
+			transcript: [{ assistant: { content: "Welche Massnahme wurde vereinbart?", operations: [] } }],
+		});
+		const facts = evaluation.checks.find((check) => check.name === "measures kept out of facts");
+		const metadata = evaluation.checks.find(
+			(check) => check.name === "no fabricated owner or due date",
+		);
+
+		assert.equal(facts?.status, "fail");
+		assert.equal(metadata?.status, "fail");
+	});
+
+	test("non-fatal severity mismatches are weighted failures, not critical hard failures", () => {
+		const study = buildCaseStudyFromBundle(mechanicalBundle());
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [],
+				causeNodes: [],
+				facts: [],
+				incident: {
+					actualInjuryOutcome: "IRREVERSIBLE_INJURY",
+					eventType: "CUT_PUNCTURE",
+					hazardCategoryCode: "MECHANICAL",
+					incidentType: "ACCIDENT",
+					potentialSeverityCode: "C",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [{ reason: "opening", revealedFactIds: ["user-opening"] }],
+			study,
+			transcript: [{ assistant: { content: "Welche Verletzung ist passiert?", operations: [] } }],
+		});
+		const severityCheck = evaluation.checks.find(
+			(check) => check.name === "potential severity",
+		);
+
+		assert.equal(severityCheck?.status, "fail");
+		assert.equal(severityCheck?.hardFailure, false);
+		assert.equal(evaluation.summary.hardFailures.length, 0);
+		assert.notEqual(evaluation.summary.grade, "failing-critical");
+	});
+
+	test("fatal severity mismatches remain hard failures", () => {
+		const study = hcnStudy();
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [],
+				causeNodes: [],
+				facts: [],
+				incident: {
+					hazardCategoryCode: "HAZARDOUS_SUBSTANCES",
+					incidentType: "NEAR_MISS",
+					potentialSeverityCode: "D",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [{ reason: "opening", revealedFactIds: ["user-opening"] }],
+			study,
+			transcript: [
+				{
+					assistant: {
+						content: "I will record that as medical treatment potential.",
+						operations: [
+							{
+								kind: "incident_field_update",
+								payload: { field: "potentialSeverityCode", value: "D" },
+							},
+						],
+					},
+				},
+			],
+		});
+
+		assert.equal(evaluation.summary.grade, "failing-critical");
+		assert.equal(
+			evaluation.summary.hardFailures.some((failure) => failure.name === "potential severity"),
+			true,
+		);
+	});
+
+	test("fatal severity guard rescues are visible as coach reasoning failures", () => {
+		const study = hcnStudy();
+		const evaluation = evaluateCaseStudyRun({
+			finalRecord: {
+				causeActions: [],
+				causeNodes: [],
+				facts: [],
+				incident: {
+					hazardCategoryCode: "HAZARDOUS_SUBSTANCES",
+					incidentType: "NEAR_MISS",
+					potentialSeverityCode: "A",
+				},
+				timelineEvents: [],
+			},
+			simulationTurns: [{ reason: "opening", revealedFactIds: ["user-opening"] }],
+			study,
+			transcript: [
+				{
+					assistant: {
+						content: "I will record that as medical treatment potential.",
+						operations: [
+							{
+								kind: "incident_field_update",
+								payload: { field: "potentialSeverityCode", value: "D" },
+							},
+						],
+					},
+				},
+			],
+		});
+		const reasoning = evaluation.checks.find(
+			(check) => check.name === "fatal severity proposed by coach",
+		);
+
+		assert.equal(evaluation.summary.hardFailures.length, 0);
+		assert.equal(reasoning?.status, "fail");
+		assert.match(reasoning?.evidence ?? "", /"D"/);
 	});
 });
 
@@ -197,6 +579,7 @@ function mechanicalBundle() {
 			{
 				cause_node_id: "cause-1",
 				description: "Spänehaken an der Maschine bereitstellen und Nutzung instruieren.",
+				due_date: "2026-07-01",
 				id: "measure-1",
 				owner_role: "Werkstattleiter",
 			},
@@ -215,4 +598,19 @@ function mechanicalBundle() {
 			},
 		],
 	};
+}
+
+function hcnStudy() {
+	return buildCaseStudyFromBundle({
+		case: {
+			content_language: "en",
+			hazard_category_code: "HAZARDOUS_SUBSTANCES",
+			incident_type: "NEAR_MISS",
+			potential_outcome_text:
+				"HCN alarm readings in ppm with delayed evacuation and possible continued exposure.",
+			potential_severity_code: "E",
+			title: "HCN alarm",
+		},
+		coachMessages: [],
+	});
 }

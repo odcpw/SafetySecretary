@@ -12,6 +12,12 @@ agent instructions, the incident-investigation skill, typed tools, record
 digests, validation feedback, and backend safety rails. Do not reduce variant
 work to prompt wording alone.
 
+The primary quality question is not the numeric score. It is whether the coach
+uses surfaced facts to identify causal conditions, then turns those causes into
+pragmatic, useful, implementable measures with enough ownership and timing that
+a manager can act on them. Classification and severity are safety invariants
+inside that chain, not the purpose of the lab.
+
 1. `operator:export-case` pulls a selected production case into `.tmp/case-corpus*`.
 2. `case-lab:import` mirrors the final case into a persistent local `case-lab-source-*` tenant for inspection.
 3. `case-lab:study` builds `actual-case.json` plus a reusable `case-study.json` wrapper from the exported case.
@@ -25,7 +31,8 @@ work to prompt wording alone.
 - Treat production records as baseline evidence, not ground truth.
 - Never compare different cases with one case's rubric.
 - Never judge quality by operation count or transcript similarity alone.
-- Hard-fail fatality severity mismatches, failed operation application, schema/provisioning failures, tenant leaks, and unsafe data export surfaces.
+- In `evaluation.json`, hard-fail fatality severity mismatches. Treat failed operation application, schema/provisioning failures, tenant leaks, and unsafe data export surfaces as run-invalid operator failures even if the evaluator cannot score them.
+- Treat unlinked, vague, ownerless, or timeless measures as investigation-quality failures even when they increase action count.
 
 ## Workflow
 
@@ -77,7 +84,7 @@ Read [references/criteria.md](references/criteria.md) before modifying scoring o
 
 Current case-study criteria live in `scripts/case-lab/case-study.ts`; focused tests live in `tests/unit/case-lab/case-study.test.ts`. When changing criteria:
 
-- update `CASE_LAB_CRITERIA_VERSION`;
+- update `CASE_STUDY_CRITERIA_VERSION`;
 - add or update focused tests;
 - re-score saved reports with `case-lab:evaluate`;
 - update `docs/dev/case-lab.md` if operator behavior changes.

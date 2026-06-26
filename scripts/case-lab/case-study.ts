@@ -1,3 +1,10 @@
+const {
+	normalizePotentialSeverityForEvidence,
+	parsePotentialSeverity,
+} = (await import(
+	new URL("../../src/lib/incident/potential-severity.ts", import.meta.url).href
+)) as typeof import("../../src/lib/incident/potential-severity");
+
 export type JsonRecord = Record<string, unknown>;
 
 export type CaseBundle = {
@@ -90,7 +97,7 @@ export type CaseStudy = {
 };
 
 export type CaseStudyState = {
-	readonly lastNoMatch?: boolean;
+	readonly noMatchCount?: number;
 	readonly revealedFactIds: readonly string[];
 };
 
@@ -124,7 +131,7 @@ export type CaseStudyEvaluation = {
 	};
 };
 
-export const CASE_STUDY_CRITERIA_VERSION = "case-study-criteria-v0.4.0";
+export const CASE_STUDY_CRITERIA_VERSION = "case-study-criteria-v0.5.0";
 
 export function buildCaseStudyFromBundle(bundle: CaseBundle): CaseStudy {
 	const sourceCase = requireCase(bundle);
@@ -143,6 +150,13 @@ export function buildCaseStudyFromBundle(bundle: CaseBundle): CaseStudy {
 		title,
 	};
 	const actualFacts = dedupeFacts([
+		fact("user-opening", openingMessage, "user", true, [
+			{
+				index: userMessages.length > 0 ? 0 : undefined,
+				kind: userMessages.length > 0 ? "coach-message" : "case-field",
+				label: "opening narrative",
+			},
+		]),
 		...caseFieldFacts(sourceCase),
 		...userMessages.slice(1).map((text, index) =>
 			fact(`user-${index + 1}`, text, "user", true, [
@@ -279,11 +293,14 @@ export function nextCaseStudyUserTurn(input: {
 	const simulationFacts = simulationFactsForActualCase(input.study.actualCase);
 	const revealed = new Set(input.state.revealedFactIds);
 	if (revealed.size === 0 && !input.assistantText) {
+		const openingFact = simulationFacts.find(
+			(item) => item.text === input.study.actualCase.narrative.opening,
+		);
 		return {
 			matchedTopics: ["opening"],
 			message: input.study.actualCase.narrative.opening,
 			reason: "opening",
-			revealedFactIds: [],
+			revealedFactIds: openingFact ? [openingFact.id] : [],
 		};
 	}
 
@@ -330,7 +347,7 @@ export function nextCaseStudyUserTurn(input: {
 		return optionalTurn;
 	}
 
-	if (input.state.lastNoMatch) {
+	if ((input.state.noMatchCount ?? 0) >= 3) {
 		return {
 			done: true,
 			matchedTopics: questionTopics,
@@ -354,8 +371,15 @@ function optionalMatchingTurn(
 	assistantText: string,
 ): CaseStudyUserTurn | null {
 	const questionTopics = assistantTopics(assistantText);
-	const matching = simulationFactsForActualCase(study.actualCase)
+	const candidates = simulationFactsForActualCase(study.actualCase)
 		.filter((item) => !item.required && !revealed.has(item.id))
+		.filter((item) => item.source !== "action" || questionTopics.includes("measures"));
+	const matching = [...candidates]
+		.sort(
+			(a, b) =>
+				optionalAnswerPriority(a, questionTopics) -
+				optionalAnswerPriority(b, questionTopics),
+		)
 		.find((item) => item.topics.some((topic) => questionTopics.includes(topic)));
 	if (!matching) {
 		return null;
@@ -367,6 +391,22 @@ function optionalMatchingTurn(
 		reason: "answered-question",
 		revealedFactIds: [matching.id],
 	};
+}
+
+function optionalAnswerPriority(
+	fact: CaseStudyFact,
+	questionTopics: readonly string[],
+): number {
+	if (
+		fact.source === "cause" &&
+		(questionTopics.includes("work-context") || questionTopics.includes("training"))
+	) {
+		return 0;
+	}
+	if (fact.source === "action" && questionTopics.includes("measures")) {
+		return 0;
+	}
+	return 1;
 }
 
 export function evaluateCaseStudyRun(input: {
@@ -406,6 +446,14 @@ export function evaluateCaseStudyRun(input: {
 		expectedFieldCheck(actualCase, incident, "hazardCategoryCode", "hazardCategoryCode", 3),
 		expectedFieldCheck(actualCase, incident, "eventType", "eventType", 3),
 		expectedSeverityCheck(actualCase, incident),
+		...severityProposalChecks(actualCase, incident, input.transcript),
+		...factCauseMeasureChecks({
+			actualCase,
+			finalRecord: input.finalRecord,
+			recordText,
+			revealedActionFacts,
+			revealedFactsCaptured,
+		}),
 		ratioCheck(
 			"fact_capture",
 			"revealed facts captured",
@@ -434,13 +482,7 @@ export function evaluateCaseStudyRun(input: {
 			"Final record should reflect the Actual Case causes.",
 		),
 		measuresCheck(actualCase, input.finalRecord, recordText, revealedActionFacts),
-		weightedCheck(
-			"operation_safety",
-			"no empty action fabrication",
-			4,
-			revealedActionFacts.length > 0 || (input.finalRecord.causeActions ?? []).length === 0,
-			"No corrective actions should be invented before the study reveals agreed measures.",
-		),
+		...operationSafetyChecks(actualCase, input.finalRecord, revealedActionFacts),
 		weightedCheck(
 			"runtime",
 			"conversation progressed",
@@ -511,13 +553,24 @@ export function caseStudyEvaluationMarkdown(evaluation: CaseStudyEvaluation): st
 function simulationFactsForActualCase(actualCase: ActualCase): readonly CaseStudyFact[] {
 	return dedupeFacts([
 		...actualCase.facts,
+		...actualCase.causes.map((cause, index) =>
+			fact(
+				`cause-${index + 1}`,
+				cause.statement,
+				"cause",
+				false,
+				cause.evidence ?? [],
+				["work-context"],
+			),
+		),
 		...actualCase.measures.map((measure, index) =>
 			fact(
 				`action-${index + 1}`,
-				measure.description,
+				measureSimulationText(measure),
 				"action",
 				false,
 				measure.evidence ?? [],
+				["measures"],
 			),
 		),
 	]);
@@ -578,6 +631,17 @@ function buildActualMeasures(rows: readonly JsonRecord[]): readonly ActualCaseMe
 		});
 	}
 	return measures;
+}
+
+function measureSimulationText(measure: ActualCaseMeasure): string {
+	return [
+		measure.description,
+		measure.ownerRole ? `Owner: ${measure.ownerRole}` : "",
+		measure.dueDate ? `Due date: ${measure.dueDate}` : "",
+		measure.actionType ? `Action type: ${measure.actionType}` : "",
+	]
+		.filter(Boolean)
+		.join(" ");
 }
 
 function caseFieldFacts(sourceCase: JsonRecord): readonly CaseStudyFact[] {
@@ -700,6 +764,7 @@ function fact(
 	source: CaseStudyFact["source"],
 	required: boolean,
 	evidence: readonly CaseStudyEvidenceRef[] = [],
+	extraTopics: readonly string[] = [],
 ): CaseStudyFact {
 	return {
 		evidence,
@@ -707,32 +772,32 @@ function fact(
 		required,
 		source,
 		text,
-		topics: topicsForText(text),
+		topics: uniqueText([...topicsForText(text), ...extraTopics]),
 	};
 }
 
 function topicsForText(value: string): readonly string[] {
 	const text = normalize(value);
 	const topics = new Set<string>();
-	if (/wann|dienstag|montag|mittwoch|donnerstag|freitag|samstag|sonntag|uhr|\btime\b|date|morning|yesterday|\b6\/13\b/.test(text)) {
+	if (/wann|dienstag|montag|mittwoch|donnerstag|freitag|samstag|sonntag|uhr|\btime\b|date|morning|yesterday|\b6\/13\b|quand|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|heure|quando|lunedi|lunedì|martedi|martedì|mercoledi|mercoledì|giovedi|giovedì|venerdi|venerdì|sabato|domenica|\bora\b/.test(text)) {
 		topics.add("timing");
 	}
-	if (/finger|amput|verkürzt|verkurzt|verkuerzt|chirurgie|rettungsdienst|hospital|spital|verletz|injur|fatal|death|poison|exposure/.test(text)) {
+	if (/finger|amput|teilamput|verkürzt|verkurzt|verkuerzt|chirurgie|rettungsdienst|hospital|spital|verletz|injur|fatal|death|poison|exposure|bless|ferit|infortun|morte|\bmort\b|décès|deces|esposizione|lesion|lésion|lesione|ferita/.test(text)) {
 		topics.add("injury-outcome");
 	}
-	if (/warum|weil|damit|because|cause|grund|toleranz|oberfl|sicht|reflex/.test(text)) {
+	if (/warum|weil|damit|because|cause|grund|toleranz|oberfl|sicht|reflex|pourquoi|parce que|raison|perché|perche|poiché|poiche|motivo/.test(text)) {
 		topics.add("work-context");
 	}
-	if (/massstab|maßstab|spänehaken|spaenehaken|druckluft|fräser|fraeser|fräs|maschine|tool|radio|alarm|monitor|vacuum|pump|ppm|hcn/.test(text)) {
+	if (/massstab|maßstab|spänehaken|spaenehaken|druckluft|fräser|fraeser|fräs|maschine|tool|outil|utensile|macchina|radio|alarm|allarme|monitor|vacuum|pump|pompe|pompa|ppm|hcn/.test(text)) {
 		topics.add("equipment");
 	}
-	if (/instruiert|instruktion|weisung|geschult|training|aware|bewusst|verbot/.test(text)) {
+	if (/instruiert|instruktion|weisung|geschult|training|aware|bewusst|verbot|formation|formé|forme|istruz|addestr|consapevol|interdit|vietato/.test(text)) {
 		topics.add("training");
 	}
-	if (/leiter|hans|muster|morgen|frist|massnahme|maßnahme|action|owner|by /.test(text)) {
+	if (/frist|massnahme|maßnahme|maßnahmen|massnahmen|measure|measures|action plan|corrective|owner|deadline|responsible|responsable|mesure|mesures|azione|azioni|misura|misure|scadenza|responsabile/.test(text)) {
 		topics.add("measures");
 	}
-	if (/allein|alone|lone|supervisor|console|shift/.test(text)) {
+	if (/allein|alone|lone|supervisor|console|shift|seul|seule|solo|sola|superviseur|supervisore|turno|équipe|equipe/.test(text)) {
 		topics.add("staffing");
 	}
 	if (topics.size === 0) {
@@ -744,12 +809,17 @@ function topicsForText(value: string): readonly string[] {
 function assistantTopics(value: string): readonly string[] {
 	const text = normalize(value);
 	const topics = new Set<string>();
-	if (/\?/.test(value) || /frage|klär|klar|confirm|tell me|what|wann|warum|wer|wie|gab es/.test(text)) {
+	if (
+		/\?/.test(value) ||
+		/frage|klär|klar|confirm|tell me|what|wann|warum|wer|wie|gab es|pourquoi|quand|qui|comment|quoi|que\b|confirmer|perché|perche|quando|chi|come|cosa|dimmi|racconta|confermare/.test(
+			text,
+		)
+	) {
 		for (const topic of topicsForText(text)) {
 			topics.add(topic);
 		}
 	}
-	if (/what happened|was ist passiert|ablauf|sequence|nächste|next/.test(text)) {
+	if (/what happened|was ist passiert|ablauf|sequence|nächste|next|que s'est-il passé|cosa è successo|cosa e successo/.test(text)) {
 		topics.add("narrative");
 	}
 	return [...topics];
@@ -785,14 +855,163 @@ function expectedSeverityCheck(actualCase: ActualCase, incident: JsonRecord): Ca
 	const expected = actualCase.classification.potentialSeverityCode;
 	const actual = incident.potentialSeverityCode;
 	const status = expected ? (actual === expected ? "pass" : "fail") : actual ? "warn" : "fail";
+	const isFatalityMismatch = expected === "A" && actual !== expected;
 	return {
 		category: "classification",
 		evidence: `expected=${JSON.stringify(expected)}, actual=${JSON.stringify(actual)}, outcome=${JSON.stringify(actualCase.classification.potentialOutcomeText)}`,
-		hardFailure: status === "fail" && Boolean(expected),
+		hardFailure: isFatalityMismatch,
 		name: "potential severity",
 		status,
-		weight: 8,
+		weight: 4,
 	};
+}
+
+function factCauseMeasureChecks(input: {
+	readonly actualCase: ActualCase;
+	readonly finalRecord: {
+		readonly causeActions?: readonly JsonRecord[];
+		readonly causeNodes?: readonly JsonRecord[];
+	};
+	readonly recordText: string;
+	readonly revealedActionFacts: readonly CaseStudyFact[];
+	readonly revealedFactsCaptured: readonly CaseStudyFact[];
+}): readonly CaseStudyCheck[] {
+	const capturedCauseCount = countThemes(
+		input.recordText,
+		input.actualCase.causes.map((cause) => cause.statement),
+	);
+	const actions = input.finalRecord.causeActions ?? [];
+	const linkedActionCount = actions.filter((action) =>
+		Boolean(stringField(action, "causeNodeId", "cause_node_id")),
+	).length;
+	const implementableActionCount = actions.filter(isImplementableAction).length;
+	const checks: CaseStudyCheck[] = [
+		{
+			category: "case_chain",
+			evidence: `capturedFacts=${input.revealedFactsCaptured.length}, capturedActualCauses=${capturedCauseCount}/${input.actualCase.causes.length}`,
+			name: "facts lead to causes",
+			status:
+				input.actualCase.causes.length === 0
+					? "warn"
+					: input.revealedFactsCaptured.length > 0 && capturedCauseCount > 0
+						? "pass"
+						: "fail",
+			weight: 10,
+		},
+	];
+
+	if (input.actualCase.measures.length === 0) {
+		checks.push({
+			category: "case_chain",
+			evidence: "Actual Case contains no measures; cause-to-measure chain is not required.",
+			name: "causes lead to linked measures",
+			status: "warn",
+			weight: 8,
+		});
+		return checks;
+	}
+
+	if (input.revealedActionFacts.length === 0) {
+		checks.push({
+			category: "case_chain",
+			evidence:
+				"Actual Case has measures, but the simulated user did not reveal them in this run.",
+			name: "causes lead to linked measures",
+			status: "warn",
+			weight: 8,
+		});
+		checks.push({
+			category: "case_chain",
+			evidence:
+				"Measure implementability was not scored because no Actual Case measures were revealed.",
+			name: "measures are implementable",
+			status: "warn",
+			weight: 8,
+		});
+		return checks;
+	}
+
+	checks.push(
+		ratioCheck(
+			"case_chain",
+			"causes lead to linked measures",
+			8,
+			linkedActionCount,
+			Math.max(actions.length, input.revealedActionFacts.length, 1),
+			`${linkedActionCount}/${actions.length} final actions are linked to a cause for ${input.revealedActionFacts.length} revealed measure facts.`,
+		),
+	);
+	checks.push(
+		ratioCheck(
+			"case_chain",
+			"measures are implementable",
+			8,
+			implementableActionCount,
+			Math.max(actions.length, input.revealedActionFacts.length, 1),
+			`${implementableActionCount}/${actions.length} final actions have a concrete description, owner, and due date.`,
+		),
+	);
+	return checks;
+}
+
+function severityProposalChecks(
+	actualCase: ActualCase,
+	incident: JsonRecord,
+	transcript: readonly JsonRecord[],
+): readonly CaseStudyCheck[] {
+	if (actualCase.classification.potentialSeverityCode !== "A") {
+		return [];
+	}
+
+	const proposals = proposedPotentialSeverityCodes(transcript);
+	if (proposals.length === 0) {
+		return [
+			{
+				category: "agent_reasoning",
+				evidence:
+					"No potentialSeverityCode proposal was found in the transcript for a fatal-potential Actual Case.",
+				name: "fatal severity proposed by coach",
+				status: "warn",
+				weight: 4,
+			},
+		];
+	}
+
+	const proposedA = proposals.includes("A");
+	const rescued =
+		incident.potentialSeverityCode === "A" && proposals.some((code) => code !== "A");
+	return [
+		{
+			category: "agent_reasoning",
+			evidence: `proposed=${JSON.stringify(proposals)}, final=${JSON.stringify(incident.potentialSeverityCode)}`,
+			name: "fatal severity proposed by coach",
+			status: proposedA && !rescued ? "pass" : "fail",
+			weight: 4,
+		},
+	];
+}
+
+function proposedPotentialSeverityCodes(transcript: readonly JsonRecord[]): readonly string[] {
+	const proposals: string[] = [];
+	for (const turn of transcript) {
+		const assistant = asRecord(turn.assistant);
+		const operations = Array.isArray(assistant.operations) ? assistant.operations : [];
+		for (const rawOperation of operations) {
+			const operation = asRecord(rawOperation);
+			if (operation.kind !== "incident_field_update") {
+				continue;
+			}
+			const payload = asRecord(operation.payload);
+			if (payload.field !== "potentialSeverityCode") {
+				continue;
+			}
+			const severity = parsePotentialSeverity(payload.value);
+			if (severity) {
+				proposals.push(severity);
+			}
+		}
+	}
+	return proposals;
 }
 
 function measuresCheck(
@@ -835,6 +1054,63 @@ function measuresCheck(
 	);
 }
 
+function operationSafetyChecks(
+	actualCase: ActualCase,
+	finalRecord: {
+		readonly causeActions?: readonly JsonRecord[];
+		readonly facts?: readonly JsonRecord[];
+	},
+	revealedActionFacts: readonly CaseStudyFact[],
+): readonly CaseStudyCheck[] {
+	const actions = finalRecord.causeActions ?? [];
+	const factText = normalize(JSON.stringify(finalRecord.facts ?? []));
+	const revealedActionText = normalize(revealedActionFacts.map((fact) => fact.text).join(" "));
+	const measuresStoredAsFacts = countThemes(
+		factText,
+		actualCase.measures.map((measure) => measure.description),
+	);
+	const fabricatedOwnerOrDue = actions.filter((action) => {
+		const owner = stringField(action, "ownerRole", "owner_role");
+		const dueDate = stringField(action, "dueDate", "due_date");
+		return (
+			(owner && !revealedActionText.includes(normalize(owner))) ||
+			(dueDate && !revealedActionText.includes(normalize(dueDate)))
+		);
+	}).length;
+
+	return [
+		weightedCheck(
+			"operation_safety",
+			"no action fabrication before measures",
+			3,
+			revealedActionFacts.length > 0 || actions.length === 0,
+			"No corrective actions should be persisted before the study reveals agreed measures.",
+		),
+		weightedCheck(
+			"operation_safety",
+			"measures kept out of facts",
+			4,
+			measuresStoredAsFacts === 0,
+			`${measuresStoredAsFacts} Actual Case measure descriptions appear in facts instead of actions.`,
+		),
+		{
+			category: "operation_safety",
+			evidence:
+				revealedActionFacts.length === 0
+					? "No measure facts were revealed; owner/date fabrication cannot be scored."
+					: `${fabricatedOwnerOrDue}/${actions.length} actions contain owner or due-date values not revealed by the Actual Case measure facts.`,
+			name: "no fabricated owner or due date",
+			status:
+				revealedActionFacts.length === 0
+					? "warn"
+					: fabricatedOwnerOrDue === 0
+						? "pass"
+						: "fail",
+			weight: 4,
+		},
+	];
+}
+
 function ratioCheck(
 	category: string,
 	name: string,
@@ -870,45 +1146,26 @@ function weightedCheck(
 }
 
 function inferExpectedPotentialSeverity(sourceCase: JsonRecord): string | undefined {
-	const explicit = stringOrUndefined(sourceCase.potential_severity_code);
-	const text = normalize(
-		[
-			sourceCase.potential_outcome_text,
-			sourceCase.actual_injury_outcome,
-			sourceCase.actual_severity_code,
-			sourceCase.injury_nature,
-		]
-			.filter(Boolean)
-			.join(" "),
+	const explicit = parsePotentialSeverity(sourceCase.potential_severity_code);
+	const evidenceText = [
+		sourceCase.potential_outcome_text,
+		sourceCase.actual_injury_outcome,
+		sourceCase.actual_severity_code,
+		sourceCase.actual_severity_reason,
+		sourceCase.injury_nature,
+		sourceCase.body_part,
+		sourceCase.lost_days,
+	]
+		.filter(Boolean)
+		.join(" ");
+	const normalizedSeverity = normalizePotentialSeverityForEvidence(
+		explicit ?? "E",
+		evidenceText,
 	);
-	if (
-		/fatal|death|killed|lethal|tod|tödlich|toedlich/.test(text) ||
-		hasCredibleFatalToxicExposure(text)
-	) {
-		return "A";
+	if (!explicit && normalizedSeverity === "E") {
+		return undefined;
 	}
-	if (/amput|irreversible|bleibend|permanent|verkürzt|verkurzt|verkuerzt|funktionsbeeinträchtigung|funktionsbeeintrachtigung|invalid/.test(text)) {
-		return "B";
-	}
-	if (/hospital|spital|chirurgie|luks|lost time|arbeitsausfall|ausfall/.test(text)) {
-		return "C";
-	}
-	if (/doctor|arzt|rettungsdienst|medical/.test(text)) {
-		return "D";
-	}
-	return explicit;
-}
-
-function hasCredibleFatalToxicExposure(text: string): boolean {
-	const hasToxicAgent =
-		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausäure|blausaure|blausaeure)\b/.test(
-			text,
-		) || /\b(toxic|toxisch|poison|poisoning|vergiftung|gas)\b/.test(text);
-	const hasExposurePath =
-		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzögert|verzoegert|verzogert|alarmierung)\b/.test(
-			text,
-		);
-	return hasToxicAgent && hasExposurePath;
+	return normalizedSeverity;
 }
 
 function containsCaseText(recordText: string, factText: string): boolean {
@@ -918,6 +1175,32 @@ function containsCaseText(recordText: string, factText: string): boolean {
 	}
 	const hits = tokens.filter((token) => recordText.includes(token)).length;
 	return hits / tokens.length >= 0.35;
+}
+
+function asRecord(value: unknown): JsonRecord {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as JsonRecord)
+		: {};
+}
+
+function isImplementableAction(action: JsonRecord): boolean {
+	const description = stringField(action, "description");
+	const owner = stringField(action, "ownerRole", "owner_role");
+	const dueDate = stringField(action, "dueDate", "due_date");
+	return Boolean(description && description.length >= 12 && owner && dueDate);
+}
+
+function stringField(record: JsonRecord, ...keys: readonly string[]): string | undefined {
+	for (const key of keys) {
+		const value = record[key];
+		if (typeof value === "string" && value.trim()) {
+			return value.trim();
+		}
+		if (value instanceof Date) {
+			return value.toISOString();
+		}
+	}
+	return undefined;
 }
 
 function countThemes(recordText: string, themes: readonly string[]): number {
@@ -986,7 +1269,7 @@ function dedupeFacts(facts: readonly CaseStudyFact[]): readonly CaseStudyFact[] 
 }
 
 function fallbackOpening(sourceCase: JsonRecord): string {
-	return [sourceCase.title, sourceCase.immediate_cause, sourceCase.potential_outcome_text]
+	return [sourceCase.title, sourceCase.location, sourceCase.work_activity]
 		.filter(Boolean)
 		.join(". ");
 }

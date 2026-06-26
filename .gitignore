@@ -22,6 +22,7 @@ playwright-report/
 *.tsbuildinfo
 
 # Internal / local-only — kept out of the public repo
+.ntm/
 AGENTS.md
 MODES_ANALYSIS_PROGRESS.md
 MODES_OF_REASONING_*.md

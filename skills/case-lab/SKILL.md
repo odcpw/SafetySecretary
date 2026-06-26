@@ -7,6 +7,11 @@ description: Local SafetySecretaryNext Incident Investigation case replay and ev
 
 Use Case Lab as a local-only case-study replay subsystem, not as transcript replay. A case study is a structured source of truth plus an adaptive simulated user. The goal is to compare which coach skills/prompts/runtimes lead to the best investigation outcome.
 
+The primary subject under test is the Flue incident investigation agent: Flue
+agent instructions, the incident-investigation skill, typed tools, record
+digests, validation feedback, and backend safety rails. Do not reduce variant
+work to prompt wording alone.
+
 1. `operator:export-case` pulls a selected production case into `.tmp/case-corpus*`.
 2. `case-lab:import` mirrors the final case into a persistent local `case-lab-source-*` tenant for inspection.
 3. `case-lab:study` builds a reusable `case-study.json` from the exported case.

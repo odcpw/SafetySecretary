@@ -277,8 +277,8 @@ function buildFlueTurnMessage(input: {
 	readonly message: string;
 }): string {
 	return [
-		"Handle one Safety Secretary incident-investigation chat turn.",
-		"Use the incident-investigation skill and call read_incident_record before answering.",
+		"Handle one Safety Secretary incident-investigation agent turn.",
+		"Use the incident-investigation skill and call read_incident_record before answering; this is a durable case-bound agent loop, not a one-off prompt completion.",
 		"Think about the whole case, then write only new or corrected record changes through typed tools: propose_incident_fields, propose_evidence, propose_cause_tree, propose_action_plan, and propose_hira_followup.",
 		"Summary, explanation, review, and brainstorming turns may return operations: []; do not create approval cards just because you gave advice.",
 		"If TURN_INPUT_JSON.message asks for suggestions/options, answer with options first and propose operations only for measures the user states, accepts, or explicitly asks you to add.",

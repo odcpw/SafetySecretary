@@ -2,11 +2,11 @@ import { COACH_SYSTEM_PROMPT } from "../../incident/coach-prompt";
 import { AgentOperationKind, type AgentSkillRef } from "../types";
 
 /**
- * The Safety Secretary incident-investigation coach as a versioned product
- * skill (SPEC: skills-first architecture). The conversational system prompt
- * in coach-prompt.ts is this skill's content; the version below MUST be
- * bumped whenever that prompt or the allowed operation set changes, so that
- * traces, transcripts, and evals can be attributed to a skill version.
+ * Versioned fallback/compatibility skill for the non-Flue coach path. The live
+ * incident investigation agent is the Flue agent + Flue skill + typed tools;
+ * this prompt remains the dispatch/Pi fallback and shared operation contract.
+ * Bump the version whenever this prompt or the allowed operation set changes,
+ * so traces, transcripts, and evals can be attributed to a skill version.
  */
 export const INCIDENT_COACH_SKILL = {
 	id: "incident-investigation",

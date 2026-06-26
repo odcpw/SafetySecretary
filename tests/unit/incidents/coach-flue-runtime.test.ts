@@ -153,6 +153,7 @@ test("flue coach runtime posts a prompt to a persistent agent instance", async (
 			new RegExp(`/agents/incident-investigation/${instanceId}.*offset=1`),
 		);
 		assert.match(requests[0]?.body ?? "", /Mara slipped near line 2/);
+		assert.match(requests[0]?.body ?? "", /durable case-bound agent loop/);
 		assert.match(requests[0]?.body ?? "", /read_incident_record/);
 		assert.match(requests[0]?.body ?? "", /propose_action_plan/);
 		assert.match(requests[0]?.body ?? "", /Europe\/Zurich/);

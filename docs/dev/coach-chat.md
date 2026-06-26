@@ -41,7 +41,10 @@ panel's Photos tab and embedded in the full report.
 
 | Piece | Path |
 |---|---|
-| The brain (system prompt) | `src/lib/incident/coach-prompt.ts` |
+| Canonical investigation agent architecture | `docs/dev/incident-investigation-agent.md` |
+| Live Flue agent | `.flue/agents/incident-investigation.ts` |
+| Live Flue investigation skill | `.flue/skills/incident-investigation/SKILL.md` |
+| Fallback dispatch/Pi prompt contract | `src/lib/incident/coach-prompt.ts`, `src/lib/agent/skills/incident-coach-v1.ts` |
 | Conversation service (persist, dispatch, parse) | `src/lib/incident/coach-chat.ts` |
 | Chat API | `src/app/api/incidents/[id]/coach/chat/route.ts` |
 | Apply/dismiss API | `src/app/api/incidents/[id]/coach/chat/apply/route.ts` |
@@ -78,15 +81,23 @@ dispatch uses mock providers; the coach reads a sequential fixture from
 
 ## Flue runtime
 
-Set `SAFETYSECRETARY_II_COACH_RUNTIME=flue` to route chat turns through the packaged
-Flue agent in `.flue/agents/incident-investigation.ts`. The Flue agent
-instance id encodes tenant id + incident id, so the durable agent boundary is
-one case, not one browser tab or one logged-in user.
+The live coach runtime defaults to the packaged Flue investigation agent in
+`.flue/agents/incident-investigation.ts`. Set
+`SAFETYSECRETARY_II_COACH_RUNTIME=pi` only when deliberately opting out to the
+fallback dispatch/Pi path. The Flue agent instance id encodes tenant id +
+incident id, so the durable agent boundary is one case, not one browser tab or
+one logged-in user.
 
-The agent's authored tools use Flue 1.0 Valibot schemas. `read_incident_record`
+This is an agent runtime, not just an LLM API call with a prompt. The agent's
+authored tools use Flue 1.0 Valibot schemas. `read_incident_record`
 returns a compact case-owned record view plus `proposalDigest`,
 `causeTreeDigest`, and `phaseSignal`. The full app context bundle is
 intentionally not returned to the model on every turn.
+
+The investigation intelligence is split across the Flue agent instructions, the
+Flue `incident-investigation` skill, typed proposal tools, validation feedback,
+and backend safety rails. `coach-prompt.ts` remains the fallback prompt
+contract; it is not the canonical live brain when Flue is running.
 
 The Next runtime admits each turn with `client.agents.send(...)` and waits on
 the Flue durable event stream for the matching `operationKind: "prompt"` result.

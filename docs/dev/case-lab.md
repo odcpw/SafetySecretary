@@ -143,8 +143,15 @@ come from the study.
 ## Optimization Loop
 
 Use the imported case as a fixed corpus item, then run multiple replay variants
-against fresh simulation tenants. Variants can change the coach prompt, Flue
-model, runtime wiring, or evaluator model without mutating the source tenant.
+against fresh simulation tenants. Variants can change the Flue agent
+instructions, the investigation skill, tool descriptions, record digests, Flue
+model, runtime wiring, fallback prompt, or evaluator model without mutating the
+source tenant.
+
+The default target is the Flue incident investigation agent described in
+`docs/dev/incident-investigation-agent.md`. Case Lab should judge whether that
+agent uncovers and structures the case well, not whether a transcript resembles
+an old conversation or whether a single prompt sounds plausible.
 
 For comparison:
 

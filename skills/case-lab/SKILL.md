@@ -5,11 +5,12 @@ description: Local SafetySecretaryNext Incident Investigation case replay and ev
 
 # Case Lab
 
-Use Case Lab as a local-only evaluation subsystem, not as a one-off transcript replay. It has three layers:
+Use Case Lab as a local-only case-study replay subsystem, not as transcript replay. A case study is a structured source of truth plus an adaptive simulated user. The goal is to compare which coach skills/prompts/runtimes lead to the best investigation outcome.
 
 1. `operator:export-case` pulls a selected production case into `.tmp/case-corpus*`.
-2. `case-lab:import` mirrors the final case into a persistent local `case-lab-source-*` tenant.
-3. `case-lab:replay` runs normalized user turns through the current coach into disposable `case-lab-sim-*` tenants and writes artifacts.
+2. `case-lab:import` mirrors the final case into a persistent local `case-lab-source-*` tenant for inspection.
+3. `case-lab:study` builds a reusable `case-study.json` from the exported case.
+4. `case-lab:replay` plays that study through a coach skill/runtime using an adaptive simulated user.
 
 ## Guardrails
 
@@ -17,7 +18,8 @@ Use Case Lab as a local-only evaluation subsystem, not as a one-off transcript r
 - Prefer `--no-files` unless attachments are needed. Attachment replay is not yet faithful.
 - Use `ADMIN_DATABASE_URL` for import, replay, and janitor. Do not run these against production.
 - Treat production records as baseline evidence, not ground truth.
-- Never judge quality by operation count alone.
+- Never compare different cases with one case's rubric.
+- Never judge quality by operation count or transcript similarity alone.
 - Hard-fail fatality severity mismatches, failed operation application, schema/provisioning failures, tenant leaks, and unsafe data export surfaces.
 
 ## Workflow
@@ -35,18 +37,24 @@ ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/s
   pnpm case-lab:import -- --case-folder .tmp/case-corpus/<case-folder>
 ```
 
-Replay:
+Build a case study:
+
+```bash
+pnpm case-lab:study -- --case-folder .tmp/case-corpus/<case-folder>
+```
+
+Replay the study adaptively:
 
 ```bash
 pnpm flue:build
 ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/safety_secretary \
-  pnpm case-lab:replay -- --import-dir .tmp/case-lab/imports/<import-folder>
+  pnpm case-lab:replay -- --study .tmp/case-lab/studies/<study-folder>/case-study.json --variant <skill-or-prompt-name>
 ```
 
 Re-score without model calls:
 
 ```bash
-pnpm case-lab:evaluate -- --report .tmp/case-lab/runs/<run-folder>/report.json
+pnpm case-lab:evaluate -- --report .tmp/case-lab/study-runs/<run-folder>/report.json
 ```
 
 Clean disposable simulation tenants:
@@ -62,7 +70,7 @@ Use `--all` on janitor only when intentionally deleting imported source tenants.
 
 Read [references/criteria.md](references/criteria.md) before modifying scoring or interpreting non-obvious results.
 
-Current executable criteria live in `scripts/case-lab/evaluator.ts`; tests live in `tests/unit/case-lab/evaluator.test.ts`. When changing criteria:
+Current case-study criteria live in `scripts/case-lab/case-study.ts`; focused tests live in `tests/unit/case-lab/case-study.test.ts`. When changing criteria:
 
 - update `CASE_LAB_CRITERIA_VERSION`;
 - add or update focused tests;

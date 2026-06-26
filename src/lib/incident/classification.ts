@@ -108,6 +108,75 @@ export function parsePotentialSeverity(value: unknown): SeverityCode | null {
 	return parseSeverity(value);
 }
 
+const severityRank: Record<SeverityCode, number> = {
+	A: 0,
+	B: 1,
+	C: 2,
+	D: 3,
+	E: 4,
+};
+
+export function normalizePotentialSeverityForEvidence(
+	proposed: SeverityCode,
+	evidence: string,
+): SeverityCode {
+	const text = normalizeSeverityEvidence(evidence);
+	if (hasCredibleFatalToxicExposure(text) || hasFatalPath(text)) {
+		return "A";
+	}
+	if (hasIrreversibleInjuryPath(text) && isLessSevereThan(proposed, "B")) {
+		return "B";
+	}
+	if (hasLostTimeOrHospitalPath(text) && isLessSevereThan(proposed, "C")) {
+		return "C";
+	}
+	return proposed;
+}
+
+function isLessSevereThan(
+	proposed: SeverityCode,
+	minimum: SeverityCode,
+): boolean {
+	return severityRank[proposed] > severityRank[minimum];
+}
+
+function hasFatalPath(text: string): boolean {
+	return /\b(fatal|fatality|death|dead|die|died|killed|kill|lethal|tod|toedlich|todlich)\b/.test(
+		text,
+	);
+}
+
+function hasCredibleFatalToxicExposure(text: string): boolean {
+	const hasToxicAgent =
+		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausaure|blausaeure)\b/.test(
+			text,
+		) || /\b(toxic|toxisch|poison|poisoning|vergiftung|gas)\b/.test(text);
+	const hasExposurePath =
+		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzoegert|verzogert|alarmierung)\b/.test(
+			text,
+		);
+	return hasToxicAgent && hasExposurePath;
+}
+
+function hasIrreversibleInjuryPath(text: string): boolean {
+	return /\b(amput|teilamput|irreversible|permanent|lasting|dauerhaft|bleibend|disab|invalid|verkürzt|verkurzt|verkuerzt|funktionsbeeintraechtigung|funktionsbeeintrachtigung|tendon|nerve|sehne|nerv)\b/.test(
+		text,
+	);
+}
+
+function hasLostTimeOrHospitalPath(text: string): boolean {
+	return /\b(hospital|hospitalisation|hospitalization|admitted|admission|clinic|chirurgie|luks|spital|krankenhaus|arbeitsausfall|lost time|missed work|off work|days off|ausfall|stationaer|stationar)\b/.test(
+		text,
+	);
+}
+
+function normalizeSeverityEvidence(value: string): string {
+	return value
+		.toLowerCase()
+		.normalize("NFKD")
+		.replace(/\p{Diacritic}/gu, "");
+}
+
 export function deriveActualSeverityFromOutcome(
 	outcome: IncidentActualInjuryOutcome,
 ): SeverityCode | null {

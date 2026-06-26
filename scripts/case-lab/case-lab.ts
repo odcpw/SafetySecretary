@@ -39,9 +39,13 @@ registerHooks({
 	},
 });
 
-const { evaluateInvestigation, evaluationMarkdown } = (await import(
-	moduleUrl("scripts/case-lab/evaluator.ts")
-)) as typeof import("./evaluator");
+const {
+	buildCaseStudyFromBundle,
+	caseStudyEvaluationMarkdown,
+	caseStudyMarkdown,
+	evaluateCaseStudyRun,
+	nextCaseStudyUserTurn,
+} = (await import(moduleUrl("scripts/case-lab/case-study.ts"))) as typeof import("./case-study");
 const { recordCoachOperationDecision, runCoachChatTurn } = (await import(
 	moduleUrl("src/lib/incident/coach-chat.ts")
 )) as typeof import("../../src/lib/incident/coach-chat");
@@ -76,17 +80,6 @@ type CaseBundle = {
 	readonly coachMessages?: readonly CoachMessage[];
 };
 
-type NormalizedTurn = {
-	readonly index: number;
-	readonly message: string;
-	readonly causeMethodBeforeTurn?: string;
-	readonly sourceMessageId?: string;
-	readonly sourceAssistant?: {
-		readonly content: string;
-		readonly operationKinds: readonly string[];
-	};
-};
-
 type CaseLabManifest = {
 	readonly version: 1;
 	readonly importedAt: string;
@@ -95,9 +88,11 @@ type CaseLabManifest = {
 	readonly labTenantId: string;
 	readonly labUserId: string;
 	readonly labCaseId: string;
-	readonly normalizedConversation: readonly NormalizedTurn[];
 	readonly sourceSummary: JsonRecord;
 };
+
+type CaseStudy = import("./case-study").CaseStudy;
+type CaseStudyState = import("./case-study").CaseStudyState;
 
 const command = process.argv[2];
 const args = parseArgs(process.argv.slice(3));
@@ -110,10 +105,12 @@ try {
 
 	if (command === "import") {
 		await runImport(args);
+	} else if (command === "study") {
+		await runStudy(args);
 	} else if (command === "replay") {
-		await runReplay(args);
+		await runStudyReplay(args);
 	} else if (command === "evaluate") {
-		await runEvaluate(args);
+		await runStudyEvaluate(args);
 	} else if (command === "janitor") {
 		await runJanitor(args);
 	} else {
@@ -149,31 +146,28 @@ async function runImport(args: ParsedArgs): Promise<void> {
 		});
 
 		const manifest: CaseLabManifest = {
-			importedAt: new Date().toISOString(),
-			labCaseId,
-			labTenantId: tenantId,
-			labUserId: userId,
-			normalizedConversation: normalizeConversation(bundle.coachMessages ?? []),
-			sourceBundlePath: bundlePath,
-			sourceFolder: caseFolder,
-			sourceSummary: summarizeSourceCase(bundle),
+				importedAt: new Date().toISOString(),
+				labCaseId,
+				labTenantId: tenantId,
+				labUserId: userId,
+				sourceBundlePath: bundlePath,
+				sourceFolder: caseFolder,
+				sourceSummary: summarizeSourceCase(bundle),
 			version: 1,
-		};
+			};
 
-		mkdirSync(outDir, { recursive: true });
-		writeJson(join(outDir, "case-lab-manifest.json"), manifest);
-		writeJson(join(outDir, "normalized-conversation.json"), manifest.normalizedConversation);
+			mkdirSync(outDir, { recursive: true });
+			writeJson(join(outDir, "case-lab-manifest.json"), manifest);
 
-		console.log(
-			JSON.stringify(
-				{
-					importDir: outDir,
-					labCaseId,
-					labTenantId: tenantId,
-					turns: manifest.normalizedConversation.length,
-				},
-				null,
-				2,
+			console.log(
+				JSON.stringify(
+					{
+						importDir: outDir,
+						labCaseId,
+						labTenantId: tenantId,
+					},
+					null,
+					2,
 			),
 		);
 	} catch (error) {
@@ -182,34 +176,63 @@ async function runImport(args: ParsedArgs): Promise<void> {
 	}
 }
 
-async function runReplay(args: ParsedArgs): Promise<void> {
+async function runStudy(args: ParsedArgs): Promise<void> {
+	const caseFolder = requiredPath(args.caseFolder, "--case-folder");
+	const bundlePath = resolve(caseFolder, "postgres", "case-bundle.json");
+	if (!existsSync(bundlePath)) {
+		throw new Error(`Missing case bundle: ${bundlePath}`);
+	}
+
+	const bundle = readJson<CaseBundle>(bundlePath);
+	const study = buildCaseStudyFromBundle(bundle);
+	const studyDir = resolve(
+		optionalString(args.outDir, "--out-dir") ?? ".tmp/case-lab/studies",
+		`${timestamp(new Date())}-${safeSegment(String(study.caseNumber ?? study.id))}`,
+	);
+	mkdirSync(studyDir, { recursive: true });
+	writeJson(join(studyDir, "case-study.json"), study);
+	writeFileSync(join(studyDir, "case-study.md"), caseStudyMarkdown(study), "utf8");
+	console.log(
+		JSON.stringify(
+			{
+				caseNumber: study.caseNumber,
+				facts: study.facts.length,
+				studyDir,
+				studyPath: join(studyDir, "case-study.json"),
+				title: study.title,
+			},
+			null,
+			2,
+		),
+	);
+}
+
+async function runStudyReplay(args: ParsedArgs): Promise<void> {
 	requireAdminDatabaseUrl("case-lab replay provisions and drops a simulation tenant schema");
-	const importDir = requiredPath(args.importDir, "--import-dir");
-	const manifestPath = resolve(importDir, "case-lab-manifest.json");
-	const manifest = readJson<CaseLabManifest>(manifestPath);
-	const sourceBundle = readJson<CaseBundle>(manifest.sourceBundlePath);
-	const sourceCase = requireCase(sourceBundle);
+	const studyPath = requiredPath(args.study, "--study");
+	const study = readJson<CaseStudy>(studyPath);
+	const maxTurns = Number(optionalString(args.maxTurns, "--max-turns") ?? "12");
+	if (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 50) {
+		throw new Error("--max-turns must be an integer from 1 to 50.");
+	}
 	const artifactDir = resolve(
-		optionalString(args.outDir, "--out-dir") ?? ".tmp/case-lab/runs",
-		`${timestamp(new Date())}-${safeSegment(String(sourceCase.case_number ?? sourceCase.id ?? "case"))}`,
+		optionalString(args.outDir, "--out-dir") ?? ".tmp/case-lab/study-runs",
+		`${timestamp(new Date())}-${safeSegment(String(study.caseNumber ?? study.id))}`,
 	);
 	mkdirSync(artifactDir, { recursive: true });
 
-	const runtime = optionalString(args.runtime, "--runtime");
-	if (runtime && runtime !== "flue") {
-		throw new Error(`Unsupported replay runtime: ${runtime}`);
-	}
 	if (!existsSync(".flue-dist/server.mjs")) {
 		throw new Error("Missing .flue-dist/server.mjs. Run `pnpm flue:build` first.");
 	}
 
 	const { tenantId, userId } = await createLabTenant("sim");
-	const incidentId = args.newCaseId ? randomUUID() : String(sourceCase.id ?? randomUUID());
+	const incidentId = randomUUID();
 	const sqlitePath = resolve(artifactDir, "flue.db");
 	const flueLogPath = resolve(artifactDir, "flue-server.log");
 	const port = Number(optionalString(args.port, "--port") ?? (await getFreePort()));
 	const baseUrl = `http://127.0.0.1:${port}`;
 	const model = optionalString(args.model, "--model") ?? resolveFlueModel(process.env);
+	const variant = optionalString(args.variant, "--variant") ?? "current";
 
 	const previousEnv = snapshotEnv([
 		"SAFETYSECRETARY_II_COACH_RUNTIME",
@@ -234,33 +257,41 @@ async function runReplay(args: ParsedArgs): Promise<void> {
 	const flueLog = createWriteStream(flueLogPath, { flags: "a" });
 	const transcript: JsonRecord[] = [];
 	const progressEvents: JsonRecord[] = [];
+	let assistantText: string | undefined;
+	let state: CaseStudyState = { revealedFactIds: [] };
 
 	try {
 		await insertSeedIncidentCase({
 			caseId: incidentId,
-			sourceCase,
+			sourceCase: {
+				content_language: study.language,
+				coordinator_role: "Investigation coordinator",
+				incident_type: study.expected.incidentType ?? "NEAR_MISS",
+				title: study.title,
+				vision_consent: "ASK",
+			},
 			tenantId,
 			userId,
-			warmStart: Boolean(args.warmStart),
+			warmStart: false,
 		});
 		flue = await startFlueServer({ baseUrl, flueLog, port, sqlitePath });
 
-		for (const turn of manifest.normalizedConversation) {
-			if (turn.causeMethodBeforeTurn) {
-				await updateCauseMethod({
-					causeMethod: turn.causeMethodBeforeTurn,
-					incidentId,
-					tenantId,
-				});
+		for (let index = 1; index <= maxTurns; index += 1) {
+			const simulated = nextCaseStudyUserTurn({
+				assistantText,
+				state,
+				study,
+			});
+			if (simulated.done) {
+				break;
 			}
-
 			const before = await readCaseRecord({ incidentId, tenantId });
 			const result = await runCoachChatTurn({
 				incidentId,
-				locale: "en",
-				message: turn.message,
+				locale: study.language,
+				message: simulated.message,
 				onProgress: (event) => {
-					progressEvents.push({ event: toJson(event), turnIndex: turn.index });
+					progressEvents.push({ event: toJson(event), turnIndex: index });
 				},
 				tenantId,
 				userId,
@@ -278,44 +309,52 @@ async function runReplay(args: ParsedArgs): Promise<void> {
 				applied,
 				assistant: result.assistantMessage,
 				before,
-				turn,
+				simulation: simulated,
+				turn: { index, message: simulated.message },
 				user: result.userMessage,
 			});
+			assistantText = result.assistantMessage.content;
+			state = {
+				lastNoMatch: simulated.reason === "no-matching-case-fact",
+				revealedFactIds: [...state.revealedFactIds, ...simulated.revealedFactIds],
+			};
 		}
 
 		const finalRecord = await readCaseRecord({ incidentId, tenantId });
 		const coachMessages = await readCoachMessages({ incidentId, tenantId });
-		const evaluation = evaluateInvestigation({
+		const simulationTurns = transcript.map((turn) => turn.simulation as JsonRecord);
+		const evaluation = evaluateCaseStudyRun({
 			finalRecord,
-			sourceBundle,
+			simulationTurns,
+			study,
 			transcript,
 		});
 		const report = {
 			artifactDir,
+			caseStudy: study,
 			coachMessages,
 			environment: {
 				baseUrl,
 				flueLogPath,
 				model,
 				sqlitePath,
+				variant,
 			},
 			evaluation,
 			finalRecord,
-			importManifest: manifest,
 			progressEvents,
 			replay: {
 				incidentId,
 				tenantId,
 				userId,
 			},
-			sourceBundlePath: manifest.sourceBundlePath,
+			simulationTurns,
+			studyPath,
 			transcript,
 		};
-
 		writeJson(join(artifactDir, "report.json"), report);
 		writeJson(join(artifactDir, "evaluation.json"), evaluation);
-		writeFileSync(join(artifactDir, "evaluation.md"), evaluationMarkdown(evaluation), "utf8");
-
+		writeFileSync(join(artifactDir, "evaluation.md"), caseStudyEvaluationMarkdown(evaluation), "utf8");
 		console.log(
 			JSON.stringify(
 				{
@@ -338,30 +377,29 @@ async function runReplay(args: ParsedArgs): Promise<void> {
 	}
 }
 
-async function runEvaluate(args: ParsedArgs): Promise<void> {
+async function runStudyEvaluate(args: ParsedArgs): Promise<void> {
 	const reportPath = requiredPath(args.report, "--report");
 	const report = readJson<{
+		caseStudy?: CaseStudy;
 		finalRecord: Awaited<ReturnType<typeof readCaseRecord>>;
-		importManifest?: CaseLabManifest;
-		sourceBundlePath?: string;
+		simulationTurns?: readonly JsonRecord[];
 		transcript: readonly JsonRecord[];
 	}>(reportPath);
-	const sourceBundlePath =
-		optionalString(args.sourceBundle, "--source-bundle") ??
-		report.sourceBundlePath ??
-		report.importManifest?.sourceBundlePath;
-	if (!sourceBundlePath) {
-		throw new Error("Provide --source-bundle or evaluate a replay report with sourceBundlePath.");
+	if (!report.caseStudy) {
+		throw new Error("Case Lab evaluate expects a case-study replay report.");
 	}
-	const sourceBundle = readJson<CaseBundle>(sourceBundlePath);
-	const evaluation = evaluateInvestigation({
+	const simulationTurns =
+		report.simulationTurns ??
+		report.transcript.map((turn) => (turn.simulation as JsonRecord | undefined) ?? {});
+	const evaluation = evaluateCaseStudyRun({
 		finalRecord: report.finalRecord,
-		sourceBundle,
+		simulationTurns,
+		study: report.caseStudy,
 		transcript: report.transcript,
 	});
 	const outPath = optionalString(args.out, "--out") ?? reportPath.replace(/\.json$/, ".evaluation.json");
 	writeJson(outPath, evaluation);
-	writeFileSync(outPath.replace(/\.json$/, ".md"), evaluationMarkdown(evaluation), "utf8");
+	writeFileSync(outPath.replace(/\.json$/, ".md"), caseStudyEvaluationMarkdown(evaluation), "utf8");
 	console.log(JSON.stringify({ outPath, summary: evaluation.summary }, null, 2));
 }
 
@@ -482,8 +520,8 @@ async function importFinalCaseBundle(input: {
 				) VALUES (
 					${String(row.id)}::uuid,
 					${input.caseId}::uuid,
-					${nullableUuid(row.parent_id)},
-					${nullableUuid(row.timeline_event_id)},
+					${nullableUuid(row.parent_id)}::uuid,
+					${nullableUuid(row.timeline_event_id)}::uuid,
 					${Number(row.order_index ?? 0)},
 					${String(row.statement ?? "")},
 					${nullableString(row.question)},
@@ -897,63 +935,6 @@ async function readCoachMessages(input: {
 	});
 }
 
-async function updateCauseMethod(input: {
-	readonly tenantId: string;
-	readonly incidentId: string;
-	readonly causeMethod: string;
-}): Promise<void> {
-	await withTenantConnection(input.tenantId, async (tx) => {
-		await tx.$executeRaw`
-			UPDATE incident_case
-			SET cause_method = ${input.causeMethod}, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ${input.incidentId}::uuid
-		`;
-	});
-}
-
-function normalizeConversation(messages: readonly CoachMessage[]): NormalizedTurn[] {
-	const turns: NormalizedTurn[] = [];
-	for (let index = 0; index < messages.length; index += 1) {
-		const message = messages[index];
-		if (message.role !== "user") {
-			continue;
-		}
-		const next = messages[index + 1];
-		const operationKinds = (next?.operations ?? []).map((operation) => String(operation.kind));
-		turns.push({
-			causeMethodBeforeTurn: inferCauseMethod(message.content),
-			index: turns.length + 1,
-			message: message.content,
-			sourceAssistant:
-				next?.role === "assistant"
-					? {
-							content: next.content,
-							operationKinds,
-						}
-					: undefined,
-			sourceMessageId: message.id,
-		});
-	}
-	return turns;
-}
-
-function inferCauseMethod(text: string): string | undefined {
-	const lower = text.toLowerCase();
-	if (!lower.includes("switched") && !lower.includes("cause method")) {
-		return undefined;
-	}
-	if (lower.includes("ishikawa") || lower.includes("fishbone")) {
-		return "ISHIKAWA";
-	}
-	if (lower.includes("5 whys") || lower.includes("five whys")) {
-		return "FIVE_WHYS";
-	}
-	if (lower.includes("ursachenbaum") || lower.includes("cause tree")) {
-		return "URSACHENBAUM";
-	}
-	return undefined;
-}
-
 async function startFlueServer(input: {
 	readonly baseUrl: string;
 	readonly flueLog: NodeJS.WritableStream;
@@ -1057,11 +1038,59 @@ function summarizeSourceCase(bundle: CaseBundle): JsonRecord {
 }
 
 function sortCauseNodes(nodes: readonly JsonRecord[]): readonly JsonRecord[] {
-	return [...nodes].sort((left, right) => {
-		if (left.parent_id && !right.parent_id) return 1;
-		if (!left.parent_id && right.parent_id) return -1;
-		return Number(left.order_index ?? 0) - Number(right.order_index ?? 0);
-	});
+	const byId = new Map<string, JsonRecord>();
+	for (const node of nodes) {
+		if (!node.id) {
+			throw new Error("Cannot import cause node without id.");
+		}
+		byId.set(String(node.id), node);
+	}
+
+	const ordered: JsonRecord[] = [];
+	const visited = new Set<string>();
+	const visiting = new Set<string>();
+	const sorted = [...nodes].sort(compareCauseNodes);
+
+	const visit = (node: JsonRecord) => {
+		const id = String(node.id);
+		if (visited.has(id)) {
+			return;
+		}
+		if (visiting.has(id)) {
+			throw new Error(`Cannot import cyclic cause node parent chain at ${id}.`);
+		}
+
+		visiting.add(id);
+		const parentId = nullableUuid(node.parent_id);
+		if (parentId) {
+			const parent = byId.get(parentId);
+			if (!parent) {
+				throw new Error(`Cannot import cause node ${id}: missing parent ${parentId}.`);
+			}
+			visit(parent);
+		}
+		visiting.delete(id);
+		visited.add(id);
+		ordered.push(node);
+	};
+
+	for (const node of sorted) {
+		visit(node);
+	}
+
+	return ordered;
+}
+
+function compareCauseNodes(left: JsonRecord, right: JsonRecord): number {
+	const order = Number(left.order_index ?? 0) - Number(right.order_index ?? 0);
+	if (order !== 0) {
+		return order;
+	}
+	const created = String(left.created_at ?? "").localeCompare(String(right.created_at ?? ""));
+	if (created !== 0) {
+		return created;
+	}
+	return String(left.id ?? "").localeCompare(String(right.id ?? ""));
 }
 
 function importFolderName(caseFolder: string, sourceCase: JsonRecord): string {
@@ -1078,7 +1107,7 @@ function writeJson(path: string, value: unknown): void {
 
 function parseArgs(values: readonly string[]): ParsedArgs {
 	const parsed: ParsedArgs = {};
-	const booleanFlags = new Set(["all", "include-source", "warm-start"]);
+	const booleanFlags = new Set(["all", "include-source"]);
 	for (let index = 0; index < values.length; index += 1) {
 		const value = values[index];
 		if (value === "--") {
@@ -1234,24 +1263,26 @@ function printHelp(): void {
 
 Usage:
   pnpm case-lab:import -- --case-folder .tmp/case-corpus-full/<case>
-  pnpm case-lab:replay -- --import-dir .tmp/case-lab/imports/<import>
-  pnpm case-lab:evaluate -- --report .tmp/case-lab/runs/<run>/report.json
+  pnpm case-lab:study -- --case-folder .tmp/case-corpus-full/<case>
+  pnpm case-lab:replay -- --study .tmp/case-lab/studies/<study>/case-study.json
+  pnpm case-lab:evaluate -- --report .tmp/case-lab/study-runs/<run>/report.json
   pnpm case-lab:janitor
 
 Commands:
-  import     Mirror an exported case into a local lab tenant and normalize user turns.
-  replay     Replay normalized turns into a fresh simulation tenant through Flue.
-  evaluate   Re-score a replay report with the investigation-quality rubric.
+  import     Mirror an exported case into a persistent local source tenant.
+  study      Build a reusable case-study file from an exported case.
+  replay     Play a case study with an adaptive simulated user through Flue.
+  evaluate   Re-score a case-study replay report.
   janitor    Drop leftover simulation tenants. Add --all to include imported source tenants.
 
 Key options:
   --case-folder <path>   Folder produced by operator:export-case.
-  --import-dir <path>    Folder produced by case-lab import.
+  --study <path>         case-study.json produced by case-lab study.
+  --max-turns <n>        Maximum adaptive user turns. Default is 12.
   --out-dir <path>       Output root.
   --model <name>         Flue model override.
   --port <n>             Flue server port override.
-  --new-case-id <true>   Use a new simulation case id instead of source case id.
-  --warm-start           Seed source incident date/time into replay. Default is cold.
+  --variant <name>       Label the coach skill/runtime variant being tested.
   --all                  Janitor only: also drop case-lab-source tenants.
 
 Environment:

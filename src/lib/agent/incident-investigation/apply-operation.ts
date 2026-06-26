@@ -4,12 +4,17 @@ import { syncIncidentActionBridge } from "../../incident/action-bridge";
 import {
 	computePotentialRiskBand,
 	deriveActualSeverityFromOutcome,
+	normalizePotentialSeverityForEvidence,
 	parseActualInjuryOutcome,
 	parseIncidentType,
 	parsePotentialLikelihood,
 	parsePotentialSeverity,
 } from "../../incident/classification";
-import { EVENT_TYPE_CODES, HAZARD_CATEGORY_CODES } from "../../taxonomy/schema";
+import {
+	EVENT_TYPE_CODES,
+	HAZARD_CATEGORY_CODES,
+	type SeverityCode,
+} from "../../taxonomy/schema";
 import {
 	type AgentIncidentFieldUpdatePayload,
 	AgentOperationKind,
@@ -432,6 +437,56 @@ const controlFailureCodes = new Set([
 ]);
 const hazardCategoryCodes = new Set<string>(HAZARD_CATEGORY_CODES);
 
+async function normalizePotentialSeverityForIncident(
+	tx: Tx,
+	incidentId: string,
+	proposed: SeverityCode,
+	operationEvidence: string,
+): Promise<SeverityCode> {
+	const rows = await tx.$queryRaw<
+		Array<{
+			actualInjuryOutcome: string | null;
+			bodyPart: string | null;
+			eventType: string | null;
+			hazardCategoryCode: string | null;
+			incidentType: string | null;
+			injuryNature: string | null;
+			potentialOutcomeText: string | null;
+			title: string | null;
+		}>
+	>`
+		SELECT
+			actual_injury_outcome AS "actualInjuryOutcome",
+			body_part AS "bodyPart",
+			event_type AS "eventType",
+			hazard_category_code AS "hazardCategoryCode",
+			incident_type AS "incidentType",
+			injury_nature AS "injuryNature",
+			potential_outcome_text AS "potentialOutcomeText",
+			title
+		FROM incident_case
+		WHERE id = ${incidentId}::uuid
+		LIMIT 1
+	`;
+	const current = rows[0];
+	return normalizePotentialSeverityForEvidence(
+		proposed,
+		[
+			operationEvidence,
+			current?.actualInjuryOutcome,
+			current?.bodyPart,
+			current?.eventType,
+			current?.hazardCategoryCode,
+			current?.incidentType,
+			current?.injuryNature,
+			current?.potentialOutcomeText,
+			current?.title,
+		]
+			.filter(Boolean)
+			.join(" "),
+	);
+}
+
 async function applyIncidentFieldUpdate(
 	tx: Tx,
 	incidentId: string,
@@ -502,10 +557,16 @@ async function applyIncidentFieldUpdate(
 		}
 
 		case "potentialSeverityCode": {
-			const severity = parsePotentialSeverity(text);
-			if (!severity) {
+			const parsedSeverity = parsePotentialSeverity(text);
+			if (!parsedSeverity) {
 				return invalid;
 			}
+			const severity = await normalizePotentialSeverityForIncident(
+				tx,
+				incidentId,
+				parsedSeverity,
+				[text, payload.note].filter(Boolean).join(" "),
+			);
 			await tx.$executeRawUnsafe(
 				"UPDATE incident_case SET potential_severity_code = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2::uuid",
 				severity,

@@ -1,11 +1,12 @@
 # Case Lab Criteria
 
-Use these principles when interpreting or changing `scripts/case-lab/evaluator.ts`.
+Use these principles when interpreting or changing `scripts/case-lab/case-study.ts`.
 
 ## Frames
 
-- **Production baseline**: what the real case stored. Useful for regression comparison, never assumed to be correct.
-- **Adjudicated quality**: what a good investigation should have captured or asked. This is the headline judgment.
+- **Case study**: the structured case file used by the adaptive simulated user.
+- **Production baseline**: what the real case stored. Useful evidence, never assumed to be correct.
+- **Adjudicated quality**: what a good investigation should have captured, asked, classified, and turned into causes/measures. This is the headline judgment.
 - **Runtime mechanics**: whether the replay path, tenant lifecycle, operations, and artifacts behaved correctly.
 
 Keep these frames separate in reports.
@@ -17,6 +18,7 @@ A run is `failing-critical` when any hard failure is present, regardless of weig
 Current hard failures:
 
 - Fatality severity mismatch: if source or replay potential-outcome text says fatal, death, killed, or lethal, replay `potentialSeverityCode` must be `A`.
+- Case mismatch: applying one case's rubric to another case, such as HCN checks against a Fräsmaschine amputation case.
 - Broken schema/provisioning, failed operation application, or leaked simulation tenant.
 - Dangerous export surface, especially auth/session/OAuth material or avoidable user PII.
 
@@ -34,14 +36,14 @@ If the user description does not reveal the credible worst case, the coach shoul
 
 ## Weighted Categories
 
-- `fact_capture`: important user-provided facts appear in the final record.
-- `timeline_quality`: user-provided dates land in the main incident date when appropriate, not only narrative timeline rows.
-- `classification`: type, actual outcome, hazard, event type, and potential severity are coherent.
-- `investigation_logic`: cause branches are no-blame, open when incomplete, and track the case logic.
-- `next_question`: assistant asks a case-progressing question when the investigation is incomplete.
+- `classification`: type, actual outcome, hazard, event type, and potential severity match this study.
+- `fact_capture`: required case-study facts appear in the final record.
+- `questioning`: the coach surfaced important facts by asking into the right topics.
+- `investigation_logic`: cause branches track this case's actual logic.
+- `measures`: action themes appear only when the study provides them.
 - `operation_safety`: no invented timestamps, measures, owners, or corrective actions.
-- `method_switch`: method switch turns do not mutate the record unless the user accepts restructuring.
+- `runtime`: replay artifacts are complete and tenant cleanup succeeds.
 
 ## Known Limitation
 
-The first executable criteria version still contains HCN/Siegfried-specific checks. Before broad corpus optimization, move case-specific requirements into per-case expectation files and keep only invariants in shared code.
+Production data can contain contradictions. Example: a potential-outcome text may say fatal while the stored code is `E`. The study builder must derive the expected severity from the case logic rather than trusting a contradictory stored field.

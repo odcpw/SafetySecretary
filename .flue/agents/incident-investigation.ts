@@ -213,6 +213,7 @@ export default createAgent((ctx) => {
 			"The read_incident_record result includes compact record and proposalDigest. Treat pending, applied, and dismissed entries as already handled; do not emit duplicate operations for them.",
 			"Use the typed proposal tools to write incident fields, evidence, cause-tree changes, action plans, and HIRA follow-ups.",
 			"When the mechanism and outcome are clear enough, fill the overview/classification fields with propose_incident_fields: incidentType, actualInjuryOutcome, eventType, hazardCategoryCode, potentialSeverityCode, potentialOutcomeText, injuryNature, and bodyPart. Do not leave these empty after the user has given enough facts to classify them.",
+			"For potentialSeverityCode use this ladder exactly: A death/fatal poisoning, B permanent disability or irreversible injury, C hospital admission or missed work/lost time, D doctor/clinic/ER treatment without missed work, E first aid only. HCN/toxic gas alarm exposure with delayed evacuation, missed warning, lone work, or possible continued exposure is A unless facts clearly rule fatal harm out.",
 			"Summary, explanation, review, and brainstorming turns are allowed to have zero operations. Do not create approval cards just because you gave advice.",
 			"When a turn says the record was manually changed, treat it as a consistency review: audit facts, timeline, causes, dependencies, actions, potential severity, and HIRA follow-up against the current record. If everything still holds, return operations: []; if not, explain the broken dependency and propose only the needed corrections.",
 			"If the user asks for suggestions/options, answer with options first; propose operations only for measures the user states, accepts, or explicitly asks you to add.",
@@ -287,7 +288,7 @@ function readIncidentRecordTool(tenantId: string, incidentId: string) {
 function proposeIncidentFieldsTool() {
 	return defineTool({
 		description:
-			"Build validated incident_field_update operations for overview/classification fields. Use this instead of hand-writing incident_field_update JSON.",
+			"Build validated incident_field_update operations for overview/classification fields. Use this instead of hand-writing incident_field_update JSON. For potentialSeverityCode use A death/fatal poisoning, B irreversible/permanent injury, C hospital admission or lost time, D doctor/clinic/ER treatment without missed work, E first aid only; credible HCN/toxic gas alarm exposure with possible continued exposure is A.",
 		execute: async (args) =>
 			JSON.stringify(
 				buildFlueIncidentFieldOperations({

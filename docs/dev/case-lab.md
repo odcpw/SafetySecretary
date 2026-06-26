@@ -1,13 +1,16 @@
 # Case Lab
 
 Case Lab is the local experimentation harness for Incident Investigation coach
-quality. It keeps three things separate:
+quality. It replays case studies, not old chat transcripts. It keeps four
+things separate:
 
 - **Corpus export**: immutable evidence pulled from a selected real case.
 - **Lab import**: a local tenant that mirrors the exported final case for
   inspection and regression fixture work.
-- **Simulation run**: a fresh local tenant/case that replays the normalized user
-  conversation through the current coach path and captures trace artifacts.
+- **Case study**: a structured case file with opening narrative, facts,
+  expected classification, cause themes, and action themes.
+- **Study run**: a fresh local tenant/case where an adaptive simulated user
+  answers from the case study while a coach skill/runtime investigates.
 
 This is intentionally command-line and artifact-first. A UI or optimization
 loop can sit on top later.
@@ -17,9 +20,9 @@ loop can sit on top later.
 - `scripts/operator/export-incident-case-corpus.mjs`: read-only selected-case
   exporter.
 - `scripts/case-lab/case-lab.ts`: Case Lab CLI orchestration.
-- `scripts/case-lab/evaluator.ts`: executable criteria and scorecard
-  generation.
-- `tests/unit/case-lab/evaluator.test.ts`: focused criteria tests.
+- `scripts/case-lab/case-study.ts`: case-study builder, adaptive simulator,
+  and per-study evaluator.
+- `tests/unit/case-lab/case-study.test.ts`: focused case-study tests.
 - `skills/case-lab/SKILL.md`: agent-facing operating procedure for this
   subsystem.
 - `skills/case-lab/references/criteria.md`: criteria reference for future
@@ -40,30 +43,35 @@ Use `--full-flue-stream` or omit `--no-files` only when that evidence is needed
 for the specific evaluation. Normal prompt/tool evaluation should not pull file
 bodies.
 
-Import the exported final state into a local lab tenant and normalize the user
-turns:
+Import the exported final state into a local lab tenant:
 
 ```bash
 ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/safety_secretary \
   pnpm case-lab:import -- --case-folder .tmp/case-corpus-full/<case-folder>
 ```
 
-Replay the normalized turns into a fresh simulation tenant through Flue:
+Build a reusable study:
+
+```bash
+pnpm case-lab:study -- --case-folder .tmp/case-corpus-full/<case-folder>
+```
+
+Replay the study adaptively into a fresh simulation tenant through Flue:
 
 ```bash
 pnpm flue:build
 ADMIN_DATABASE_URL=postgresql://safetysecretary:safetysecretary@localhost:5435/safety_secretary \
-  pnpm case-lab:replay -- --import-dir .tmp/case-lab/imports/<import-folder>
+  pnpm case-lab:replay -- --study .tmp/case-lab/studies/<study-folder>/case-study.json --variant current
 ```
 
-Replay is cold by default: the simulation seed does not copy the source
-incident date/time, so the coach has to recover timing from the conversation.
-Use `--warm-start` only when intentionally testing from a prefilled record.
+The simulation seed is cold: it does not copy source facts into the new case.
+The coach has to surface the narrative by asking useful questions. The
+simulated user only answers from the case study.
 
 Re-score an existing replay report:
 
 ```bash
-pnpm case-lab:evaluate -- --report .tmp/case-lab/runs/<run-folder>/report.json
+pnpm case-lab:evaluate -- --report .tmp/case-lab/study-runs/<run-folder>/report.json
 ```
 
 Clean leftover lab tenants:
@@ -81,7 +89,11 @@ when you intentionally want to remove imported `case-lab-source-*` tenants too.
 `case-lab:import` writes:
 
 - `case-lab-manifest.json`
-- `normalized-conversation.json`
+
+`case-lab:study` writes:
+
+- `case-study.json`
+- `case-study.md`
 
 `case-lab:replay` writes:
 
@@ -96,26 +108,24 @@ the source case can be inspected locally.
 
 ## Evaluator Method
 
-The evaluator is a weighted rubric, not an operation-count check. Counts are
-useful diagnostics, but they are not the quality target.
+The case-study evaluator is a weighted rubric, not an operation-count or
+transcript-similarity check. Counts are useful diagnostics, but they are not
+the quality target.
 
 The current executable criteria version is emitted in every `evaluation.json`
 and `evaluation.md`.
 
-Current categories:
+Current case-study categories:
 
-- `fact_capture`: essential facts from the user account were retained.
-- `timeline_quality`: user-provided dates land in the main incident date, not
-  only in narrative timeline rows.
 - `classification`: incident type, outcome, hazard, event type, and potential
-  severity are coherent with the case facts.
-- `investigation_logic`: causes are framed as conditions, branches remain open
-  when the investigation is incomplete, and the cause structure follows the
-  actual case logic.
-- `next_question`: the assistant asks a case-progressing next question.
-- `operation_safety`: the assistant does not fabricate timestamps or measures.
-- `method_switch`: UI-driven method switch turns do not mutate the record and
-  the final method matches the last switch.
+  severity match the study's expected case logic.
+- `fact_capture`: required case-study facts appear in the final record.
+- `questioning`: important facts were surfaced by relevant coach questions.
+- `investigation_logic`: cause themes from the case study appear in the record.
+- `measures`: action themes appear when the study reaches measures.
+- `operation_safety`: the coach does not fabricate actions when the study has
+  none.
+- `runtime`: the study run completed and produced a usable artifact.
 
 For high-potential chemical exposures, the important severity criterion is
 consistency: if the potential outcome text says fatal, death, killed, or
@@ -124,9 +134,11 @@ respiratory harm without fatal wording must still be defensible as `A` or `B`.
 Fatality severity mismatch is a hard failure and cannot be averaged away by
 other passing checks. Avoid treating "not equal to production" as a pass.
 
-Known limitation: `case-lab-criteria-v0.1.0` still contains HCN/Siegfried
-specific checks. Before broad optimization, move case-specific requirements
-into per-case expectation files and keep shared code focused on invariants.
+Do not compare unrelated cases with one case's rubric. A Fräsmaschine finger
+amputation case is scored against mechanical/amputation expectations. An HCN
+near miss is scored against hazardous-substance/fatal-exposure expectations.
+Shared code handles invariants and study mechanics; case-specific expectations
+come from the study.
 
 ## Optimization Loop
 

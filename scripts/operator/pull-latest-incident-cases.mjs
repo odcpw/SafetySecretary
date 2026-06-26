@@ -4,9 +4,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const DEFAULT_HOST = "root@100.68.3.14";
+const DEFAULT_HOST = "root@100.84.128.74";
 const DEFAULT_KEY = "~/.ssh/Hetzner_SafetySecretary";
-const DEFAULT_REMOTE_DIR = "/opt/safetysecretary";
+const DEFAULT_REMOTE_DIR = "/home/safetysecretary/apps/safetysecretary-next";
 const DEFAULT_OUT_DIR = ".tmp/prod-case-pulls";
 
 const args = parseArgs(process.argv.slice(2));

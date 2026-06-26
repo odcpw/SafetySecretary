@@ -1,0 +1,4 @@
+interface:
+  display_name: "Case Lab"
+  short_description: "Local incident replay and evaluation"
+  default_prompt: "Use $case-lab to pull, replay, and evaluate selected Incident Investigation cases locally."

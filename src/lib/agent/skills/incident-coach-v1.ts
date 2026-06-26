@@ -12,7 +12,7 @@ export const INCIDENT_COACH_SKILL = {
 	id: "incident-investigation",
 	// Pre-first-release: stays on 0.x — the whole skill is a draft until we ship
 	// a real 1.0. Bump the minor on each prompt/operation-set change.
-	version: "0.15.0",
+	version: "0.18.0",
 	systemPrompt: COACH_SYSTEM_PROMPT,
 	/** Operation kinds the chat coach may emit; others are dropped with a warning. */
 	allowedOperationKinds: [

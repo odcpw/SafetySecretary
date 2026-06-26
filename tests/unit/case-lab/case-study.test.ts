@@ -17,6 +17,8 @@ describe("case study replay model", () => {
 		assert.equal(study.expected.eventType, "CUT_PUNCTURE");
 		assert.equal(study.expected.potentialSeverityCode, "B");
 		assert.equal(study.facts.some((fact) => fact.text.includes("Rettungsdienst")), true);
+		assert.match(study.id, /spänen/);
+		assert.match(study.id, /fräser/);
 		assert.equal(
 			JSON.stringify(study).toLowerCase().includes("hcn"),
 			false,
@@ -55,6 +57,24 @@ describe("case study replay model", () => {
 		});
 
 		assert.equal(study.expected.potentialSeverityCode, "A");
+	});
+
+	test("infers fatal Blausäure potential without removing diacritics", () => {
+		const study = buildCaseStudyFromBundle({
+			case: {
+				content_language: "de",
+				hazard_category_code: "HAZARDOUS_SUBSTANCES",
+				incident_type: "NEAR_MISS",
+				potential_outcome_text:
+					"Blausäure-Alarm in ppm mit verzögerter Evakuation und möglicher weiterer Exposition.",
+				potential_severity_code: "E",
+				title: "Blausäure-Alarm",
+			},
+			coachMessages: [],
+		});
+
+		assert.equal(study.expected.potentialSeverityCode, "A");
+		assert.match(study.id, /blausäure/);
 	});
 
 	test("adaptive user reveals matching facts only when the coach asks into that topic", () => {

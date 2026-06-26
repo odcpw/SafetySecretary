@@ -141,40 +141,37 @@ function isLessSevereThan(
 }
 
 function hasFatalPath(text: string): boolean {
-	return /\b(fatal|fatality|death|dead|die|died|killed|kill|lethal|tod|toedlich|todlich)\b/.test(
+	return /\b(fatal|fatality|death|dead|die|died|killed|kill|lethal|tod|tödlich|toedlich|todlich)\b/.test(
 		text,
 	);
 }
 
 function hasCredibleFatalToxicExposure(text: string): boolean {
 	const hasToxicAgent =
-		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausaure|blausaeure)\b/.test(
+		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausäure|blausaure|blausaeure)\b/.test(
 			text,
 		) || /\b(toxic|toxisch|poison|poisoning|vergiftung|gas)\b/.test(text);
 	const hasExposurePath =
-		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzoegert|verzogert|alarmierung)\b/.test(
+		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzögert|verzoegert|verzogert|alarmierung)\b/.test(
 			text,
 		);
 	return hasToxicAgent && hasExposurePath;
 }
 
 function hasIrreversibleInjuryPath(text: string): boolean {
-	return /\b(amput|teilamput|irreversible|permanent|lasting|dauerhaft|bleibend|disab|invalid|verkürzt|verkurzt|verkuerzt|funktionsbeeintraechtigung|funktionsbeeintrachtigung|tendon|nerve|sehne|nerv)\b/.test(
+	return /\b(amput|teilamput|irreversible|permanent|lasting|dauerhaft|bleibend|disab|invalid|verkürzt|verkurzt|verkuerzt|funktionsbeeinträchtigung|funktionsbeeintraechtigung|funktionsbeeintrachtigung|tendon|nerve|sehne|nerv)\b/.test(
 		text,
 	);
 }
 
 function hasLostTimeOrHospitalPath(text: string): boolean {
-	return /\b(hospital|hospitalisation|hospitalization|admitted|admission|clinic|chirurgie|luks|spital|krankenhaus|arbeitsausfall|lost time|missed work|off work|days off|ausfall|stationaer|stationar)\b/.test(
+	return /\b(hospital|hospitalisation|hospitalization|admitted|admission|clinic|chirurgie|luks|spital|krankenhaus|arbeitsausfall|lost time|missed work|off work|days off|ausfall|stationär|stationaer|stationar)\b/.test(
 		text,
 	);
 }
 
 function normalizeSeverityEvidence(value: string): string {
-	return value
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/\p{Diacritic}/gu, "");
+	return value.toLowerCase().normalize("NFC");
 }
 
 export function deriveActualSeverityFromOutcome(

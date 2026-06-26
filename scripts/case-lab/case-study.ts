@@ -420,7 +420,7 @@ function topicsForText(value: string): readonly string[] {
 	if (/wann|dienstag|montag|mittwoch|donnerstag|freitag|samstag|sonntag|uhr|\btime\b|date|morning|yesterday|\b6\/13\b/.test(text)) {
 		topics.add("timing");
 	}
-	if (/finger|amput|verkürzt|verkuerzt|chirurgie|rettungsdienst|hospital|spital|verletz|injur|fatal|death|poison|exposure/.test(text)) {
+	if (/finger|amput|verkürzt|verkurzt|verkuerzt|chirurgie|rettungsdienst|hospital|spital|verletz|injur|fatal|death|poison|exposure/.test(text)) {
 		topics.add("injury-outcome");
 	}
 	if (/warum|weil|damit|because|cause|grund|toleranz|oberfl|sicht|reflex/.test(text)) {
@@ -604,11 +604,11 @@ function inferExpectedPotentialSeverity(sourceCase: JsonRecord): string | undefi
 
 function hasCredibleFatalToxicExposure(text: string): boolean {
 	const hasToxicAgent =
-		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausaure|blausaeure)\b/.test(
+		/\b(hcn|hydrogen cyanide|cyanide|cyanwasserstoff|zyanwasserstoff|blausäure|blausaure|blausaeure)\b/.test(
 			text,
 		) || /\b(toxic|toxisch|poison|poisoning|vergiftung|gas)\b/.test(text);
 	const hasExposurePath =
-		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzoegert|verzogert|alarmierung)\b/.test(
+		/\b(exposure|exposed|inhale|inhalation|poisoning|respiratory|alarm|ppm|monitor|evacuat|delayed|missed|lone|alone|continued|weiter|verzögert|verzoegert|verzogert|alarmierung)\b/.test(
 			text,
 		);
 	return hasToxicAgent && hasExposurePath;
@@ -725,16 +725,14 @@ function uniqueText(values: readonly string[]): readonly string[] {
 }
 
 function normalize(value: unknown): string {
-	return String(value ?? "")
-		.toLowerCase()
-		.normalize("NFKD")
-		.replace(/\p{Diacritic}/gu, "");
+	return String(value ?? "").toLowerCase().normalize("NFC");
 }
 
 function safeId(value: string): string {
 	return value
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
+		.normalize("NFC")
+		.replace(/[^\p{L}\p{N}]+/gu, "-")
 		.replace(/^-+|-+$/g, "")
 		.slice(0, 80);
 }

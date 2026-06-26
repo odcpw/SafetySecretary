@@ -39,6 +39,16 @@ test("credible HCN toxic exposure is never normalized below fatal potential", ()
 	);
 });
 
+test("accented German toxic exposure terms are matched without stripping accents", () => {
+	assert.equal(
+		normalizePotentialSeverityForEvidence(
+			"D",
+			"Blausäure-Alarm mit verzögerter Evakuation und möglicher weiterer Exposition.",
+		),
+		"A",
+	);
+});
+
 test("irreversible finger injury or amputation is never normalized below B", () => {
 	assert.equal(
 		normalizePotentialSeverityForEvidence(

@@ -209,6 +209,23 @@ test("flue evidence proposals reject near-duplicate facts from the existing reco
 	assert.deepEqual(result.operations, []);
 });
 
+test("flue duplicate fact matching preserves accented German text", () => {
+	const result = buildFlueEvidenceOperations({
+		existingFacts: [
+			"Die Späne wurden mit einem Metallmassstab aus dem Bereich des Fräsers entfernt.",
+		],
+		facts: [
+			{
+				text: "Späne wurden mit einem Metallmassstab aus dem Bereich des Fräsers entfernt.",
+			},
+		],
+	});
+
+	assert.equal(result.ok, false);
+	assert.match(result.errors.join("\n"), /duplicates an existing fact/i);
+	assert.deepEqual(result.operations, []);
+});
+
 test("flue cause-tree proposals validate refs and parent dependencies", () => {
 	const result = buildFlueCauseTreeOperations({
 		causeNodes: [

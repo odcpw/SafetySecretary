@@ -1212,8 +1212,8 @@ function stringArray(value: unknown): readonly string[] {
 
 function safeSegment(value: string): string {
 	const safe = value
-		.normalize("NFKD")
-		.replace(/[^\w.-]+/g, "-")
+		.normalize("NFC")
+		.replace(/[^\p{L}\p{N}_.-]+/gu, "-")
 		.replace(/^-+|-+$/g, "")
 		.slice(0, 100);
 	return safe || "item";

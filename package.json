@@ -40,6 +40,7 @@
 		"test:incidents:coach-flue": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/incidents/coach-consistency.test.ts tests/unit/incidents/coach-flue-action-plan.test.ts tests/unit/incidents/coach-flue-agent-model.test.ts tests/unit/incidents/coach-flue-operation-tools.test.ts tests/unit/incidents/coach-flue-runtime.test.ts tests/unit/incidents/coach-proposal-digest.test.ts tests/unit/incidents/coach-flue-record-view.test.ts tests/unit/incidents/flue-sqlite-prune.test.mjs tests/unit/incidents/flue-sqlite-migration.test.ts",
 		"test:incidents:coach-transcribe": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/coach-transcribe.test.ts",
 		"test:incidents:causes": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/causes.test.ts",
+		"test:process-map": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/process-map/store.test.ts",
 		"test:incidents:actions": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/actions.test.ts",
 		"test:incidents:status": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/incidents/workflow-stage.test.ts tests/integration/incidents/status.test.ts",
 		"test:incidents:workbench": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/workbench-editing.test.ts",

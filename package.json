@@ -41,6 +41,7 @@
 		"test:incidents:coach-transcribe": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/coach-transcribe.test.ts",
 		"test:incidents:causes": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/causes.test.ts",
 		"test:process-map": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/process-map/store.test.ts",
+		"test:process-map:coach": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/process-map/coach.test.ts",
 		"test:incidents:actions": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/actions.test.ts",
 		"test:incidents:status": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/incidents/workflow-stage.test.ts tests/integration/incidents/status.test.ts",
 		"test:incidents:workbench": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/workbench-editing.test.ts",

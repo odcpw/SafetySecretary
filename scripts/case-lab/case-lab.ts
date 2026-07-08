@@ -1162,12 +1162,56 @@ function optionalString(value: unknown, flag: string): string | undefined {
 	throw new Error(`${flag} requires a value.`);
 }
 
+const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
+
+function databaseHost(url: string): string | null {
+	try {
+		// Strip IPv6 brackets so "[::1]" compares equal to "::1".
+		return new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+	} catch {
+		return null;
+	}
+}
+
+function assertLocalDatabase(rawUrl: string | undefined, label: string): void {
+	if (process.env.CASE_LAB_ALLOW_NONLOCAL === "1") {
+		return;
+	}
+	const url = rawUrl?.trim();
+	if (!url) {
+		throw new Error(
+			`${label} is not set; Case Lab refuses to run without a local database connection.`,
+		);
+	}
+	const host = databaseHost(url);
+	const extraHosts = (process.env.CASE_LAB_LOCAL_DB_HOSTS ?? "")
+		.split(",")
+		.map((entry) => entry.trim().toLowerCase())
+		.filter(Boolean);
+	const allowed = new Set([...LOCAL_DATABASE_HOSTS, ...extraHosts]);
+	if (!host || !allowed.has(host)) {
+		throw new Error(
+			`${label} points at non-local host "${host ?? "?"}". Case Lab creates and DROPS ` +
+				`tenant schemas and deletes tenants/users, so it refuses to run against a non-local ` +
+				`database. Allowlist a host with CASE_LAB_LOCAL_DB_HOSTS, or set ` +
+				`CASE_LAB_ALLOW_NONLOCAL=1 to override (dangerous).`,
+		);
+	}
+}
+
 function requireAdminDatabaseUrl(reason: string): void {
 	if (!process.env.ADMIN_DATABASE_URL?.trim()) {
 		throw new Error(
 			`${reason}; set ADMIN_DATABASE_URL to a privileged local database connection before running this command.`,
 		);
 	}
+	// The destructive DML (tenant/user/session deleteMany, tenant provisioning)
+	// runs on the default Prisma client bound to DATABASE_URL — NOT
+	// ADMIN_DATABASE_URL, which is only used for DDL. Validate the connection that
+	// actually performs the writes/deletes is local so a mis-pointed .env cannot
+	// let import/replay/janitor mutate or destroy production data.
+	assertLocalDatabase(process.env.DATABASE_URL, "DATABASE_URL");
+	assertLocalDatabase(process.env.ADMIN_DATABASE_URL, "ADMIN_DATABASE_URL");
 }
 
 function labAppLoginRole(): string | null {

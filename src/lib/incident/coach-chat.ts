@@ -125,6 +125,7 @@ export async function listCoachMessages(
 			SELECT id::text AS id
 			FROM incident_case
 			WHERE id = ${incidentId}::uuid
+				AND deleted_at IS NULL
 			LIMIT 1
 		`;
 

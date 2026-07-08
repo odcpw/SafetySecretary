@@ -123,6 +123,7 @@ async function loadWorkflowStage(
 				updated_at AS "updatedAt"
 			FROM incident_case
 			WHERE id = ${incidentId}::uuid
+				AND deleted_at IS NULL
 			LIMIT 1
 		`,
 	);
@@ -148,6 +149,7 @@ async function updateWorkflowStage(
 				closed_at = ${closedAt}::timestamptz,
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ${incidentId}::uuid
+				AND deleted_at IS NULL
 			RETURNING
 				id::text AS id,
 				workflow_stage::text AS "workflowStage",

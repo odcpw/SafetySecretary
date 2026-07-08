@@ -306,6 +306,66 @@ export async function deleteCauseNode(
 	nodeId: string,
 ): Promise<boolean> {
 	return withTenantConnection(tenantId, async (tx) => {
+		// Serialize structural changes per case (same advisory lock the insert and
+		// re-parent paths take) so a concurrent edit cannot interleave with the
+		// promotion below.
+		await tx.$queryRaw`
+			SELECT pg_advisory_xact_lock(hashtextextended(${incidentId}, 0))::text
+		`;
+
+		const target = await tx.$queryRaw<
+			Array<{ parentId: string | null; timelineEventId: string | null }>
+		>`
+			SELECT parent_id::text AS "parentId",
+				timeline_event_id::text AS "timelineEventId"
+			FROM incident_cause_node
+			WHERE id = ${nodeId}::uuid
+				AND case_id = ${incidentId}::uuid
+			LIMIT 1
+		`;
+		const node = target[0];
+
+		if (!node) {
+			return false;
+		}
+
+		// Promote this node's children into its own place in the tree BEFORE the
+		// delete. Both the self-parent FK (parent_id) and the corrective-action FK
+		// (incident_cause_action.cause_node_id) are ON DELETE CASCADE, so a bare
+		// delete would silently destroy the entire subtree and every measure hung
+		// off it. Children inherit the deleted node's parent AND timeline anchor so
+		// a promoted child becomes a sibling of the deleted node — or a new branch
+		// root when the deleted node was one.
+		await tx.$executeRaw`
+			UPDATE incident_cause_node
+			SET parent_id = ${node.parentId}::uuid,
+				timeline_event_id = ${node.timelineEventId}::uuid,
+				updated_at = CURRENT_TIMESTAMP
+			WHERE case_id = ${incidentId}::uuid
+				AND parent_id = ${nodeId}::uuid
+		`;
+
+		// Renumber the destination sibling group gap-free (matching
+		// repositionCauseNode's parent_id-scoped ordering) so promoted children do
+		// not collide with existing siblings on order_index.
+		await tx.$executeRaw`
+			WITH ordered AS (
+				SELECT id,
+					(ROW_NUMBER() OVER (
+						ORDER BY order_index ASC, created_at ASC, id ASC
+					) - 1) AS new_index
+				FROM incident_cause_node
+				WHERE case_id = ${incidentId}::uuid
+					AND parent_id IS NOT DISTINCT FROM ${node.parentId}::uuid
+					AND id <> ${nodeId}::uuid
+			)
+			UPDATE incident_cause_node AS n
+			SET order_index = ordered.new_index, updated_at = CURRENT_TIMESTAMP
+			FROM ordered
+			WHERE n.id = ordered.id
+				AND n.order_index IS DISTINCT FROM ordered.new_index
+		`;
+
 		const rows = await tx.$queryRaw<Array<{ id: string }>>`
 			DELETE FROM incident_cause_node
 			WHERE id = ${nodeId}::uuid

@@ -207,12 +207,15 @@ function LocalOverrideForm({
 					<span className="font-medium">
 						{t(messageKey("settings", "byok", "apiKeyOrPlaceholder"), locale)}
 					</span>
+					{/* Never render the stored key back to the client. Show a masked
+					    placeholder when one is set; leaving the field blank on save
+					    keeps the existing key (handled server-side). */}
 					<input
 						autoComplete="off"
 						className="min-h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2"
-						defaultValue={state?.localOverrideConfig?.apiKey ?? ""}
 						name="apiKey"
-						type="text"
+						placeholder={state?.localOverrideConfig?.apiKey ? "••••••••••••" : ""}
+						type="password"
 					/>
 				</label>
 				<div className="grid gap-3 sm:grid-cols-2">
@@ -317,12 +320,24 @@ async function saveLocalOverrideAction(formData: FormData) {
 		return;
 	}
 
+	// The key field is no longer prefilled (it is a secret, never sent to the
+	// client). An empty field therefore means "keep the current key" rather than
+	// "clear it" — reload the stored key server-side when none was re-entered.
+	let apiKey = formString(formData, "apiKey") || undefined;
+	if (!apiKey) {
+		const existing = await readByokSettings(
+			{ tenantId: context.tenantId, userId: context.userId },
+			{ prisma },
+		);
+		apiKey = existing?.localOverrideConfig?.apiKey || undefined;
+	}
+
 	await saveLocalOverrideConfig(
 		{
 			tenantId: context.tenantId,
 			userId: context.userId,
 			config: {
-				apiKey: formString(formData, "apiKey") || undefined,
+				apiKey,
 				baseUrl: formString(formData, "baseUrl"),
 				textModel: formString(formData, "textModel"),
 				visionModel: formString(formData, "visionModel"),

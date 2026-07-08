@@ -339,6 +339,7 @@ async function listIncidents(tenantId: string): Promise<IncidentRow[]> {
 				created_at AS "createdAt",
 				updated_at AS "updatedAt"
 			FROM incident_case
+			WHERE deleted_at IS NULL
 			ORDER BY updated_at DESC, created_at DESC, title ASC
 		`,
 	);

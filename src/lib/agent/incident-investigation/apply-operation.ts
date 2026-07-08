@@ -54,6 +54,7 @@ export async function applyIncidentCoachOperation(input: {
 			SELECT id::text AS id
 			FROM incident_case
 			WHERE id = ${input.incidentId}::uuid
+				AND deleted_at IS NULL
 			LIMIT 1
 		`;
 
@@ -196,7 +197,7 @@ export async function applyIncidentCoachOperation(input: {
 						${orderIndex},
 						${statement},
 						NULL,
-						${payload.isRootCause ?? false},
+						${branchStatus === "ROOT_REACHED"},
 						${branchStatus}
 					)
 				`;
@@ -239,11 +240,29 @@ export async function applyIncidentCoachOperation(input: {
 					}
 				}
 				const statement = editedText ?? cleanText(payload.statement);
+				// is_root_cause and branch_status both encode "is this a root
+				// cause?" and every reader treats either signal as root. Writing
+				// them independently (the old COALESCE pair) let them disagree, so
+				// resolve one branch status in-transaction and set both from it.
+				const currentStatusRows = await tx.$queryRaw<
+					Array<{ branchStatus: string }>
+				>`
+					SELECT branch_status AS "branchStatus"
+					FROM incident_cause_node
+					WHERE id = ${causeNodeId}::uuid
+						AND case_id = ${input.incidentId}::uuid
+					LIMIT 1
+				`;
+				const nextStatus = resolveBranchStatus(
+					currentStatusRows[0]?.branchStatus ?? "OPEN",
+					payload.branchStatus,
+					payload.isRootCause,
+				);
 				await tx.$executeRaw`
 					UPDATE incident_cause_node
 					SET statement = COALESCE(${statement}, statement),
-						is_root_cause = COALESCE(${payload.isRootCause ?? null}, is_root_cause),
-						branch_status = COALESCE(${payload.branchStatus ?? null}, branch_status),
+						branch_status = ${nextStatus},
+						is_root_cause = ${nextStatus === "ROOT_REACHED"},
 						updated_at = CURRENT_TIMESTAMP
 					WHERE id = ${causeNodeId}::uuid
 						AND case_id = ${input.incidentId}::uuid
@@ -663,6 +682,36 @@ async function applyIncidentFieldUpdate(
 	}
 }
 
+type BranchStatus = "OPEN" | "ROOT_REACHED" | "PARKED";
+
+function isBranchStatus(value: string): value is BranchStatus {
+	return value === "OPEN" || value === "ROOT_REACHED" || value === "PARKED";
+}
+
+/**
+ * Resolve the single branch status that both branch_status and is_root_cause
+ * derive from. An explicit branch status wins; otherwise isRootCause promotes a
+ * branch to ROOT_REACHED (true) or demotes a previously-reached branch back to
+ * OPEN (false); when neither is supplied the current status is preserved.
+ */
+function resolveBranchStatus(
+	current: string,
+	nextStatus: string | null | undefined,
+	isRootCause: boolean | null | undefined,
+): BranchStatus {
+	if (nextStatus && isBranchStatus(nextStatus)) {
+		return nextStatus;
+	}
+	const currentStatus: BranchStatus = isBranchStatus(current) ? current : "OPEN";
+	if (isRootCause === true) {
+		return "ROOT_REACHED";
+	}
+	if (isRootCause === false && currentStatus === "ROOT_REACHED") {
+		return "OPEN";
+	}
+	return currentStatus;
+}
+
 /**
  * Re-parents a cause node within its case. Serialized per case with an
  * advisory lock and guarded by a terminating ancestor walk so concurrent
@@ -989,6 +1038,11 @@ async function nearDuplicateActionId(
 }
 
 async function nextFactOrderIndex(tx: Tx, incidentId: string): Promise<number> {
+	// Serialize order_index allocation per case (matching the cause/action paths)
+	// so concurrent inserts cannot read the same MAX()+1 and collide.
+	await tx.$queryRaw`
+		SELECT pg_advisory_xact_lock(hashtextextended(${incidentId}, 0))::text
+	`;
 	const rows = await tx.$queryRaw<Array<{ orderIndex: number }>>`
 		SELECT COALESCE(MAX(order_index) + 1, 0)::int AS "orderIndex"
 		FROM incident_fact
@@ -1001,6 +1055,11 @@ async function nextTimelineOrderIndex(
 	tx: Tx,
 	incidentId: string,
 ): Promise<number> {
+	// Serialize order_index allocation per case (matching the cause/action paths)
+	// so concurrent inserts cannot read the same MAX()+1 and collide.
+	await tx.$queryRaw`
+		SELECT pg_advisory_xact_lock(hashtextextended(${incidentId}, 0))::text
+	`;
 	const rows = await tx.$queryRaw<Array<{ orderIndex: number }>>`
 		SELECT COALESCE(MAX(order_index) + 1, 0)::int AS "orderIndex"
 		FROM incident_timeline_event

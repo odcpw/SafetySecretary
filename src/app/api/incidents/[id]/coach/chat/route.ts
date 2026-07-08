@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { readSessionCookie } from "../../../../../../lib/auth/cookies";
+import { verifyCsrfRequest } from "../../../../../../lib/auth/csrf";
 import {
 	type ValidatedSession,
 	validateSession,
@@ -67,6 +68,12 @@ export async function POST(
 		return NextResponse.json({ code: "AUTH_REQUIRED" }, { status: 401 });
 	}
 
+	// CSRF is also enforced centrally in the proxy for state-changing methods;
+	// re-verify here so this budget-spending route matches its siblings.
+	if (!verifyCsrfRequest(request.headers, session.id)) {
+		return NextResponse.json({ code: "CSRF_REQUIRED" }, { status: 403 });
+	}
+
 	const body = ((await request.json().catch(() => ({}))) ??
 		{}) as CoachChatRequestBody;
 	const message = stringValue(body.message);
@@ -111,7 +118,7 @@ export async function POST(
 
 async function resolveSession(
 	request: NextRequest,
-): Promise<Pick<ValidatedSession, "tenantId" | "userId"> | null> {
+): Promise<Pick<ValidatedSession, "id" | "tenantId" | "userId"> | null> {
 	return validateSession(readSessionCookie(request.cookies));
 }
 

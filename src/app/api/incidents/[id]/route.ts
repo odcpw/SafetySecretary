@@ -295,6 +295,7 @@ async function loadIncident(
 				updated_at AS "updatedAt"
 			FROM incident_case
 			WHERE id = ${incidentId}::uuid
+				AND deleted_at IS NULL
 			LIMIT 1
 		`,
 	);
@@ -347,6 +348,7 @@ async function updateIncident(
 				coordinator_name = ${payload.coordinatorName},
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ${incidentId}::uuid
+				AND deleted_at IS NULL
 			RETURNING
 				id::text AS id,
 				case_number AS "caseNumber",

@@ -96,6 +96,7 @@ async function updateCauseMethod(input: {
 				cause_method = ${input.causeMethod},
 				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ${input.incidentId}::uuid
+				AND deleted_at IS NULL
 			RETURNING
 				id::text AS id,
 				cause_method AS "causeMethod",

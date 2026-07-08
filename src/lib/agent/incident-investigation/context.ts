@@ -142,6 +142,7 @@ export async function buildIncidentInvestigationAgentContext(input: {
 				hira_followup_text AS "hiraFollowupText"
 			FROM incident_case
 			WHERE id = ${incidentId}::uuid
+				AND deleted_at IS NULL
 			LIMIT 1
 		`;
 		const incident = incidents[0];

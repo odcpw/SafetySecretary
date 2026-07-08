@@ -3,8 +3,10 @@ import { withTenantConnection } from "../db";
 
 export type ProcessMapStatus = "DRAFT" | "APPROVED";
 export type ProcessNodeKind = "PROCESS" | "SUBPROCESS" | "ACTIVITY";
+export type ProcessNodeSourceConfidence = "DIRECT" | "HEARSAY";
 export type ProcessFlowDirection = "IN" | "OUT";
 export type ProcessFlowType = "MATERIAL" | "INFORMATION" | "MONEY";
+export type ProcessResourceType = "ROLE" | "EQUIPMENT" | "MATERIAL_POOL";
 
 export type ProcessMap = {
 	id: string;
@@ -26,6 +28,9 @@ export type ProcessNode = {
 	orderIndex: number;
 	name: string;
 	description: string | null;
+	sourceConfidence: ProcessNodeSourceConfidence;
+	durationNote: string | null;
+	frequencyNote: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 };
@@ -38,6 +43,30 @@ export type ProcessFlow = {
 	flowType: ProcessFlowType;
 	label: string;
 	counterparty: string | null;
+	orderIndex: number;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
+export type ProcessEdge = {
+	id: string;
+	mapId: string;
+	fromNodeId: string;
+	toNodeId: string;
+	routingNote: string | null;
+	orderIndex: number;
+	createdAt: Date;
+	updatedAt: Date;
+};
+
+export type ProcessResource = {
+	id: string;
+	mapId: string;
+	nodeId: string;
+	resourceType: ProcessResourceType;
+	label: string;
+	quantityNote: string | null;
+	returnable: boolean;
 	orderIndex: number;
 	createdAt: Date;
 	updatedAt: Date;
@@ -61,6 +90,9 @@ export type UpdateProcessNodeInput = {
 	name?: string;
 	description?: string | null;
 	kind?: ProcessNodeKind;
+	sourceConfidence?: ProcessNodeSourceConfidence;
+	durationNote?: string | null;
+	frequencyNote?: string | null;
 };
 
 export type AddProcessFlowInput = {
@@ -76,6 +108,31 @@ export type UpdateProcessFlowInput = {
 	flowType?: ProcessFlowType;
 	label?: string;
 	counterparty?: string | null;
+};
+
+export type AddProcessEdgeInput = {
+	fromNodeId: string;
+	toNodeId: string;
+	routingNote?: string | null;
+};
+
+export type UpdateProcessEdgeInput = {
+	routingNote?: string | null;
+};
+
+export type AddProcessResourceInput = {
+	nodeId: string;
+	resourceType: ProcessResourceType;
+	label: string;
+	quantityNote?: string | null;
+	returnable?: boolean;
+};
+
+export type UpdateProcessResourceInput = {
+	resourceType?: ProcessResourceType;
+	label?: string;
+	quantityNote?: string | null;
+	returnable?: boolean;
 };
 
 type TenantTx = Parameters<Parameters<typeof withTenantConnection>[1]>[0];
@@ -165,7 +222,13 @@ export async function listProcessMaps(
 export async function loadProcessMap(
 	tenantId: string,
 	mapId: string,
-): Promise<{ map: ProcessMap; nodes: ProcessNode[]; flows: ProcessFlow[] } | null> {
+): Promise<{
+	map: ProcessMap;
+	nodes: ProcessNode[];
+	flows: ProcessFlow[];
+	edges: ProcessEdge[];
+	resources: ProcessResource[];
+} | null> {
 	return withTenantConnection(tenantId, async (tx) => {
 		const maps = await tx.$queryRaw<ProcessMap[]>`
 			SELECT
@@ -189,12 +252,14 @@ export async function loadProcessMap(
 			return null;
 		}
 
-		const [nodes, flows] = await Promise.all([
+		const [nodes, flows, edges, resources] = await Promise.all([
 			listProcessNodes(tx, mapId),
 			listProcessFlows(tx, mapId),
+			listProcessEdges(tx, mapId),
+			listProcessResources(tx, mapId),
 		]);
 
-		return { map, nodes, flows };
+		return { map, nodes, flows, edges, resources };
 	});
 }
 
@@ -269,6 +334,9 @@ export async function addProcessNode(
 				order_index AS "orderIndex",
 				name,
 				description,
+				source_confidence AS "sourceConfidence",
+				duration_note AS "durationNote",
+				frequency_note AS "frequencyNote",
 				created_at AS "createdAt",
 				updated_at AS "updatedAt"
 		`;
@@ -283,6 +351,13 @@ export async function updateProcessNode(
 	nodeId: string,
 	input: UpdateProcessNodeInput,
 ): Promise<ProcessNode | null> {
+	if (
+		input.sourceConfidence !== undefined &&
+		!isProcessNodeSourceConfidence(input.sourceConfidence)
+	) {
+		return null;
+	}
+
 	return withTenantConnection(tenantId, async (tx) => {
 		const rows = await tx.$queryRaw<ProcessNode[]>`
 			UPDATE process_node AS node
@@ -294,6 +369,20 @@ export async function updateProcessNode(
 					ELSE node.description
 				END,
 				kind = COALESCE(${input.kind ?? null}, node.kind),
+				source_confidence = COALESCE(
+					${input.sourceConfidence ?? null},
+					node.source_confidence
+				),
+				duration_note = CASE
+					WHEN ${input.durationNote !== undefined}
+						THEN ${input.durationNote ?? null}
+					ELSE node.duration_note
+				END,
+				frequency_note = CASE
+					WHEN ${input.frequencyNote !== undefined}
+						THEN ${input.frequencyNote ?? null}
+					ELSE node.frequency_note
+				END,
 				updated_at = CURRENT_TIMESTAMP
 			FROM process_map AS map
 			WHERE node.id = ${nodeId}::uuid
@@ -308,6 +397,9 @@ export async function updateProcessNode(
 				node.order_index AS "orderIndex",
 				node.name,
 				node.description,
+				node.source_confidence AS "sourceConfidence",
+				node.duration_note AS "durationNote",
+				node.frequency_note AS "frequencyNote",
 				node.created_at AS "createdAt",
 				node.updated_at AS "updatedAt"
 		`;
@@ -345,6 +437,9 @@ export async function moveProcessNode(
 					node.order_index AS "orderIndex",
 					node.name,
 					node.description,
+					node.source_confidence AS "sourceConfidence",
+					node.duration_note AS "durationNote",
+					node.frequency_note AS "frequencyNote",
 					node.created_at AS "createdAt",
 					node.updated_at AS "updatedAt"
 			`;
@@ -425,11 +520,191 @@ export async function deleteProcessNode(
 				AND n.order_index IS DISTINCT FROM ordered.new_index
 		`;
 
+		const incoming = await tx.$queryRaw<Array<{ fromNodeId: string }>>`
+			SELECT from_node_id::text AS "fromNodeId"
+			FROM process_edge
+			WHERE map_id = ${mapId}::uuid
+				AND to_node_id = ${nodeId}::uuid
+			ORDER BY order_index ASC, created_at ASC, id ASC
+		`;
+		const outgoing = await tx.$queryRaw<Array<{ toNodeId: string }>>`
+			SELECT to_node_id::text AS "toNodeId"
+			FROM process_edge
+			WHERE map_id = ${mapId}::uuid
+				AND from_node_id = ${nodeId}::uuid
+			ORDER BY order_index ASC, created_at ASC, id ASC
+		`;
+
+		for (const source of incoming) {
+			for (const target of outgoing) {
+				if (source.fromNodeId.toLowerCase() === target.toNodeId.toLowerCase()) {
+					continue;
+				}
+
+				await tx.$executeRaw`
+					INSERT INTO process_edge (
+						id,
+						map_id,
+						from_node_id,
+						to_node_id,
+						routing_note,
+						order_index
+					)
+					VALUES (
+						${randomUUID()}::uuid,
+						${mapId}::uuid,
+						${source.fromNodeId}::uuid,
+						${target.toNodeId}::uuid,
+						NULL,
+						COALESCE(
+							(
+								SELECT MAX(order_index) + 1
+								FROM process_edge
+								WHERE map_id = ${mapId}::uuid
+							),
+							0
+						)
+					)
+					ON CONFLICT (map_id, from_node_id, to_node_id) DO NOTHING
+				`;
+			}
+		}
+
 		const rows = await tx.$queryRaw<Array<{ id: string }>>`
 			DELETE FROM process_node
 			WHERE id = ${nodeId}::uuid
 				AND map_id = ${mapId}::uuid
 			RETURNING id::text AS id
+		`;
+
+		return Boolean(rows[0]);
+	});
+}
+
+export async function addProcessEdge(
+	tenantId: string,
+	mapId: string,
+	input: AddProcessEdgeInput,
+): Promise<ProcessEdge | null> {
+	if (input.fromNodeId.toLowerCase() === input.toNodeId.toLowerCase()) {
+		return null;
+	}
+
+	return withTenantConnection(tenantId, async (tx) => {
+		await lockProcessMap(tx, mapId);
+
+		const existing = await findProcessEdge(
+			tx,
+			mapId,
+			input.fromNodeId,
+			input.toNodeId,
+		);
+		if (existing) {
+			return existing;
+		}
+
+		const validNodes = await tx.$queryRaw<Array<{ count: number }>>`
+			SELECT COUNT(DISTINCT node.id)::int AS count
+			FROM process_node AS node
+			JOIN process_map AS map ON map.id = node.map_id
+			WHERE node.id IN (${input.fromNodeId}::uuid, ${input.toNodeId}::uuid)
+				AND node.map_id = ${mapId}::uuid
+				AND map.deleted_at IS NULL
+		`;
+		if ((validNodes[0]?.count ?? 0) !== 2) {
+			return null;
+		}
+
+		const edgeId = randomUUID();
+		const rows = await tx.$queryRaw<ProcessEdge[]>`
+			INSERT INTO process_edge (
+				id,
+				map_id,
+				from_node_id,
+				to_node_id,
+				routing_note,
+				order_index
+			)
+			VALUES (
+				${edgeId}::uuid,
+				${mapId}::uuid,
+				${input.fromNodeId}::uuid,
+				${input.toNodeId}::uuid,
+				${input.routingNote ?? null},
+				COALESCE(
+					(
+						SELECT MAX(order_index) + 1
+						FROM process_edge
+						WHERE map_id = ${mapId}::uuid
+					),
+					0
+				)
+			)
+			RETURNING
+				id::text AS id,
+				map_id::text AS "mapId",
+				from_node_id::text AS "fromNodeId",
+				to_node_id::text AS "toNodeId",
+				routing_note AS "routingNote",
+				order_index AS "orderIndex",
+				created_at AS "createdAt",
+				updated_at AS "updatedAt"
+		`;
+
+		return rows[0] ?? null;
+	});
+}
+
+export async function updateProcessEdge(
+	tenantId: string,
+	mapId: string,
+	edgeId: string,
+	input: UpdateProcessEdgeInput,
+): Promise<ProcessEdge | null> {
+	return withTenantConnection(tenantId, async (tx) => {
+		const rows = await tx.$queryRaw<ProcessEdge[]>`
+			UPDATE process_edge AS edge
+			SET
+				routing_note = CASE
+					WHEN ${input.routingNote !== undefined}
+						THEN ${input.routingNote ?? null}
+					ELSE edge.routing_note
+				END,
+				updated_at = CURRENT_TIMESTAMP
+			FROM process_map AS map
+			WHERE edge.id = ${edgeId}::uuid
+				AND edge.map_id = ${mapId}::uuid
+				AND map.id = edge.map_id
+				AND map.deleted_at IS NULL
+			RETURNING
+				edge.id::text AS id,
+				edge.map_id::text AS "mapId",
+				edge.from_node_id::text AS "fromNodeId",
+				edge.to_node_id::text AS "toNodeId",
+				edge.routing_note AS "routingNote",
+				edge.order_index AS "orderIndex",
+				edge.created_at AS "createdAt",
+				edge.updated_at AS "updatedAt"
+		`;
+
+		return rows[0] ?? null;
+	});
+}
+
+export async function removeProcessEdge(
+	tenantId: string,
+	mapId: string,
+	edgeId: string,
+): Promise<boolean> {
+	return withTenantConnection(tenantId, async (tx) => {
+		const rows = await tx.$queryRaw<Array<{ id: string }>>`
+			DELETE FROM process_edge AS edge
+			USING process_map AS map
+			WHERE edge.id = ${edgeId}::uuid
+				AND edge.map_id = ${mapId}::uuid
+				AND map.id = edge.map_id
+				AND map.deleted_at IS NULL
+			RETURNING edge.id::text AS id
 		`;
 
 		return Boolean(rows[0]);
@@ -556,10 +831,143 @@ export async function removeProcessFlow(
 	});
 }
 
+export async function addProcessResource(
+	tenantId: string,
+	mapId: string,
+	input: AddProcessResourceInput,
+): Promise<ProcessResource | null> {
+	return withTenantConnection(tenantId, async (tx) => {
+		await lockProcessMap(tx, mapId);
+
+		const resourceId = randomUUID();
+		const rows = await tx.$queryRaw<ProcessResource[]>`
+			INSERT INTO process_resource (
+				id,
+				map_id,
+				node_id,
+				resource_type,
+				label,
+				quantity_note,
+				returnable,
+				order_index
+			)
+			SELECT
+				${resourceId}::uuid,
+				node.map_id,
+				node.id,
+				${input.resourceType},
+				${input.label},
+				${input.quantityNote ?? null},
+				${input.returnable ?? false},
+				COALESCE(
+					(
+						SELECT MAX(order_index) + 1
+						FROM process_resource
+						WHERE map_id = ${mapId}::uuid
+							AND node_id = ${input.nodeId}::uuid
+					),
+					0
+				)
+			FROM process_node AS node
+			JOIN process_map AS map ON map.id = node.map_id
+			WHERE node.id = ${input.nodeId}::uuid
+				AND node.map_id = ${mapId}::uuid
+				AND map.deleted_at IS NULL
+			RETURNING
+				id::text AS id,
+				map_id::text AS "mapId",
+				node_id::text AS "nodeId",
+				resource_type AS "resourceType",
+				label,
+				quantity_note AS "quantityNote",
+				returnable,
+				order_index AS "orderIndex",
+				created_at AS "createdAt",
+				updated_at AS "updatedAt"
+		`;
+
+		return rows[0] ?? null;
+	});
+}
+
+export async function updateProcessResource(
+	tenantId: string,
+	mapId: string,
+	resourceId: string,
+	input: UpdateProcessResourceInput,
+): Promise<ProcessResource | null> {
+	return withTenantConnection(tenantId, async (tx) => {
+		const rows = await tx.$queryRaw<ProcessResource[]>`
+			UPDATE process_resource AS resource
+			SET
+				resource_type = COALESCE(
+					${input.resourceType ?? null},
+					resource.resource_type
+				),
+				label = COALESCE(${input.label ?? null}, resource.label),
+				quantity_note = CASE
+					WHEN ${input.quantityNote !== undefined}
+						THEN ${input.quantityNote ?? null}
+					ELSE resource.quantity_note
+				END,
+				returnable = CASE
+					WHEN ${input.returnable !== undefined}
+						THEN ${input.returnable ?? false}
+					ELSE resource.returnable
+				END,
+				updated_at = CURRENT_TIMESTAMP
+			FROM process_map AS map
+			WHERE resource.id = ${resourceId}::uuid
+				AND resource.map_id = ${mapId}::uuid
+				AND map.id = resource.map_id
+				AND map.deleted_at IS NULL
+			RETURNING
+				resource.id::text AS id,
+				resource.map_id::text AS "mapId",
+				resource.node_id::text AS "nodeId",
+				resource.resource_type AS "resourceType",
+				resource.label,
+				resource.quantity_note AS "quantityNote",
+				resource.returnable,
+				resource.order_index AS "orderIndex",
+				resource.created_at AS "createdAt",
+				resource.updated_at AS "updatedAt"
+		`;
+
+		return rows[0] ?? null;
+	});
+}
+
+export async function removeProcessResource(
+	tenantId: string,
+	mapId: string,
+	resourceId: string,
+): Promise<boolean> {
+	return withTenantConnection(tenantId, async (tx) => {
+		const rows = await tx.$queryRaw<Array<{ id: string }>>`
+			DELETE FROM process_resource AS resource
+			USING process_map AS map
+			WHERE resource.id = ${resourceId}::uuid
+				AND resource.map_id = ${mapId}::uuid
+				AND map.id = resource.map_id
+				AND map.deleted_at IS NULL
+			RETURNING resource.id::text AS id
+		`;
+
+		return Boolean(rows[0]);
+	});
+}
+
 async function lockProcessMap(tx: TenantTx, mapId: string): Promise<void> {
 	await tx.$queryRaw`
 		SELECT pg_advisory_xact_lock(hashtextextended(${mapId}, 0))::text
 	`;
+}
+
+function isProcessNodeSourceConfidence(
+	value: unknown,
+): value is ProcessNodeSourceConfidence {
+	return value === "DIRECT" || value === "HEARSAY";
 }
 
 async function processNodeExists(
@@ -681,12 +1089,85 @@ async function listProcessNodes(
 			order_index AS "orderIndex",
 			name,
 			description,
+			source_confidence AS "sourceConfidence",
+			duration_note AS "durationNote",
+			frequency_note AS "frequencyNote",
 			created_at AS "createdAt",
 			updated_at AS "updatedAt"
 		FROM process_node
 		WHERE map_id = ${mapId}::uuid
 		ORDER BY order_index ASC, created_at ASC, id ASC
 	`;
+}
+
+async function listProcessEdges(
+	tx: TenantTx,
+	mapId: string,
+): Promise<ProcessEdge[]> {
+	return tx.$queryRaw<ProcessEdge[]>`
+		SELECT
+			id::text AS id,
+			map_id::text AS "mapId",
+			from_node_id::text AS "fromNodeId",
+			to_node_id::text AS "toNodeId",
+			routing_note AS "routingNote",
+			order_index AS "orderIndex",
+			created_at AS "createdAt",
+			updated_at AS "updatedAt"
+		FROM process_edge
+		WHERE map_id = ${mapId}::uuid
+		ORDER BY order_index ASC, created_at ASC, id ASC
+	`;
+}
+
+async function listProcessResources(
+	tx: TenantTx,
+	mapId: string,
+): Promise<ProcessResource[]> {
+	return tx.$queryRaw<ProcessResource[]>`
+		SELECT
+			id::text AS id,
+			map_id::text AS "mapId",
+			node_id::text AS "nodeId",
+			resource_type AS "resourceType",
+			label,
+			quantity_note AS "quantityNote",
+			returnable,
+			order_index AS "orderIndex",
+			created_at AS "createdAt",
+			updated_at AS "updatedAt"
+		FROM process_resource
+		WHERE map_id = ${mapId}::uuid
+		ORDER BY node_id ASC, order_index ASC, created_at ASC, id ASC
+	`;
+}
+
+async function findProcessEdge(
+	tx: TenantTx,
+	mapId: string,
+	fromNodeId: string,
+	toNodeId: string,
+): Promise<ProcessEdge | null> {
+	const rows = await tx.$queryRaw<ProcessEdge[]>`
+		SELECT
+			edge.id::text AS id,
+			edge.map_id::text AS "mapId",
+			edge.from_node_id::text AS "fromNodeId",
+			edge.to_node_id::text AS "toNodeId",
+			edge.routing_note AS "routingNote",
+			edge.order_index AS "orderIndex",
+			edge.created_at AS "createdAt",
+			edge.updated_at AS "updatedAt"
+		FROM process_edge AS edge
+		JOIN process_map AS map ON map.id = edge.map_id
+		WHERE edge.map_id = ${mapId}::uuid
+			AND edge.from_node_id = ${fromNodeId}::uuid
+			AND edge.to_node_id = ${toNodeId}::uuid
+			AND map.deleted_at IS NULL
+		LIMIT 1
+	`;
+
+	return rows[0] ?? null;
 }
 
 async function listProcessFlows(

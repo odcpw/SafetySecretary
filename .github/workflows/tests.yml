@@ -63,6 +63,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
 
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
       - name: Write .env file
         run: |
           cat > .env <<EOF

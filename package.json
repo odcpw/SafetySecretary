@@ -34,6 +34,7 @@
 		"case-lab:replay": "node --env-file=.env --experimental-strip-types --experimental-specifier-resolution=node scripts/case-lab/case-lab.ts replay",
 		"case-lab:evaluate": "node --env-file=.env --experimental-strip-types --experimental-specifier-resolution=node scripts/case-lab/case-lab.ts evaluate",
 		"case-lab:janitor": "node --env-file=.env --experimental-strip-types --experimental-specifier-resolution=node scripts/case-lab/case-lab.ts janitor",
+		"pm:simulate": "node --env-file=.env --experimental-strip-types --experimental-specifier-resolution=node scripts/process-map/simulate.ts",
 		"test:case-lab": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/case-lab/case-study.test.ts",
 		"test:incidents:persons": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/unit/incidents/persons-errors.test.ts tests/integration/incidents/persons-account.test.ts",
 		"test:incidents:coach-chat": "node --experimental-strip-types --experimental-specifier-resolution=node --test tests/integration/incidents/coach-chat.test.ts",

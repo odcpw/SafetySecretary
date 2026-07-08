@@ -1,0 +1,79 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: safety_secretary
+          POSTGRES_PASSWORD: safety_secretary
+          POSTGRES_DB: safety_secretary
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U safety_secretary"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://safety_secretary:safety_secretary@localhost:5432/safety_secretary
+      ADMIN_DATABASE_URL: postgresql://safety_secretary:safety_secretary@localhost:5432/safety_secretary
+      # CI-only dummy 32-byte base64 value.
+      MASTER_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      STORAGE_DRIVER: local-fs
+      STORAGE_LOCAL_ROOT: .data/storage
+      OPENAI_API_KEY: sk-ci-not-used
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Write .env file
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL=$DATABASE_URL
+          ADMIN_DATABASE_URL=$ADMIN_DATABASE_URL
+          MASTER_ENCRYPTION_KEY=$MASTER_ENCRYPTION_KEY
+          STORAGE_DRIVER=$STORAGE_DRIVER
+          STORAGE_LOCAL_ROOT=$STORAGE_LOCAL_ROOT
+          OPENAI_API_KEY=$OPENAI_API_KEY
+          EOF
+
+      - name: Run database migrations
+        run: pnpm db:migrate
+
+      - name: Core test suite
+        run: pnpm test
+
+      - name: Extended suites (non-blocking)
+        continue-on-error: true
+        run: node --experimental-strip-types --experimental-specifier-resolution=node --test "tests/**/*.test.ts" "tests/**/*.test.tsx" "tests/**/*.test.mjs"

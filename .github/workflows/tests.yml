@@ -28,8 +28,14 @@ jobs:
           --health-retries 20
 
     env:
+      # ADMIN_DATABASE_URL is intentionally NOT set: when present, tenant DDL runs
+      # on a separate admin connection that steps outside the caller transaction
+      # (see src/lib/db/tenancy.ts) and blocks on row locks held by in-flight
+      # interactive transactions (the OAuth suite times out at 15s). Unset mirrors
+      # the known-good local/dev configuration where DDL runs on the one
+      # connection. Revisit if the least-privilege admin-connection path is
+      # exercised in CI.
       DATABASE_URL: postgresql://safety_secretary:safety_secretary@localhost:5432/safety_secretary
-      ADMIN_DATABASE_URL: postgresql://safety_secretary:safety_secretary@localhost:5432/safety_secretary
       # CI-only dummy 32-byte base64 value.
       MASTER_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
       STORAGE_DRIVER: local-fs
@@ -61,7 +67,6 @@ jobs:
         run: |
           cat > .env <<EOF
           DATABASE_URL=$DATABASE_URL
-          ADMIN_DATABASE_URL=$ADMIN_DATABASE_URL
           MASTER_ENCRYPTION_KEY=$MASTER_ENCRYPTION_KEY
           STORAGE_DRIVER=$STORAGE_DRIVER
           STORAGE_LOCAL_ROOT=$STORAGE_LOCAL_ROOT

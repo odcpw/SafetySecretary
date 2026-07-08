@@ -47,6 +47,12 @@ const incidentRoute = (await import(
 const { prisma, dropTenantSchema } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 
 test("II analytics fields persist, derive severity, and expose queryable KPI inputs", async () => {
 	ensureMigrated();
@@ -57,6 +63,7 @@ test("II analytics fields persist, derive severity, and expose queryable KPI inp
 		const missingPotentialSeverity = await incidentsRoute.POST(
 			request({
 				body: validPayload({ potentialSeverityCode: "" }),
+				sessionCookie: tenant.sessionCookie,
 				tenantId: tenant.tenantId,
 				userId: tenant.userId,
 				url: "https://app.example.test/api/incidents",
@@ -74,6 +81,7 @@ test("II analytics fields persist, derive severity, and expose queryable KPI inp
 					actualInjuryOutcome: "LOST_TIME",
 					potentialLikelihoodCode: "",
 				}),
+				sessionCookie: tenant.sessionCookie,
 				tenantId: tenant.tenantId,
 				userId: tenant.userId,
 				url: "https://app.example.test/api/incidents",
@@ -97,6 +105,7 @@ test("II analytics fields persist, derive severity, and expose queryable KPI inp
 					potentialLikelihoodCode: "2",
 				}),
 				method: "PATCH",
+				sessionCookie: tenant.sessionCookie,
 				tenantId: tenant.tenantId,
 				userId: tenant.userId,
 				url: `https://app.example.test/api/incidents/${incidentId}`,
@@ -187,6 +196,7 @@ function validPayload(
 }
 
 async function seedTenant(label: string): Promise<{
+	sessionCookie: string;
 	tenantId: string;
 	userId: string;
 }> {
@@ -210,7 +220,12 @@ async function seedTenant(label: string): Promise<{
 		},
 	});
 	await provisionIncidentSchema(tenant.id);
-	return { tenantId: tenant.id, userId: user.id };
+	const session = await issueSession(user.id, tenant.id);
+	return {
+		sessionCookie: session.cookieValue,
+		tenantId: tenant.id,
+		userId: user.id,
+	};
 }
 
 async function provisionIncidentSchema(tenantId: string): Promise<void> {
@@ -239,6 +254,9 @@ async function provisionIncidentSchema(tenantId: string): Promise<void> {
 	);
 	await prisma.$executeRawUnsafe(
 		`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
+	);
+	await prisma.$executeRawUnsafe(
+		`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
 	);
 }
 
@@ -324,16 +342,18 @@ async function cleanupTenant(input: {
 function request(input: {
 	body?: Record<string, unknown>;
 	method?: string;
+	sessionCookie: string;
 	tenantId: string;
 	url: string;
 	userId: string;
 }): InstanceType<typeof NextRequest> {
+	const csrf = mintCsrfToken(input.sessionCookie);
 	return new NextRequest(input.url, {
 		body: input.body ? JSON.stringify(input.body) : undefined,
 		headers: {
+			cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
 			"content-type": "application/json",
-			"x-ssfw-tenant-id": input.tenantId,
-			"x-ssfw-user-id": input.userId,
+			"x-ssfw-csrf": csrf,
 		},
 		method: input.method ?? "POST",
 	});

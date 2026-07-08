@@ -520,6 +520,77 @@ if (!databaseUrl) {
 		}
 	});
 
+	test("deleting an intermediate cause promotes its children instead of cascading the subtree", async () => {
+		const tenant = await seedTenant("delete-reparent");
+		const caseId = randomUUID();
+
+		try {
+			await insertIncidentCase({
+				caseId,
+				tenantId: tenant.tenantId,
+				userId: tenant.userId,
+			});
+
+			// Build a chain A -> B -> C where C is the deepest (root) cause.
+			const aId = await createCause(tenant, caseId, "Cause A");
+			const bId = await createCause(tenant, caseId, "Cause B");
+			const cId = await createCause(tenant, caseId, "Cause C");
+			await assertStatus(
+				await patchCause(tenant, caseId, {
+					isRootCause: false,
+					nodeId: bId,
+					parentId: aId,
+					statement: "Cause B",
+				}),
+				200,
+			);
+			await assertStatus(
+				await patchCause(tenant, caseId, {
+					isRootCause: true,
+					nodeId: cId,
+					parentId: bId,
+					statement: "Cause C",
+				}),
+				200,
+			);
+
+			// Delete the middle node B. Its FKs are ON DELETE CASCADE, so a naive
+			// delete would erase C too. C must instead be promoted onto B's parent.
+			const deleted = await causesRoute.DELETE(
+				request({
+					body: { nodeId: bId },
+					method: "DELETE",
+					sessionCookie: tenant.sessionCookie,
+					tenantId: tenant.tenantId,
+					url: `https://app.example.test/api/incidents/${caseId}/causes`,
+					userId: tenant.userId,
+				}),
+				{ params: { id: caseId } },
+			);
+			await assertStatus(deleted, 200);
+
+			const positions = await causePositions(tenant.tenantId, caseId);
+			assert.deepEqual(
+				Object.keys(positions).sort(),
+				[aId, cId].sort(),
+				"B is deleted; A and its promoted grandchild C both survive",
+			);
+			assert.equal(
+				positions[cId]?.parentId,
+				aId,
+				"C is reparented onto B's parent A rather than cascade-deleted",
+			);
+			assert.equal(positions[aId]?.parentId, null);
+			assert.equal(
+				positions[cId]?.orderIndex,
+				0,
+				"promoted child is renumbered gap-free in its new sibling group",
+			);
+		} finally {
+			await cleanupTenant(tenant);
+		}
+	});
+
 	async function createCause(
 		tenant: { sessionCookie: string; tenantId: string; userId: string },
 		caseId: string,
@@ -706,6 +777,9 @@ if (!databaseUrl) {
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
+		);
+		await prisma.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_cause_branch_status_schema(${sqlString(

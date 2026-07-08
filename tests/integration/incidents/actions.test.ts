@@ -563,6 +563,9 @@ if (!databaseUrl) {
 			`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
 		);
 		await prisma.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
+		);
+		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_cause_branch_status_schema(${sqlString(
 				schema,
 			)}::name)`,

@@ -44,7 +44,6 @@ registerHooks({
 });
 
 const databaseUrl = process.env.DATABASE_URL;
-const csrfValue = "timeline-csrf-token";
 const timelineMessageKeys = [
 	"incident.timeline.addEvent",
 	"incident.timeline.addTitle",
@@ -81,9 +80,6 @@ const timelineMessageKeys = [
 	"incident.timeline.uploadPhoto",
 ] as const;
 
-const { CSRF_COOKIE_NAME } = (await import(
-	moduleUrl("src/lib/auth/cookies.ts")
-)) as typeof import("../../../src/lib/auth/cookies");
 const { t } = (await import(
 	moduleUrl("src/lib/i18n/t.ts")
 )) as typeof import("../../../src/lib/i18n/t");
@@ -91,7 +87,7 @@ const { LOCALES } = (await import(
 	moduleUrl("src/lib/i18n/types.ts")
 )) as typeof import("../../../src/lib/i18n/types");
 
-test("timeline route and page labels have DE/EN/FR/IT catalog coverage", () => {
+test("timeline route and editor labels have DE/EN/FR/IT catalog coverage", () => {
 	for (const locale of LOCALES) {
 		for (const key of timelineMessageKeys) {
 			const rendered = t(key, locale);
@@ -100,8 +96,8 @@ test("timeline route and page labels have DE/EN/FR/IT catalog coverage", () => {
 		}
 	}
 
-	const pageSource = readFileSync(
-		"src/app/incidents/[id]/timeline/page.tsx",
+	const editorSource = readFileSync(
+		"src/components/incident/coach/TimelineEditor.tsx",
 		"utf8",
 	);
 	const photoRouteSource = readFileSync(
@@ -109,11 +105,9 @@ test("timeline route and page labels have DE/EN/FR/IT catalog coverage", () => {
 		"utf8",
 	);
 
-	assert.match(pageSource, /messageKey\("incident", "timeline", "title"\)/);
-	assert.match(
-		pageSource,
-		/messageKey\("incident", "timeline", "uploadPhoto"\)/,
-	);
+	assert.match(editorSource, /copy\.timeline\.empty/);
+	assert.match(editorSource, /copy\.timeline\.addFact/);
+	assert.match(editorSource, /ensureCsrfToken\(CSRF_COOKIE_NAME\)/);
 	assert.doesNotMatch(photoRouteSource, /dispatch|llm|vision/i);
 });
 
@@ -134,6 +128,12 @@ if (!databaseUrl) {
 	const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 		moduleUrl("src/lib/db/index.ts")
 	)) as typeof import("../../../src/lib/db");
+	const { issueSession } = (await import(
+		moduleUrl("src/lib/auth/session.ts")
+	)) as typeof import("../../../src/lib/auth/session");
+	const { mintCsrfToken } = (await import(
+		moduleUrl("src/lib/auth/csrf.ts")
+	)) as typeof import("../../../src/lib/auth/csrf");
 	const { MockProvider } = (await import(
 		moduleUrl("src/lib/llm/mock.ts")
 	)) as typeof import("../../../src/lib/llm/mock");
@@ -156,6 +156,7 @@ if (!databaseUrl) {
 
 			const empty = await timelineRoute.GET(
 				jsonRequest({
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantA.userId,
@@ -175,6 +176,7 @@ if (!databaseUrl) {
 						timeLabel: "Before stop",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantA.userId,
@@ -202,6 +204,7 @@ if (!databaseUrl) {
 						timeLabel: "Start-up",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantA.userId,
@@ -216,6 +219,7 @@ if (!databaseUrl) {
 
 			const ordered = await timelineRoute.GET(
 				jsonRequest({
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantA.userId,
@@ -241,6 +245,7 @@ if (!databaseUrl) {
 						timeLabel: "Confirmed interview",
 					},
 					method: "PATCH",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantA.userId,
@@ -259,6 +264,7 @@ if (!databaseUrl) {
 
 			const crossTenant = await timelineRoute.GET(
 				jsonRequest({
+					sessionCookie: tenantB.sessionCookie,
 					tenantId: tenantB.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantB.userId,
@@ -274,6 +280,7 @@ if (!databaseUrl) {
 					file: new File([Buffer.from([0x89, 0x50, 0x4e, 0x47])], "guard.png", {
 						type: "image/png",
 					}),
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline/${eventId}/photos`,
 					userId: tenantA.userId,
@@ -311,6 +318,7 @@ if (!databaseUrl) {
 						["eventId", earlierEventId],
 						["_action", "delete"],
 					],
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/timeline`,
 					userId: tenantA.userId,
@@ -333,6 +341,7 @@ if (!databaseUrl) {
 	});
 
 	async function seedTenant(label: string): Promise<{
+		sessionCookie: string;
 		tenantId: string;
 		userId: string;
 	}> {
@@ -355,7 +364,12 @@ if (!databaseUrl) {
 			},
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {
@@ -384,6 +398,9 @@ if (!databaseUrl) {
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
+		);
+		await prisma.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
 		);
 	}
 
@@ -509,16 +526,18 @@ if (!databaseUrl) {
 	function jsonRequest(input: {
 		body?: Record<string, unknown>;
 		method?: string;
+		sessionCookie: string;
 		tenantId: string;
 		url: string;
 		userId: string;
 	}) {
+		const csrf = mintCsrfToken(input.sessionCookie);
 		return new NextRequest(input.url, {
 			body: input.body ? JSON.stringify(input.body) : undefined,
 			headers: {
+				cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
 				"content-type": "application/json",
-				"x-ssfw-tenant-id": input.tenantId,
-				"x-ssfw-user-id": input.userId,
+				"x-ssfw-csrf": csrf,
 			},
 			method: input.method ?? "GET",
 		});
@@ -526,21 +545,21 @@ if (!databaseUrl) {
 
 	function photoUploadRequest(input: {
 		file: File;
+		sessionCookie: string;
 		tenantId: string;
 		url: string;
 		userId: string;
 	}) {
+		const csrf = mintCsrfToken(input.sessionCookie);
 		const formData = new FormData();
 		formData.set("file", input.file);
 
 		return new NextRequest(input.url, {
 			body: formData,
 			headers: {
-				cookie: `${CSRF_COOKIE_NAME}=${csrfValue}`,
 				accept: "application/json",
-				"x-ssfw-csrf": csrfValue,
-				"x-ssfw-tenant-id": input.tenantId,
-				"x-ssfw-user-id": input.userId,
+				cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
+				"x-ssfw-csrf": csrf,
 			},
 			method: "POST",
 		});
@@ -548,10 +567,12 @@ if (!databaseUrl) {
 
 	function timelineFormRequest(input: {
 		fields: Array<[string, string]>;
+		sessionCookie: string;
 		tenantId: string;
 		url: string;
 		userId: string;
 	}) {
+		const csrf = mintCsrfToken(input.sessionCookie);
 		const formData = new FormData();
 
 		for (const [key, value] of input.fields) {
@@ -562,8 +583,8 @@ if (!databaseUrl) {
 			body: formData,
 			headers: {
 				accept: "application/json",
-				"x-ssfw-tenant-id": input.tenantId,
-				"x-ssfw-user-id": input.userId,
+				cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
+				"x-ssfw-csrf": csrf,
 			},
 			method: "POST",
 		});

@@ -52,6 +52,12 @@ if (!databaseUrl) {
 	const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 		moduleUrl("src/lib/db/index.ts")
 	)) as typeof import("../../../src/lib/db");
+	const { issueSession } = (await import(
+		moduleUrl("src/lib/auth/session.ts")
+	)) as typeof import("../../../src/lib/auth/session");
+	const { mintCsrfToken } = (await import(
+		moduleUrl("src/lib/auth/csrf.ts")
+	)) as typeof import("../../../src/lib/auth/csrf");
 	const { serialiseWorkflow } = (await import(
 		moduleUrl("src/lib/incident/serialise.ts")
 	)) as typeof import("../../../src/lib/incident/serialise");
@@ -70,6 +76,7 @@ if (!databaseUrl) {
 
 			const empty = await personsRoute.GET(
 				request({
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons`,
 					userId: tenantA.userId,
@@ -87,6 +94,7 @@ if (!databaseUrl) {
 						role: "witness",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons`,
 					userId: tenantA.userId,
@@ -107,6 +115,7 @@ if (!databaseUrl) {
 						role: "witness",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons`,
 					userId: tenantA.userId,
@@ -121,6 +130,7 @@ if (!databaseUrl) {
 
 			const crossTenant = await personsRoute.GET(
 				request({
+					sessionCookie: tenantB.sessionCookie,
 					tenantId: tenantB.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons`,
 					userId: tenantB.userId,
@@ -138,6 +148,7 @@ if (!databaseUrl) {
 						role: "coordinator",
 					},
 					method: "PATCH",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons`,
 					userId: tenantA.userId,
@@ -164,6 +175,7 @@ if (!databaseUrl) {
 						rawStatement: "I saw the guard open while the line was running.",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons/${personId}/account`,
 					userId: tenantA.userId,
@@ -192,6 +204,7 @@ if (!databaseUrl) {
 						rawStatement: "Malformed facts JSON.",
 					},
 					method: "POST",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons/${personId}/account`,
 					userId: tenantA.userId,
@@ -235,6 +248,7 @@ if (!databaseUrl) {
 				request({
 					body: { personId },
 					method: "DELETE",
+					sessionCookie: tenantA.sessionCookie,
 					tenantId: tenantA.tenantId,
 					url: `https://app.example.test/api/incidents/${caseId}/persons`,
 					userId: tenantA.userId,
@@ -262,6 +276,7 @@ if (!databaseUrl) {
 	});
 
 	async function seedTenant(label: string): Promise<{
+		sessionCookie: string;
 		tenantId: string;
 		userId: string;
 	}> {
@@ -284,7 +299,12 @@ if (!databaseUrl) {
 			},
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {
@@ -313,6 +333,9 @@ if (!databaseUrl) {
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
+		);
+		await prisma.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_cause_branch_status_schema(${sqlString(
@@ -407,16 +430,18 @@ if (!databaseUrl) {
 	function request(input: {
 		body?: Record<string, unknown>;
 		method?: string;
+		sessionCookie: string;
 		tenantId: string;
 		url: string;
 		userId: string;
 	}) {
+		const csrf = mintCsrfToken(input.sessionCookie);
 		return new NextRequest(input.url, {
 			body: input.body ? JSON.stringify(input.body) : undefined,
 			headers: {
+				cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
 				"content-type": "application/json",
-				"x-ssfw-tenant-id": input.tenantId,
-				"x-ssfw-user-id": input.userId,
+				"x-ssfw-csrf": csrf,
 			},
 			method: input.method ?? "GET",
 		});
@@ -425,17 +450,19 @@ if (!databaseUrl) {
 	function formRequest(input: {
 		body: Record<string, string>;
 		method?: string;
+		sessionCookie: string;
 		tenantId: string;
 		url: string;
 		userId: string;
 	}) {
+		const csrf = mintCsrfToken(input.sessionCookie);
 		return new NextRequest(input.url, {
 			body: new URLSearchParams(input.body),
 			headers: {
 				accept: "text/html",
+				cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
 				"content-type": "application/x-www-form-urlencoded",
-				"x-ssfw-tenant-id": input.tenantId,
-				"x-ssfw-user-id": input.userId,
+				"x-ssfw-csrf": csrf,
 			},
 			method: input.method ?? "POST",
 		});

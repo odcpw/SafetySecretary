@@ -280,6 +280,11 @@ if (!databaseUrl) {
 				names.schemaName,
 			)}::name)`,
 		);
+		await prisma.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(
+				names.schemaName,
+			)}::name)`,
+		);
 	}
 
 	async function cleanupTenant(input: SeededTenant): Promise<void> {

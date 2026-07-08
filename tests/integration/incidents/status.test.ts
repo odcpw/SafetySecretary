@@ -42,6 +42,12 @@ const statusRoute = (await import(
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 
 test.after(async () => {
 	await prisma.$disconnect();
@@ -130,10 +136,11 @@ if (!databaseUrl) {
 	});
 
 	async function postAction(
-		tenant: { tenantId: string; userId: string },
+		tenant: { sessionCookie: string; tenantId: string; userId: string },
 		caseId: string,
 		action: string,
 	): Promise<Response> {
+		const csrf = mintCsrfToken(tenant.sessionCookie);
 		return statusRoute.POST(
 			new NextRequest(
 				`https://app.example.test/api/incidents/${caseId}/status`,
@@ -142,8 +149,8 @@ if (!databaseUrl) {
 					headers: {
 						accept: "application/json",
 						"content-type": "application/json",
-						"x-ssfw-tenant-id": tenant.tenantId,
-						"x-ssfw-user-id": tenant.userId,
+						cookie: `ssfw_session=${tenant.sessionCookie}; ssfw_csrf=${csrf}`,
+						"x-ssfw-csrf": csrf,
 					},
 					method: "POST",
 				},
@@ -166,6 +173,7 @@ if (!databaseUrl) {
 	}
 
 	async function seedTenant(label: string): Promise<{
+		sessionCookie: string;
 		tenantId: string;
 		userId: string;
 	}> {
@@ -185,7 +193,12 @@ if (!databaseUrl) {
 			data: { tenantId: tenant.id, userId: user.id },
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {
@@ -214,6 +227,9 @@ if (!databaseUrl) {
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
+		);
+		await prisma.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
 		);
 		await prisma.$executeRawUnsafe(
 			`SELECT shared.apply_incident_workflow_stage_schema(${sqlString(

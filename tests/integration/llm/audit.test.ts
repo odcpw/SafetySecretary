@@ -262,6 +262,9 @@ if (!databaseUrl) {
 			`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
 		);
 		await prismaClient.$executeRawUnsafe(
+			`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
+		);
+		await prismaClient.$executeRawUnsafe(
 			`SELECT shared.apply_vision_call_audit_schema(${sqlString(schema)}::name)`,
 		);
 	}

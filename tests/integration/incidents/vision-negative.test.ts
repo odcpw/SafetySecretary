@@ -52,7 +52,6 @@ assert.ok(
 	"DATABASE_URL is required for II vision negative integration tests",
 );
 
-const csrfValue = "ii-vision-negative-csrf";
 const syntheticPhotoBytes = readFileSync(
 	"fixtures/photos/synthetic/placeholder-256.png",
 );
@@ -70,6 +69,12 @@ const { KNOWN_VISION_PROMPT, MockProvider } = (await import(
 const { CSRF_COOKIE_NAME } = (await import(
 	moduleUrl("src/lib/auth/cookies.ts")
 )) as typeof import("../../../src/lib/auth/cookies");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
@@ -237,8 +242,10 @@ async function seedTenant(
 		},
 	});
 	await provisionTenantSchema(prisma, tenant.id);
+	const session = await issueSession(user.id, tenant.id);
 
 	return {
+		sessionCookie: session.cookieValue,
 		tenantId: tenant.id,
 		userId: user.id,
 		visionEnabled: tenant.visionEnabled,
@@ -299,9 +306,8 @@ async function seedTimelinePhotoFixture(
 			file: new File([syntheticPhotoBytes], "ii-synthetic-placeholder.png", {
 				type: "image/png",
 			}),
-			tenantId: tenant.tenantId,
+			sessionCookie: tenant.sessionCookie,
 			url: `https://app.example.test/api/incidents/${caseId}/timeline/${eventId}/photos`,
-			userId: tenant.userId,
 		}),
 		{ params: { eventId, id: caseId } },
 		{ storage },
@@ -405,6 +411,9 @@ async function provisionTenantSchema(
 		`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
 	);
 	await prismaClient.$executeRawUnsafe(
+		`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
+	);
+	await prismaClient.$executeRawUnsafe(
 		`SELECT shared.apply_vision_call_audit_schema(${sqlString(schema)}::name)`,
 	);
 }
@@ -465,21 +474,19 @@ async function cleanupTenant(input: SeededTenant): Promise<void> {
 
 function photoUploadRequest(input: {
 	file: File;
-	tenantId: string;
+	sessionCookie: string;
 	url: string;
-	userId: string;
 }) {
+	const csrf = mintCsrfToken(input.sessionCookie);
 	const formData = new FormData();
 	formData.set("file", input.file);
 
 	return new NextRequest(input.url, {
 		body: formData,
 		headers: {
-			cookie: `${CSRF_COOKIE_NAME}=${csrfValue}`,
 			accept: "application/json",
-			"x-ssfw-csrf": csrfValue,
-			"x-ssfw-tenant-id": input.tenantId,
-			"x-ssfw-user-id": input.userId,
+			cookie: `ssfw_session=${input.sessionCookie}; ${CSRF_COOKIE_NAME}=${csrf}`,
+			"x-ssfw-csrf": csrf,
 		},
 		method: "POST",
 	});
@@ -627,6 +634,7 @@ function isLocalImport(specifier: string): boolean {
 }
 
 type SeededTenant = {
+	sessionCookie: string;
 	tenantId: string;
 	userId: string;
 	visionEnabled: boolean;

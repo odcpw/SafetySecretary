@@ -25,25 +25,20 @@ const userFacingAttributes = new Set([
 ]);
 
 const allowedExistingRawEnglish = new Set([
-	// App-shell placeholders from ssfw-xsa/early auth beads. They are migrated as
-	// their owning surfaces adopt t() and are intentionally visible to this test.
+	// Early app-shell placeholders. They are migrated as their owning surfaces
+	// adopt t() and are intentionally visible to this test.
 	key("src/app/layout.tsx", "string", "Safety Secretary"),
 	key("src/app/layout.tsx", "string", "Safety Secretary application shell"),
 	key("src/app/page.tsx", "attribute", "Safety Secretary"),
-	key(
-		"src/app/page.tsx",
-		"attribute",
-		"Application shell placeholder. Routes and data are wired in later beads.",
-	),
 	key("src/app/workspace/page.tsx", "attribute", "Workspace"),
 	key(
 		"src/app/workspace/page.tsx",
 		"attribute",
-		"Empty workspace. Tenant-aware content is wired in later beads.",
+		"Empty workspace. Open Incidents to start an investigation.",
 	),
 
-	// Auth UI copy predates the catalog helper. ssfw-3da/eyp follow-ups should
-	// replace these with t() while preserving the currently shipped behavior.
+	// Auth UI copy predates the catalog helper. Follow-ups should replace these
+	// with t() while preserving the currently shipped behavior.
 	key(
 		"src/app/signin/page.tsx",
 		"string",
@@ -144,8 +139,8 @@ const allowedExistingRawEnglish = new Set([
 		"Incident approval snapshot could not be created.",
 	),
 
-	// Incident approval page is a temporary integration surface from snapshot
-	// beads. Future workflow UI should move user-visible copy to t().
+	// Incident approval page is a temporary integration surface from the
+	// snapshot work. Future workflow UI should move user-visible copy to t().
 	key(
 		"src/app/incidents/[id]/approval/page.tsx",
 		"string",

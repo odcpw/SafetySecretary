@@ -42,8 +42,12 @@ const incidentRoute = (await import(
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
-
-const csrfToken = randomUUID();
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 
 test.after(async () => {
 	await prisma.$disconnect();
@@ -100,14 +104,16 @@ if (!databaseUrl) {
 	});
 
 	async function deleteCase(
-		tenant: { tenantId: string; userId: string },
+		tenant: { sessionCookie: string; tenantId: string; userId: string },
 		caseId: string,
 		options: { csrf: boolean },
 	): Promise<Response> {
+		const csrfToken = mintCsrfToken(tenant.sessionCookie);
 		const headers: Record<string, string> = {
 			accept: "application/json",
-			"x-ssfw-tenant-id": tenant.tenantId,
-			"x-ssfw-user-id": tenant.userId,
+			cookie: options.csrf
+				? `ssfw_session=${tenant.sessionCookie}; ssfw_csrf=${csrfToken}`
+				: `ssfw_session=${tenant.sessionCookie}`,
 		};
 
 		if (options.csrf) {
@@ -118,10 +124,6 @@ if (!databaseUrl) {
 			`https://app.example.test/api/incidents/${caseId}`,
 			{ headers, method: "DELETE" },
 		);
-
-		if (options.csrf) {
-			request.cookies.set("ssfw_csrf", csrfToken);
-		}
 
 		return incidentRoute.DELETE(request, { params: { id: caseId } });
 	}
@@ -159,6 +161,7 @@ if (!databaseUrl) {
 	}
 
 	async function seedTenant(label: string): Promise<{
+		sessionCookie: string;
 		tenantId: string;
 		userId: string;
 	}> {
@@ -178,7 +181,12 @@ if (!databaseUrl) {
 			data: { tenantId: tenant.id, userId: user.id },
 		});
 		await provisionIncidentSchema(tenant.id);
-		return { tenantId: tenant.id, userId: user.id };
+		const session = await issueSession(user.id, tenant.id);
+		return {
+			sessionCookie: session.cookieValue,
+			tenantId: tenant.id,
+			userId: user.id,
+		};
 	}
 
 	async function provisionIncidentSchema(tenantId: string): Promise<void> {

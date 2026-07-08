@@ -68,6 +68,15 @@ const { LocalFsStorage, tenantPrefix } = await import(
 const { NextRequest } = (await import(
 	"next/server.js"
 )) as typeof import("next/server");
+const { dropTenantSchema, prisma } = (await import(
+	moduleUrl("src/lib/db/index.ts")
+)) as typeof import("../../../src/lib/db");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 const databaseUrl = process.env.DATABASE_URL;
 const selectedPhotoKey = `${tenantPrefix(tenantId)}/attachments/selected.png`;
 const unselectedPhotoKey = `${tenantPrefix(tenantId)}/attachments/unselected.png`;
@@ -193,6 +202,9 @@ test("II comms route rejects unauthenticated, invalid id, and non-DOCX format re
 		moduleUrl("src/app/api/incidents/[id]/export/route.ts")
 	)) as typeof import("../../../src/app/api/incidents/[id]/export/route");
 	const caseId = "11111111-1111-4111-8111-111111111111";
+	const authTenantId = randomUUID();
+	const authUserId = randomUUID();
+	const authMembershipId = randomUUID();
 
 	const invalidId = await route.GET(
 		new NextRequest(
@@ -210,39 +222,46 @@ test("II comms route rejects unauthenticated, invalid id, and non-DOCX format re
 	);
 	assert.equal(unauthenticated.status, 401);
 
-	const invalidFormat = await route.GET(
-		new NextRequest(
-			`https://app.example.test/api/incidents/${caseId}/export?report=comms&format=pptx`,
-			{
-				headers: {
-					"x-ssfw-tenant-id": tenantId,
-					"x-ssfw-user-id": "33333333-3333-4333-8333-333333333333",
-				},
-			},
-		),
-		{ params: { id: caseId } },
-	);
-	assert.equal(invalidFormat.status, 400);
-	assert.deepEqual(await invalidFormat.json(), {
-		code: "INVALID_EXPORT_FORMAT",
-	});
+	try {
+		const { sessionCookie } = await seedTenant(prisma, {
+			membershipId: authMembershipId,
+			tenantId: authTenantId,
+			userId: authUserId,
+		});
 
-	const invalidPhotoId = await route.GET(
-		new NextRequest(
-			`https://app.example.test/api/incidents/${caseId}/export?report=comms&photoId=not-a-uuid`,
-			{
-				headers: {
-					"x-ssfw-tenant-id": tenantId,
-					"x-ssfw-user-id": "33333333-3333-4333-8333-333333333333",
-				},
-			},
-		),
-		{ params: { id: caseId } },
-	);
-	assert.equal(invalidPhotoId.status, 400);
-	assert.deepEqual(await invalidPhotoId.json(), {
-		code: "INVALID_PHOTO_ID",
-	});
+		const invalidFormat = await route.GET(
+			routeRequest({
+				caseId,
+				format: "pptx",
+				sessionCookie,
+			}),
+			{ params: { id: caseId } },
+		);
+		assert.equal(invalidFormat.status, 400);
+		assert.deepEqual(await invalidFormat.json(), {
+			code: "INVALID_EXPORT_FORMAT",
+		});
+
+		const invalidPhotoId = await route.GET(
+			routeRequest({
+				caseId,
+				photoId: "not-a-uuid",
+				sessionCookie,
+			}),
+			{ params: { id: caseId } },
+		);
+		assert.equal(invalidPhotoId.status, 400);
+		assert.deepEqual(await invalidPhotoId.json(), {
+			code: "INVALID_PHOTO_ID",
+		});
+	} finally {
+		await prisma.tenantMembership.deleteMany({
+			where: { tenantId: authTenantId },
+		});
+		await prisma.session.deleteMany({ where: { tenantId: authTenantId } });
+		await prisma.tenant.deleteMany({ where: { id: authTenantId } });
+		await prisma.user.deleteMany({ where: { id: authUserId } });
+	}
 	assert.equal(iiCommsFilename(caseId), `ii-comms-onepager-${caseId}.docx`);
 });
 
@@ -252,9 +271,6 @@ if (!databaseUrl) {
 	}, () => {});
 } else {
 	test("II comms route returns DOCX with timeline photo from tenant storage", async () => {
-		const { dropTenantSchema, prisma } = (await import(
-			moduleUrl("src/lib/db/index.ts")
-		)) as typeof import("../../../src/lib/db");
 		const route = (await import(
 			moduleUrl("src/app/api/incidents/[id]/export/route.ts")
 		)) as typeof import("../../../src/app/api/incidents/[id]/export/route");
@@ -277,7 +293,7 @@ if (!databaseUrl) {
 		process.env.STORAGE_LOCAL_ROOT = storageRoot;
 
 		try {
-			await seedShared(prisma, {
+			const { sessionCookie } = await seedTenant(prisma, {
 				membershipId,
 				tenantId: testTenantId,
 				userId,
@@ -324,8 +340,7 @@ if (!databaseUrl) {
 				routeRequest({
 					caseId,
 					selectedAttachmentIds: [selectedAttachmentId],
-					tenantId: testTenantId,
-					userId,
+					sessionCookie,
 				}),
 				{ params: { id: caseId } },
 			);
@@ -353,9 +368,8 @@ if (!databaseUrl) {
 				routeRequest({
 					caseId,
 					selectedAttachmentIds: [selectedAttachmentId],
+					sessionCookie,
 					snapshotId,
-					tenantId: testTenantId,
-					userId,
 				}),
 				{ params: { id: caseId } },
 			);
@@ -519,10 +533,10 @@ function fixtureWorkflowData(input: {
 	};
 }
 
-async function seedShared(
+async function seedTenant(
 	prisma: { $executeRawUnsafe(query: string): Promise<unknown> },
 	input: { membershipId: string; tenantId: string; userId: string },
-): Promise<void> {
+): Promise<{ sessionCookie: string }> {
 	await prisma.$executeRawUnsafe(
 		`INSERT INTO shared.users (id, email, ui_locale)
 		 VALUES (${sqlString(input.userId)}::uuid, ${sqlString(
@@ -539,6 +553,8 @@ async function seedShared(
 				input.tenantId,
 			)}::uuid, ${sqlString(input.userId)}::uuid)`,
 	);
+	const session = await issueSession(input.userId, input.tenantId);
+	return { sessionCookie: session.cookieValue };
 }
 
 async function provisionIncidentSchema(
@@ -574,6 +590,9 @@ async function provisionIncidentSchema(
 	);
 	await prisma.$executeRawUnsafe(
 		`SELECT shared.apply_incident_case_schema(${sqlString(schemaName)}::name)`,
+	);
+	await prisma.$executeRawUnsafe(
+		`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schemaName)}::name)`,
 	);
 	await prisma.$executeRawUnsafe(
 		`SELECT shared.apply_incident_cause_branch_status_schema(${sqlString(schemaName)}::name)`,
@@ -789,14 +808,23 @@ class MemoryStorage implements Storage {
 
 function routeRequest(input: {
 	caseId: string;
+	format?: string;
+	photoId?: string;
 	selectedAttachmentIds?: string[];
+	sessionCookie: string;
 	snapshotId?: string;
-	tenantId: string;
-	userId: string;
 }) {
 	const url = new URL(
 		`https://app.example.test/api/incidents/${input.caseId}/export?report=comms`,
 	);
+
+	if (input.format) {
+		url.searchParams.set("format", input.format);
+	}
+
+	if (input.photoId) {
+		url.searchParams.set("photoId", input.photoId);
+	}
 
 	for (const attachmentId of input.selectedAttachmentIds ?? []) {
 		url.searchParams.append("photoId", attachmentId);
@@ -806,10 +834,11 @@ function routeRequest(input: {
 		url.searchParams.set("snapshotId", input.snapshotId);
 	}
 
+	const csrf = mintCsrfToken(input.sessionCookie);
 	return new NextRequest(url, {
 		headers: {
-			"x-ssfw-tenant-id": input.tenantId,
-			"x-ssfw-user-id": input.userId,
+			cookie: `ssfw_session=${input.sessionCookie}; ssfw_csrf=${csrf}`,
+			"x-ssfw-csrf": csrf,
 		},
 	});
 }

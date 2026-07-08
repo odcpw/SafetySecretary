@@ -66,6 +66,9 @@ const { SESSION_COOKIE_NAME } = (await import(
 const { issueSession } = (await import(
 	moduleUrl("src/lib/auth/session.ts")
 )) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 const { applyIncidentCoachOperation } = (await import(
 	moduleUrl("src/lib/agent/incident-investigation/apply-operation.ts")
 )) as typeof import("../../../src/lib/agent/incident-investigation/apply-operation");
@@ -403,6 +406,7 @@ test("coach chat stream route emits progress and final persisted messages", {
 				headers: {
 					"content-type": "application/json",
 					cookie: `${SESSION_COOKIE_NAME}=${session.cookieValue}`,
+					"x-ssfw-csrf": mintCsrfToken(session.cookieValue),
 				},
 				method: "POST",
 			},
@@ -503,6 +507,7 @@ test("coach chat stream route aborts upstream flue work when the client disconne
 				headers: {
 					"content-type": "application/json",
 					cookie: `${SESSION_COOKIE_NAME}=${session.cookieValue}`,
+					"x-ssfw-csrf": mintCsrfToken(session.cookieValue),
 				},
 				method: "POST",
 			},
@@ -574,6 +579,9 @@ async function provisionIncidentSchema(tenantId: string): Promise<void> {
 	);
 	await prisma.$executeRawUnsafe(
 		`SELECT shared.apply_incident_case_schema(${sqlString(schema)}::name)`,
+	);
+	await prisma.$executeRawUnsafe(
+		`SELECT shared.apply_incident_soft_delete_schema(${sqlString(schema)}::name)`,
 	);
 	await prisma.$executeRawUnsafe(
 		`SELECT shared.apply_action_item_schema(${sqlString(schema)}::name)`,

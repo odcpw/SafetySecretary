@@ -1,120 +1,158 @@
 # Process Mapping Coach — v0 design
 
-_Draft spec, 2026-07-08. Implements the "Process Mapping" module from
-[docs/VISION.md](../VISION.md). Prototype scope: one person, one conversation,
-one process map. Standalone module; shares building blocks with II but is not
-coupled to it._
+_Rev 2, 2026-07-08, after design discussion. Supersedes rev 1 and the earlier
+interview draft. Implements the "Process Mapping" module from
+[docs/VISION.md](../VISION.md)._
 
-## Why this first (before HIRA)
+## Product thesis
 
-The Swiss HIRA method begins with **process → subprocess → activity**. That
-decomposition is exactly what a process map is. Building process mapping first
-(a) delivers a standalone useful artifact (SOP scaffolds, ISO scope, LEAN,
-onboarding) and (b) de-risks HIRA's first phase and proves the shared coaching
-grammar on a second domain before HIRA depends on it.
+Signavio-class tools need a trained modeler and a blank canvas; we need a
+foreman and twenty minutes. The agent replaces both the notation and the
+facilitator: the user narrates, the coach structures, nothing lands without
+acceptance. And unlike a drawing, the result is a **queryable model of the
+operation** — typed blocks, edges with routing reasons, resources, times,
+hearsay flags — that later agent passes (savings scan, SOP drafts, risk prep,
+re-interview for freshness) can read. Modules stay independent; they all get to
+read the same map.
 
-## The object
+## The object: a river with zoom, not a tree
 
-A **process map**: a hierarchical decomposition of how a company/area actually
-works, where each node is annotated with the flows that cross it.
+Two relations, both first-class:
 
-- **Decomposition is the object.** `process → subprocess → activity` as a tree.
-- **Flows are annotations on nodes**, not the structure: each node records what
-  crosses it — material, information, money — in each direction.
-- **The diagram is a generated view, never the editing surface.** Editing
-  happens in the conversation and the outline table. Layout is computed from the
-  tree (reuse the `cause-tree-layout` / `fishbone-layout` approach).
-- **Map work-as-done, not as-imagined.** The coach probes exceptions, rework
-  loops, and workarounds; an as-imagined map poisons everything downstream.
+- **Containment** (parent/child) — the zoom. Click "logistics", see
+  racking / un-racking / loading. Depth is open-ended (PROCESS → SUBPROCESS →
+  ACTIVITY, deeper allowed).
+- **Sequence edges** (sibling → sibling) — the river. Forks, rejoins, and
+  loops (rework, weekly maintenance) are all legitimate. Every fork carries a
+  one-line routing note answering *why it splits* (by product? by capacity? by
+  exception?). Example that must be representable: granule preparation forks
+  into molding vs. injection lines (different machines), both rejoin at
+  packaging onto shared pallets/racking/loading.
 
-## Data model (tenant-schema tables, mirroring the incident pattern)
+The diagram is a **generated view** — never the editing surface. Edits happen
+in conversation and the outline.
 
-Follow the established conventions: raw-SQL migration with an idempotent
-`apply_*_schema(tenant_schema)` function wired into `provision_tenant_schema`;
-`timestamptz`; `deleted_at` soft-delete; self-parent FK `ON DELETE CASCADE`
-guarded in app code by reparent-before-delete (see the incident cause-node fix).
+### No money flows — three layers of money truth
 
-- **`process_map`** — the document/case.
-  `id, title, scope_note, status (DRAFT|APPROVED), content_language,
-  created_by → shared.users, created_at, updated_at, deleted_at`.
-- **`process_node`** — one node in the tree.
-  `id, map_id → process_map, parent_id → process_node (nullable, self-FK,
-  ON DELETE CASCADE), kind (PROCESS|SUBPROCESS|ACTIVITY), order_index,
-  name, description, created_at, updated_at`.
-  Invariants (copy from cause-node): terminating ancestor walk for cycle
-  prevention on reparent; `pg_advisory_xact_lock` per map for order_index
-  allocation; reparent children up one level before delete.
-- **`process_flow`** — a flow annotation on a node.
-  `id, map_id → process_map, node_id → process_node (ON DELETE CASCADE),
-  direction (IN|OUT), flow_type (MATERIAL|INFORMATION|MONEY), label,
-  counterparty (nullable text: where it comes from / goes to), order_index,
-  created_at, updated_at`.
+- **Mechanics** (billing monthly, damage recharges, timesheets) are ordinary
+  activities with **information flows** — fully mappable, and what SOP/ISO/risk
+  actually need.
+- **Hooks** are **resources** on blocks (roles, equipment, material pools) —
+  where salaries/capex/depreciation attach *implicitly*. Never ask for amounts.
+- **Amounts** (P&L, per-part cost) are a different artifact. The coach never
+  asks. Flows are MATERIAL and INFORMATION only.
 
-## Coaching grammar (shared with II)
+## Data model (tenant schema; 00460 already shipped map/node/flow)
 
-Same loop: talk → coached questions → structured proposals → accept/edit/reject
-→ record fills → export. Reuse the runtime, the structured-operation contract
-(Zod discriminated union, forbidden-target rejection), the atomic
-claim-before-apply decision gate, and the trace store.
+Additions (migration 00470):
 
-### Structured operations
+- **`process_edge`** — the river.
+  `id, map_id → process_map (CASCADE), from_node_id → process_node (CASCADE),
+  to_node_id → process_node (CASCADE), routing_note text NULL,
+  order_index int, created_at, updated_at,
+  CHECK (from_node_id <> to_node_id), UNIQUE (map_id, from_node_id, to_node_id)`.
+  Cycles allowed (loops are real). Edges connect nodes of the same map; app
+  code validates same-parent is NOT required (edges may cross containment
+  levels in v0 we keep them sibling-level — coach only proposes sibling edges).
+- **`process_resource`** — the turtle's "with what / with whom" (L2).
+  `id, map_id (CASCADE), node_id → process_node (CASCADE),
+  resource_type CHECK IN ('ROLE','EQUIPMENT','MATERIAL_POOL'), label text,
+  quantity_note text NULL ("2 riggers", "1 forklift"),
+  returnable boolean NOT NULL DEFAULT false (true for asset pools that cycle
+  back, e.g. scaffold material), order_index, created_at, updated_at`.
+- **`process_node` new columns**:
+  `source_confidence text NOT NULL DEFAULT 'DIRECT' CHECK IN ('DIRECT','HEARSAY')`
+  — hearsay = narrator described someone else's work; visibly thin, to confirm
+  in a later session with that person.
+  `duration_note text NULL, frequency_note text NULL` — free-text ranges with
+  provenance ("2–3h, foreman's estimate"; "weekly"). Structure first; numbers
+  are a later annotation pass, never blocking.
 
-- `node_add` — `{ parentRef?, kind, name, description? }`
-- `node_update` — `{ nodeId, name?, description?, kind? }`
-- `node_move` — `{ nodeId, newParentRef? }` (null → top level)
-- `flow_add` — `{ nodeId, direction, flowType, label, counterparty? }`
-- `flow_update` — `{ flowId, ...fields }`
-- `flow_remove` — `{ flowId }`
-- `ask_question` — coach asks, no write
+Store semantics (extend `src/lib/process-map`):
 
-All operations are proposals; nothing writes until the human accepts. The
-apply path re-validates and never trusts persisted JSON — same as
-`applyIncidentCoachOperation`.
+- `deleteProcessNode` already promotes children; additionally **bridge edges**:
+  for each incoming (X→deleted) and outgoing (deleted→Y), create (X→Y) if
+  absent, then delete — the river stays connected.
+- Edge add validates: same map, no self-edge; duplicate (from,to) is a no-op
+  returning the existing edge.
+- All mutations under the existing per-map advisory lock.
 
-### Phase-gated interview
+## Definition of done (the coach's one standard — no "purpose" question)
 
-The deterministic readiness signal gates the phase; the phase scopes the
-prompt; transitions are explicit and user-visible ("We have the shape of the
-process. Ready to map what flows through it?").
+Like II's "well-executed investigation", the map has one internal standard,
+checked by a deterministic readiness signal:
 
-1. **Scope** — what area/company/process are we mapping? Name the top-level
-   process(es).
-2. **Decompose** — break each process into subprocesses, then activities.
-   Work-as-done probes: "walk me through a normal run"; "what happens when it
-   goes wrong?"; "does anyone do this differently?".
-3. **Flows** — for the activities that matter, what comes in and goes out
-   (material / information / money), and from/to whom.
-4. **Review** — the coach surfaces gaps: activities with no flows, a subprocess
-   with a single child, dangling nodes; offers the generated diagram.
+1. **Spine complete**: an unbroken edge-path from trigger (order/job exists) to
+   delivered-and-billed; no "then magic happens" gaps.
+2. **Forks explained**: every node with >1 outgoing edge has a routing note.
+3. **Rejoins/loops explicit** (edges exist; loops labeled by their trigger,
+   e.g. "weekly", "on failed QC").
+4. **Working level owned**: each leaf block has ≥1 ROLE resource; key blocks
+   have their with-what (EQUIPMENT/MATERIAL_POOL).
+5. **Thin spots named**: HEARSAY blocks and empty branches are surfaced in
+   review, not hidden.
 
-## Workbench
+## Interview design (phase-gated; deterministic signal picks the phase)
 
-Left: chat (reuse `CoachWorkbench` patterns — mounted-ref guards, abort
-controller, per-operation locking, accept/edit/reject cards). Right: the map,
-tabs:
+Voice: plain, warm, one question at a time; reflects back before asking next;
+never lectures process theory. **5–12 blocks per level, always** — past that,
+the coach proposes grouping ("these four look like 'site logistics' —
+bundle them?").
 
-- **Outline** — editable tree (like the cause tree): add/rename/move/delete
-  nodes, set kind. This alone proves the loop for v0.
-- **Flows** — per-node flow rows (direction, type, label, counterparty).
-- **Diagram** — generated read-only view (deferred past the first slice).
+1. **Icebreaker — follow one thing.** "Pick one concrete thing — a pallet, an
+   order, one scaffolding job — and walk me through its life from the moment
+   it exists until it's delivered and paid. Don't polish it." One
+   thing-followed per map; other product families are their own maps (shared
+   blocks may recur).
+2. **Spine.** Turn the narration into ordered sibling blocks + edges. Boundary
+   probe: what happens just before / after. Close the gaps in the chain.
+3. **Forks, rejoins, loops.** "Does every [thing] go the same way?" — capture
+   splits with routing notes, merges, rework/maintenance loops.
+4. **Drill where it matters.** Decompose blocks that are thick (many people,
+   risky, frequent trouble) — coach proposes, user decides. Work-as-done
+   probes fire here: exceptions ("most common way this goes sideways?"),
+   rework ("does anything come back?"), variation ("what does the experienced
+   person do that a new one wouldn't?"), the quiet step ("not written down but
+   everyone knows"). Persist on load-bearing blocks; ask-once elsewhere.
+   HEARSAY marking: "you *think* logistics re-racks overnight — I'll flag that
+   to confirm with them."
+5. **Resources (L2).** For working-level blocks: who does it, with what
+   (equipment / material pools, returnable flagged). Light touch.
+6. **Review.** Coach re-reads the map against the definition of done, names
+   holes ("packaging has no owner; the recycling fork has no rejoin — where
+   does it end?"), offers to fill or leave them. Times/frequencies offered as
+   an optional final pass, ranges + provenance only.
 
-## Build slices (small, sequential, supervised — codex writes)
+## Structured operations (proposal-gated, mirroring II)
 
-1. **Data layer.** Migration (`process_map`, `process_node`, `process_flow`)
-   with the apply-function + provisioning hook; lib CRUD with reparent-safe
-   delete and advisory-locked order_index; integration tests provisioning the
-   schema (session-cookie auth from the start).
-2. **Coach skill + apply path.** Prompt, structured-operation schema + parse +
-   `applyProcessMapOperation`, mirroring the II agent module. Unit tests on the
-   operation contract; a deterministic MockProvider fixture.
-3. **API routes.** Map register (list/create), map GET, coach chat + apply —
-   mirror the incident coach routes including session + per-route CSRF.
-4. **Workbench UI.** Chat + Outline tree + accept/reject cards.
-5. **Discoverability.** Enable the "Process Mapping" landing tile; add it to
-   the (to-be-built) global nav; empty-state + demo map.
+`node_add {parentRef?, kind, name, description?}` ·
+`node_update {nodeId, name?, description?, kind?, durationNote?, frequencyNote?, sourceConfidence?}` ·
+`node_move {nodeId, newParentRef?}` · `edge_add {fromRef, toRef, routingNote?}` ·
+`edge_remove {edgeId}` · `flow_add/update/remove` (MATERIAL/INFORMATION only) ·
+`resource_add {nodeRef, resourceType, label, quantityNote?, returnable?}` ·
+`resource_remove {resourceId}` · `ask_question`.
 
-## Explicitly deferred for v0
+Same contract as II: Zod-validated, human accepts each card, apply path
+re-validates and claims atomically; refs resolved via operationRecordMap.
 
-Generated diagram polish; Flows tab richness; SOP/ISO-scope/LEAN exports;
-approval snapshots; any tie to HIRA or II. Keep the seam open (the action
-origin-contract already reserves origins), wire nothing.
+## v0 build & test plan (codex executes everything)
+
+1. Migration 00470 + store extension + integration tests (edges incl. bridge-
+   on-delete, resources, confidence/duration fields).
+2. Coach skill: prompt implementing the interview; parse; apply path;
+   readiness signal implementing the definition of done; unit tests with a
+   deterministic MockProvider fixture.
+3. **Simulation harness** (`scripts/process-map/simulate.ts`): scripted
+   narrator personas played against the live coach (BYO key from .env),
+   auto-accepting proposals; dumps the final map (outline + edges + resources
+   + readiness verdict) as markdown for human judgment. Personas: (a)
+   scaffolding company end-to-end incl. monthly billing and damage handling,
+   (b) plastic factory with the molding/injection fork rejoining at packaging,
+   (c) a simple bakery as the small control.
+4. Judge the maps; iterate the prompt; only then routes + workbench UI.
+
+## Explicitly deferred
+
+Routes + UI (after maps prove out) · generated diagram polish · L3 time-pass
+tooling · L4 agent passes (savings scan, SOP drafts, re-interview) · approval
+snapshots · any HIRA/II coupling.

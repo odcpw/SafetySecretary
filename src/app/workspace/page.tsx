@@ -8,7 +8,7 @@ export default async function WorkspacePage() {
 
 	return (
 		<PlaceholderShell
-			description="Empty workspace. Tenant-aware content is wired in later beads."
+			description="Empty workspace. Open Incidents to start an investigation."
 			title="Workspace"
 		>
 			<div className="mt-4">

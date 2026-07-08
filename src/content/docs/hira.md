@@ -13,7 +13,7 @@ How to:
 - Pruefe vorgeschlagene S-T-O-P-Kontrollen und gib eine Snapshot-Version frei.
 See also: jha, actions, toolbox-talk, exports
 Body:
-Die HIRA ist eine Tabelle, kein starrer Wizard. Aehnliche Gefaehrdungen aus anderen HIRAs duerfen als Vorschlag kopiert werden, bleiben aber unabhaengige Inhalte im aktuellen Dokument.
+Status: geplant, noch nicht verfuegbar. Die HIRA folgt der pragmatischen Schweizer Gefaehrdungsermittlung: Prozess, Teilprozess, Taetigkeiten - dann Gefaehrdungen erkennen, dann Risiko beurteilen. Der Manager beurteilt, die Sicherheitsorganisation gibt frei. Die Wahrscheinlichkeit wird gegen die tatsaechlich gelebten Massnahmen eingeschaetzt, nicht gegen die dokumentierten. Die HIRA ist eine Tabelle, kein starrer Wizard.
 
 ## en
 Title: HIRA
@@ -25,7 +25,7 @@ How to:
 - Review proposed S-T-O-P controls and approve a snapshot version.
 See also: jha, actions, toolbox-talk, exports
 Body:
-The HIRA behaves like one table, not a rigid wizard. Similar hazards from other HIRAs may be copied as suggestions, but they remain independent content in the current document.
+Status: planned, not yet available. The HIRA follows the pragmatic Swiss method: process, subprocess, activities - then hazard identification, then risk assessment. The manager assesses; the safety organisation approves. Likelihood is appraised against controls as actually practiced, not as documented. The HIRA behaves like one table, not a rigid wizard.
 
 ## fr
 Title: HIRA
@@ -37,7 +37,7 @@ How to:
 - Revise les controles S-T-O-P proposes et approuve un snapshot.
 See also: jha, actions, toolbox-talk, exports
 Body:
-La HIRA fonctionne comme une table, pas comme un wizard rigide. Des dangers similaires d'autres HIRAs peuvent etre copies comme suggestion, mais restent independants.
+Statut: prevu, pas encore disponible. La HIRA suit la methode suisse pragmatique: processus, sous-processus, activites - puis identification des dangers, puis evaluation des risques. Le manager evalue; l'organisation securite approuve. La probabilite est estimee selon les mesures reellement pratiquees, pas selon les mesures documentees. La HIRA fonctionne comme une table, pas comme un wizard rigide.
 
 ## it
 Title: HIRA
@@ -49,4 +49,4 @@ How to:
 - Rivedi controlli S-T-O-P proposti e approva uno snapshot.
 See also: jha, actions, toolbox-talk, exports
 Body:
-La HIRA funziona come una tabella, non come wizard rigido. Pericoli simili da altre HIRA possono essere copiati come suggerimenti, ma restano indipendenti.
+Stato: in programma, non ancora disponibile. La HIRA segue il metodo svizzero pragmatico: processo, sottoprocesso, attivita - poi identificazione dei pericoli, poi valutazione dei rischi. Il manager valuta; l'organizzazione sicurezza approva. La probabilita e stimata sulle misure realmente praticate, non su quelle documentate. La HIRA funziona come una tabella, non come wizard rigido.

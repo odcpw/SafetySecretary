@@ -13,7 +13,7 @@ How to:
 - Exportiere eine Method-Statement-Ausgabe oder eskaliere zur HIRA.
 See also: hira, actions, exports, privacy
 Body:
-JHA verzichtet standardmaessig auf formale Risiko-Matrix und Baseline/Residual-Split. Sie ist fuer schnelle, verantwortliche Erfassung gebaut.
+Status: zurueckgestellt, derzeit nicht in Planung. JHA verzichtet standardmaessig auf formale Risiko-Matrix und Baseline/Residual-Split. Sie ist fuer schnelle, verantwortliche Erfassung gedacht.
 
 ## en
 Title: JHA
@@ -25,7 +25,7 @@ How to:
 - Export a method-statement output or graduate to HIRA.
 See also: hira, actions, exports, privacy
 Body:
-JHA does not use the formal matrix or baseline/residual split by default. It is built for quick responsible capture.
+Status: parked, not currently planned. JHA does not use the formal matrix or baseline/residual split by default. It is intended for quick responsible capture.
 
 ## fr
 Title: JHA
@@ -37,7 +37,7 @@ How to:
 - Exporte un method statement ou transforme en HIRA.
 See also: hira, actions, exports, privacy
 Body:
-JHA n'utilise pas par defaut la matrice formelle ni le split initial/residuel. Il sert la capture rapide et responsable.
+Statut: mis de cote, pas prevu actuellement. JHA n'utilise pas par defaut la matrice formelle ni le split initial/residuel. Il vise la capture rapide et responsable.
 
 ## it
 Title: JHA
@@ -49,4 +49,4 @@ How to:
 - Esporta un method statement o passa a HIRA.
 See also: hira, actions, exports, privacy
 Body:
-JHA non usa di default matrice formale o split iniziale/residuo. Serve per cattura rapida e responsabile.
+Stato: rimandata, al momento non in programma. JHA non usa di default matrice formale o split iniziale/residuo. Pensata per cattura rapida e responsabile.

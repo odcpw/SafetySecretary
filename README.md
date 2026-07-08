@@ -101,8 +101,14 @@ just begin typing.
 ## Status
 
 Safety Secretary is early and deliberately focused. The Incident Investigation
-coach is the part that's built out and usable today. Other modules — hazard
-assessments, job‑hazard analyses, and more — are planned but not here yet.
+coach is the part that's built out and usable today.
+
+We ship independent modules, one at a time, in the simplest shape that helps
+one person produce one good document — this is not an EHS suite. Next up is a
+**process mapping** coach (talk through how your company works; get a
+hierarchical process map), followed by a **risk assessment (HIRA)** coach
+following the pragmatic Swiss Gefährdungsermittlung method. See
+[docs/VISION.md](docs/VISION.md) for the full product vision.
 
 ## About Contributions
 

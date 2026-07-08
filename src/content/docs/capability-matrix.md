@@ -5,48 +5,48 @@ coverage: capability-matrix
 ---
 ## de
 Title: Funktionsmatrix
-Audience: Teams, die den v1-Umfang pruefen
-Summary: Die Matrix zeigt, was v1 kann und was spaeter kommt.
+Audience: Teams, die den aktuellen Umfang pruefen
+Summary: Die Matrix zeigt, was heute nutzbar ist und was als Naechstes kommt.
 How to:
-- Starte bei HIRA, JHA oder II.
-- Pruefe, welche Exporte und Fotos pro Workflow verfuegbar sind.
-- Markiere spaetere Wuensche fuer die Roadmap, nicht fuer v1.
-See also: hira, jha, incident-investigation, exports
+- Starte mit Incident Investigation - das ist das ausgebaute Modul.
+- Pruefe, welche Exporte und Fotos verfuegbar sind.
+- Markiere spaetere Wuensche fuer die Roadmap.
+See also: incident-investigation, exports, actions
 Body:
-v1 umfasst HIRA, JHA, Incident Investigation, Fotos, Snapshots, Exporte, mehrsprachige UI, LLM-Entwuerfe und Self-Host-Grundlagen. Echtzeit-Kollaboration und native Apps sind nicht v1.
+Heute nutzbar: Incident Investigation (Coach, Ursachenbaum, Massnahmen, Fotos, Snapshots, Exporte), mehrsprachige UI und Self-Host-Grundlagen. Geplant: ein Prozess-Mapping-Coach, danach eine Gefaehrdungsermittlung (HIRA) nach pragmatischer Schweizer Methode. JHA ist vorerst zurueckgestellt. Echtzeit-Kollaboration und native Apps sind nicht geplant. Wir bauen unabhaengige Module, keine EHS-Suite.
 
 ## en
 Title: Capability matrix
-Audience: Teams checking the v1 scope
-Summary: The matrix explains what v1 includes and what is later.
+Audience: Teams checking the current scope
+Summary: The matrix explains what is usable today and what comes next.
 How to:
-- Start with HIRA, JHA, or II.
-- Check which exports and photos apply to each workflow.
-- Put later wishes on the roadmap, not into v1.
-See also: hira, jha, incident-investigation, exports
+- Start with Incident Investigation - that is the built-out module.
+- Check which exports and photos are available.
+- Put later wishes on the roadmap.
+See also: incident-investigation, exports, actions
 Body:
-v1 covers HIRA, JHA, incident investigation, photos, snapshots, exports, multilingual UI, LLM drafting, and self-host basics. Real-time collaboration and native mobile apps are not v1.
+Usable today: Incident Investigation (coach, cause tree, measures, photos, snapshots, exports), multilingual UI, and self-host basics. Planned: a process mapping coach, then a risk assessment (HIRA) coach following the pragmatic Swiss method. JHA is parked for now. Real-time collaboration and native mobile apps are not planned. We ship independent modules, not an EHS suite.
 
 ## fr
 Title: Matrice fonctions
-Audience: Equipes qui verifient le perimetre v1
-Summary: La matrice montre ce qui est dans v1 et ce qui vient plus tard.
+Audience: Equipes qui verifient le perimetre actuel
+Summary: La matrice montre ce qui est utilisable aujourd'hui et ce qui arrive ensuite.
 How to:
-- Commence par HIRA, JHA ou II.
-- Verifie les exports et photos par workflow.
+- Commence par l'investigation incident - c'est le module construit.
+- Verifie les exports et photos disponibles.
 - Mets les souhaits futurs dans la roadmap.
-See also: hira, jha, incident-investigation, exports
+See also: incident-investigation, exports, actions
 Body:
-v1 couvre HIRA, JHA, investigation incident, photos, snapshots, exports, UI multilingue, brouillons LLM et base self-host. Collaboration temps reel et apps natives ne sont pas v1.
+Utilisable aujourd'hui: investigation incident (coach, arbre des causes, mesures, photos, snapshots, exports), UI multilingue et base self-host. Prevu: un coach de cartographie des processus, puis une evaluation des risques (HIRA) selon la methode suisse pragmatique. JHA est mis de cote pour le moment. Collaboration temps reel et apps natives ne sont pas prevues. Nous livrons des modules independants, pas une suite EHS.
 
 ## it
 Title: Matrice capacita
-Audience: Team che controllano lo scope v1
-Summary: La matrice chiarisce cosa include v1 e cosa arriva dopo.
+Audience: Team che controllano lo scope attuale
+Summary: La matrice chiarisce cosa e utilizzabile oggi e cosa arriva dopo.
 How to:
-- Parti da HIRA, JHA o II.
-- Verifica export e foto per workflow.
+- Parti dall'indagine incidente - e il modulo costruito.
+- Verifica export e foto disponibili.
 - Metti richieste future nella roadmap.
-See also: hira, jha, incident-investigation, exports
+See also: incident-investigation, exports, actions
 Body:
-v1 copre HIRA, JHA, indagine incidente, foto, snapshot, export, UI multilingue, bozze LLM e basi self-host. Collaborazione realtime e app native non sono v1.
+Utilizzabile oggi: indagine incidente (coach, albero delle cause, misure, foto, snapshot, export), UI multilingue e basi self-host. In programma: un coach di mappatura dei processi, poi una valutazione dei rischi (HIRA) secondo il metodo svizzero pragmatico. JHA e rimandata per ora. Collaborazione realtime e app native non sono in programma. Costruiamo moduli indipendenti, non una suite EHS.

@@ -38,6 +38,7 @@ import type { IncidentRecord } from "./types";
 
 type CoachWorkbenchProps = {
 	readonly incidentId: string;
+	readonly initialAsk?: string;
 	/** Locale for the static UI chrome (labels, buttons, hints). */
 	readonly locale: string;
 	/**
@@ -76,6 +77,7 @@ type CoachActivityItem = CoachStreamProgress & {
 
 export default function CoachWorkbench({
 	incidentId,
+	initialAsk,
 	locale,
 	replyLocale,
 }: CoachWorkbenchProps) {
@@ -108,6 +110,7 @@ export default function CoachWorkbench({
 	const [activityOpen, setActivityOpen] = useState(false);
 	const scrollRef = useRef<HTMLDivElement | null>(null);
 	const composerRef = useRef<HTMLTextAreaElement | null>(null);
+	const initialAskAppliedRef = useRef(false);
 	const workbenchRef = useRef<HTMLDivElement | null>(null);
 	const chatSectionRef = useRef<HTMLElement | null>(null);
 	const sendingRef = useRef(false);
@@ -143,6 +146,21 @@ export default function CoachWorkbench({
 			}
 		};
 	}, []);
+
+	useEffect(() => {
+		if (!initialAsk || initialAskAppliedRef.current) {
+			return;
+		}
+		initialAskAppliedRef.current = true;
+		setInput(initialAsk.slice(0, 300));
+		requestAnimationFrame(() => {
+			composerRef.current?.focus();
+			composerRef.current?.scrollIntoView({
+				behavior: "smooth",
+				block: "center",
+			});
+		});
+	}, [initialAsk]);
 
 	const refreshRecord = useCallback(async () => {
 		const response = await fetch(
@@ -844,6 +862,7 @@ export default function CoachWorkbench({
 						<div className="flex items-end gap-2">
 							<textarea
 								className="min-h-[2.75rem] max-h-56 flex-1 resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+								data-coach-composer=""
 								onChange={(event) => setInput(event.currentTarget.value)}
 								onKeyDown={(event) => {
 									if (event.key === "Enter" && !event.shiftKey) {

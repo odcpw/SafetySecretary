@@ -25,15 +25,21 @@ export default function TodoHud({
 	readonly onSelect: (nodeId: string) => void;
 	readonly storageScope: string;
 }) {
+	const [compact, setCompact] = useState(false);
 	const [open, setOpen] = useState(true);
 	const [doneKeys, setDoneKeys] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
 
 	useEffect(() => {
-		if (window.innerWidth < 480) {
-			setOpen(false);
-		}
+		const query = window.matchMedia("(max-width: 479px)");
+		const update = () => {
+			setCompact(query.matches);
+			setOpen(!query.matches);
+		};
+		update();
+		query.addEventListener("change", update);
+		return () => query.removeEventListener("change", update);
 	}, []);
 
 	useEffect(() => {
@@ -73,16 +79,16 @@ export default function TodoHud({
 		});
 	};
 
-	if (!open) {
+	if (compact && !open) {
 		return (
 			<button
-				aria-label={`Open to-do panel, ${openItems.length} open`}
-				className="pointer-events-auto fixed bottom-3 right-3 z-30 inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.96)] px-3 text-sm font-medium text-[var(--color-text)] shadow-lg backdrop-blur sm:bottom-auto sm:top-24"
+				aria-label={`Open points, ${openItems.length} open`}
+				className="pointer-events-auto fixed bottom-3 right-3 z-30 inline-flex min-h-10 items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-medium text-[var(--color-text)] shadow-lg backdrop-blur"
 				data-canvas-todo-badge=""
 				onClick={() => setOpen(true)}
 				type="button"
 			>
-				<span>To do</span>
+				<span>Open points</span>
 				<span className="rounded bg-[var(--color-accent)] px-1.5 py-0.5 text-xs text-[var(--color-bg)]">
 					{openItems.length}
 				</span>
@@ -92,24 +98,30 @@ export default function TodoHud({
 
 	return (
 		<aside
-			className="pointer-events-auto fixed inset-x-0 bottom-0 z-30 max-h-[70vh] overflow-auto rounded-t-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.97)] p-3 shadow-2xl backdrop-blur sm:inset-x-auto sm:bottom-auto sm:right-4 sm:top-24 sm:w-[360px] sm:rounded-md"
+			className={`pointer-events-auto fixed z-30 max-h-[70vh] overflow-auto border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-2xl backdrop-blur ${
+				compact
+					? "inset-x-0 bottom-0 rounded-t-md"
+					: "right-4 top-24 w-[360px] rounded-md"
+			}`}
 			data-canvas-todo-panel=""
 		>
 			<header className="mb-2 flex items-center justify-between gap-3">
 				<div>
-					<h2 className="m-0 text-sm font-semibold">To do</h2>
+					<h2 className="m-0 text-sm font-semibold">Open points</h2>
 					<p className="m-0 text-xs text-[var(--color-muted)]">
 						{openItems.length} open
 					</p>
 				</div>
-				<button
-					aria-label="Collapse to-do panel"
-					className="grid size-8 place-items-center rounded border border-[var(--color-border)] bg-[var(--color-surface)] text-sm text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
-					onClick={() => setOpen(false)}
-					type="button"
-				>
-					<CollapseIcon />
-				</button>
+				{compact ? (
+					<button
+						aria-label="Collapse open points"
+						className="grid size-8 place-items-center rounded border border-[var(--color-border)] bg-[var(--color-surface-elev)] text-sm text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+						onClick={() => setOpen(false)}
+						type="button"
+					>
+						<CollapseIcon />
+					</button>
+				) : null}
 			</header>
 			<TodoList
 				doneKeys={doneKeys}

@@ -121,7 +121,8 @@ export default function ProcessMapCanvas({
 		distance: number;
 		transform: Transform;
 	} | null>(null);
-	const [altitude, setAltitude] = useState(2);
+	const skipNextGlobalFitRef = useRef(false);
+	const [altitude, setAltitude] = useState(1);
 	const [focusStack, setFocusStack] = useState<string[]>([]);
 	const [layout, setLayout] = useState<LayoutResult | null>(null);
 	const [nodes, setNodes] = useState(record.nodes);
@@ -162,7 +163,8 @@ export default function ProcessMapCanvas({
 		() => deriveFogStates(currentRecord),
 		[currentRecord],
 	);
-	const altitudeView = useMemo(
+	const focusNodeId = focusStack.at(-1) ?? null;
+	const baseAltitudeView = useMemo(
 		() =>
 			computeProcessMapAltitudeView({
 				altitude,
@@ -172,6 +174,10 @@ export default function ProcessMapCanvas({
 			}),
 		[altitude, currentRecord.nodes, currentRecord.resources, fogStates],
 	);
+	const altitudeView = useMemo(
+		() => focusAltitudeView(baseAltitudeView, focusNodeId, currentRecord.nodes),
+		[baseAltitudeView, currentRecord.nodes, focusNodeId],
+	);
 	const clampedAltitude = Math.min(altitude, altitudeView.maxDepth);
 	const explored = exploredPercent(currentRecord.readiness.questLog);
 	const todoItems = buildProcessMapTodoItems(
@@ -179,7 +185,6 @@ export default function ProcessMapCanvas({
 		childCountByNodeId,
 		updateWho,
 	);
-	const focusNodeId = focusStack.at(-1) ?? null;
 	useEffect(() => {
 		if (altitude !== clampedAltitude) {
 			setAltitude(clampedAltitude);
@@ -248,9 +253,14 @@ export default function ProcessMapCanvas({
 			const node = visibleNodeId ? layout.nodes.get(visibleNodeId) : null;
 			if (node) {
 				setTransform(fitTransform(paddedNodeBounds(node), viewportSize));
+				skipNextGlobalFitRef.current = true;
 				setPendingFitNodeId(null);
 				return;
 			}
+		}
+		if (skipNextGlobalFitRef.current) {
+			skipNextGlobalFitRef.current = false;
+			return;
 		}
 
 		setTransform(fitTransform(layout.bounds, viewportSize));
@@ -289,6 +299,19 @@ export default function ProcessMapCanvas({
 			currentRecord.nodes,
 			altitudeView.visibleNodeIds,
 		);
+		if (visibleNodeId !== nodeId) {
+			const targetDepth = baseAltitudeView.depthByNodeId.get(nodeId) ?? 1;
+			setFocusStack([]);
+			setAltitude(
+				Math.min(
+					baseAltitudeView.maxDepth,
+					Math.max(clampedAltitude, targetDepth),
+				),
+			);
+			setSelectedNodeId(nodeId);
+			setPendingFitNodeId(nodeId);
+			return;
+		}
 		setSelectedNodeId(visibleNodeId ?? nodeId);
 		if (visibleNodeId) {
 			pulseNode(visibleNodeId, setPulseNodeId);
@@ -314,7 +337,9 @@ export default function ProcessMapCanvas({
 	};
 
 	const diveIntoNode = (nodeId: string) => {
-		const depth = altitudeView.depthByNodeId.get(nodeId) ?? clampedAltitude;
+		if (clampedAltitude >= altitudeView.maxDepth) {
+			return;
+		}
 		setFocusStack((current) => [...current, nodeId]);
 		setSelectedNodeId(nodeId);
 		setPendingFitNodeId(nodeId);
@@ -327,7 +352,7 @@ export default function ProcessMapCanvas({
 		if (node) {
 			setTransform(fitTransform(paddedNodeBounds(node), viewportSize));
 		}
-		setAltitude(Math.min(altitudeView.maxDepth, Math.max(clampedAltitude, depth + 1)));
+		setAltitude(Math.min(altitudeView.maxDepth, clampedAltitude + 1));
 	};
 
 	const surfaceOneLevel = () => {
@@ -365,9 +390,9 @@ export default function ProcessMapCanvas({
 	}
 
 	return (
-		<main className="h-screen overflow-hidden bg-[#101113] text-[var(--color-text)]">
+		<main className="h-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)]">
 			<div className="pointer-events-none absolute left-0 top-0 z-20 flex w-full flex-col gap-3 p-3 sm:p-4">
-				<div className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.92)] px-3 py-2 shadow-lg backdrop-blur">
+				<div className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-lg backdrop-blur">
 					<div className="flex min-w-0 items-center gap-3">
 						<Link
 							className="shrink-0 text-sm text-[var(--color-muted)] underline-offset-4 hover:text-[var(--color-text)] hover:underline"
@@ -456,42 +481,21 @@ export default function ProcessMapCanvas({
 						/>
 					</filter>
 					<filter
-						id="pm-fog-blur"
-						x="-40%"
-						y="-40%"
-						width="180%"
-						height="180%"
+						id="pm-content-blur"
+						x="-4%"
+						y="-8%"
+						width="108%"
+						height="116%"
 					>
-						<feGaussianBlur stdDeviation="8" />
+						<feGaussianBlur stdDeviation="1.75" />
 					</filter>
-					<g id="pm-fog-puff" opacity="0.64">
-						<ellipse
-							cx="22"
-							cy="23"
-							fill="#d7dade"
-							filter="url(#pm-fog-blur)"
-							rx="22"
-							ry="13"
-						/>
-						<ellipse
-							cx="42"
-							cy="18"
-							fill="#d7dade"
-							filter="url(#pm-fog-blur)"
-							rx="19"
-							ry="15"
-						/>
-						<ellipse
-							cx="59"
-							cy="25"
-							fill="#d7dade"
-							filter="url(#pm-fog-blur)"
-							rx="24"
-							ry="12"
-						/>
-					</g>
+					<linearGradient id="pm-fog-region-stroke" x1="0" x2="1" y1="0" y2="0">
+						<stop offset="0" stopColor="#f59e0b" stopOpacity="0.58" />
+						<stop offset="0.58" stopColor="#f59e0b" stopOpacity="0.24" />
+						<stop offset="1" stopColor="#f59e0b" stopOpacity="0.05" />
+					</linearGradient>
 				</defs>
-				<rect fill="#101113" height="100%" width="100%" />
+				<rect fill="var(--color-bg)" height="100%" width="100%" />
 				{layout ? (
 					<g
 						data-canvas-world=""
@@ -501,6 +505,7 @@ export default function ProcessMapCanvas({
 							{[...layout.nodes.values()].map((node) =>
 								renderRegion(
 									node,
+									clampedAltitude < altitudeView.maxDepth,
 									visibleSelectedId,
 									selectNodeOnly,
 									diveIntoNode,
@@ -511,6 +516,7 @@ export default function ProcessMapCanvas({
 						<g>
 							{[...layout.nodes.values()].map((node) =>
 								renderNodeBox({
+									canDive: clampedAltitude < altitudeView.maxDepth,
 									childCountByNodeId,
 									node,
 									onDive: diveIntoNode,
@@ -875,8 +881,12 @@ function buildElkGraph(
 	};
 
 	return {
-		children: (nodesByParent.get(null) ?? [])
-			.filter((node) => visibleNodeIds.has(node.id))
+		children: record.nodes
+			.filter(
+				(node) =>
+					visibleNodeIds.has(node.id) &&
+					(!node.parentId || !visibleNodeIds.has(node.parentId)),
+			)
 			.map(buildNode),
 		edges: visibleEdges(record, altitudeView).map((edge) => ({
 			id: edge.id,
@@ -1163,10 +1173,9 @@ function buildProcessMapTodoItems(
 
 	for (const node of record.nodes) {
 		const childCount = childCountByNodeId.get(node.id) ?? 0;
-		const edgeCount =
-			(record.edges.filter(
-				(edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id,
-			).length);
+		const edgeCount = record.edges.filter(
+			(edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id,
+		).length;
 		if (node.kind !== "ACTIVITY" && childCount === 0 && edgeCount === 0) {
 			items.push({
 				key: `node:${node.id}:empty-branch`,
@@ -1235,6 +1244,38 @@ function resolveVisibleNodeId(
 	}
 
 	return null;
+}
+
+function focusAltitudeView(
+	view: ReturnType<typeof computeProcessMapAltitudeView>,
+	focusNodeId: string | null,
+	nodes: readonly SerializeDates<ProcessNode>[],
+): ReturnType<typeof computeProcessMapAltitudeView> {
+	if (!focusNodeId) {
+		return view;
+	}
+
+	const childrenByParent = groupNodesByParent(nodes);
+	const subtreeIds = new Set<string>([focusNodeId]);
+	const stack = [...(childrenByParent.get(focusNodeId) ?? [])];
+	while (stack.length > 0) {
+		const node = stack.shift();
+		if (!node || subtreeIds.has(node.id)) {
+			continue;
+		}
+		subtreeIds.add(node.id);
+		stack.unshift(...(childrenByParent.get(node.id) ?? []));
+	}
+
+	return {
+		...view,
+		collapsedNodeIds: new Set(
+			[...view.collapsedNodeIds].filter((id) => subtreeIds.has(id)),
+		),
+		visibleNodeIds: new Set(
+			[...view.visibleNodeIds].filter((id) => subtreeIds.has(id)),
+		),
+	};
 }
 
 function groupNodesByParent(
@@ -1522,6 +1563,7 @@ function minimapViewBox(bounds: LayoutResult["bounds"]) {
 
 function renderRegion(
 	node: LayoutNode,
+	canDive: boolean,
 	selectedNodeId: string | null,
 	onSelect: (nodeId: string) => void,
 	onDive: (nodeId: string) => void,
@@ -1536,6 +1578,7 @@ function renderRegion(
 		<g
 			data-node-id={node.node.id}
 			data-has-children={node.childCount > 0 ? "true" : "false"}
+			data-fog-state={node.isFoggedRegion ? "fog" : node.fogState}
 			key={`region-${node.node.id}`}
 			onClick={(event) => {
 				event.stopPropagation();
@@ -1543,7 +1586,9 @@ function renderRegion(
 			}}
 			onDoubleClick={(event) => {
 				event.stopPropagation();
-				onDive(node.node.id);
+				if (canDive) {
+					onDive(node.node.id);
+				}
 			}}
 			onPointerDown={(event) => {
 				event.stopPropagation();
@@ -1554,17 +1599,17 @@ function renderRegion(
 			<rect
 				fill={
 					node.isFoggedRegion
-						? "rgba(42,43,47,0.68)"
-						: "rgba(28,28,33,0.72)"
+						? "var(--color-surface)"
+						: "var(--color-surface-elev)"
 				}
 				filter="url(#pm-soft-shadow)"
 				height={node.height}
 				rx="30"
 				stroke={
 					selected
-						? "#e4e4e8"
+						? "var(--color-text)"
 						: node.isFoggedRegion
-							? "#f59e0b"
+							? "url(#pm-fog-region-stroke)"
 							: "#3f465e"
 				}
 				strokeDasharray={node.isFoggedRegion ? "9 8" : undefined}
@@ -1574,34 +1619,14 @@ function renderRegion(
 				y={node.y}
 			/>
 			{node.isFoggedRegion ? (
-				<>
-					<rect
-						fill="rgba(215,218,222,0.36)"
-						height={node.height}
-						rx="30"
-						width={node.width}
-						x={node.x}
-						y={node.y}
-					/>
-					<use
-						href="#pm-fog-puff"
-						pointerEvents="none"
-						transform={`translate(${node.x + node.width - 70} ${node.y + 8}) scale(0.72)`}
-					/>
-					<use
-						href="#pm-fog-puff"
-						opacity="0.54"
-						pointerEvents="none"
-						transform={`translate(${node.x + node.width - 32} ${node.y - 20}) scale(0.58)`}
-					/>
-				</>
+				<QuestionBadge x={node.x + node.width - 30} y={node.y + 12} />
 			) : null}
-			{selected && node.childCount > 0 ? (
+			{selected && node.childCount > 0 && canDive ? (
 				<foreignObject
 					height="38"
 					width="38"
 					x={node.x + node.width - 48}
-					y={node.y + 12}
+					y={node.y + node.height - 48}
 				>
 					<DiveButton onClick={() => onDive(node.node.id)} />
 				</foreignObject>
@@ -1616,9 +1641,14 @@ function renderRegionLabel(node: LayoutNode) {
 	}
 
 	return (
-		<g key={`region-label-${node.node.id}`} pointerEvents="none">
+		<g
+			filter={node.isFoggedRegion ? "url(#pm-content-blur)" : undefined}
+			key={`region-label-${node.node.id}`}
+			opacity={node.isFoggedRegion ? 0.35 : 1}
+			pointerEvents="none"
+		>
 			<text
-				fill="#e4e4e8"
+				fill="var(--color-text)"
 				fontSize="16"
 				fontWeight="700"
 				x={node.x + 26}
@@ -1631,12 +1661,14 @@ function renderRegionLabel(node: LayoutNode) {
 }
 
 function renderNodeBox({
+	canDive,
 	childCountByNodeId,
 	node,
 	onDive,
 	onSelect,
 	selectedNodeId,
 }: {
+	canDive: boolean;
 	childCountByNodeId: ReadonlyMap<string, number>;
 	node: LayoutNode;
 	onDive: (nodeId: string) => void;
@@ -1649,32 +1681,25 @@ function renderNodeBox({
 
 	const selected = selectedNodeId === node.node.id;
 	const hasChildren = (childCountByNodeId.get(node.node.id) ?? 0) > 0;
-	const stroke =
-		selected
-			? "#e4e4e8"
-			: node.fogState === "fog"
-				? "#f59e0b"
-				: node.fogState === "haze"
-					? "#8e8e9a"
-					: "#4b587c";
+	const stroke = selected
+		? "var(--color-text)"
+		: node.fogState === "fog"
+			? "#f59e0b"
+			: node.fogState === "haze"
+				? "#8e8e9a"
+				: "#4b587c";
 	const fill =
 		node.fogState === "fog"
-			? "rgba(42,43,47,0.96)"
-			: node.fogState === "haze"
-				? "rgba(34,34,39,0.86)"
-				: "rgba(25,28,36,0.96)";
-	const contentTone =
-		node.fogState === "fog"
-			? "opacity-60 grayscale"
-			: node.fogState === "haze"
-				? "opacity-85 grayscale"
-				: "";
+			? "var(--color-surface)"
+			: "var(--color-surface-elev)";
+	const contentTone = node.fogState === "fog" ? "grayscale" : "";
 
 	return (
 		// biome-ignore lint/a11y/noStaticElementInteractions: SVG canvas nodes are pointer-selectable; the nested dive control is a semantic button.
 		<g
 			data-node-id={node.node.id}
 			data-has-children={hasChildren ? "true" : "false"}
+			data-fog-state={node.fogState}
 			key={`box-${node.node.id}`}
 			onClick={(event) => {
 				event.stopPropagation();
@@ -1682,7 +1707,7 @@ function renderNodeBox({
 			}}
 			onDoubleClick={(event) => {
 				event.stopPropagation();
-				if (hasChildren) {
+				if (hasChildren && canDive) {
 					onDive(node.node.id);
 				}
 			}}
@@ -1698,44 +1723,17 @@ function renderNodeBox({
 				height={node.height}
 				rx="12"
 				stroke={stroke}
-				strokeDasharray={node.fogState === "haze" ? "7 6" : undefined}
+				strokeDasharray={node.fogState === "clear" ? undefined : "7 6"}
 				strokeWidth={selected ? 4 : 2}
 				width={node.width}
 				x={node.x}
 				y={node.y}
 			/>
-			{node.fogState === "fog" ? (
-				<>
-					<rect
-						fill="rgba(215,218,222,0.55)"
-						height={node.height}
-						rx="12"
-						width={node.width}
-						x={node.x}
-						y={node.y}
-					/>
-					<use
-						href="#pm-fog-puff"
-						pointerEvents="none"
-						transform={`translate(${node.x + node.width - 48} ${node.y - 14}) scale(0.46)`}
-					/>
-					<use
-						href="#pm-fog-puff"
-						opacity="0.54"
-						pointerEvents="none"
-						transform={`translate(${node.x + node.width - 24} ${node.y + 16}) scale(0.36)`}
-					/>
-				</>
-			) : node.fogState === "haze" ? (
-				<use
-					href="#pm-fog-puff"
-					opacity="0.28"
-					pointerEvents="none"
-					transform={`translate(${node.x + node.width - 44} ${node.y - 10}) scale(0.34)`}
-				/>
-			) : null}
 			<foreignObject
+				data-node-content=""
+				filter={node.fogState === "fog" ? "url(#pm-content-blur)" : undefined}
 				height={node.height}
+				opacity={node.fogState === "fog" ? 0.35 : 1}
 				pointerEvents="none"
 				width={node.width}
 				x={node.x}
@@ -1765,12 +1763,15 @@ function renderNodeBox({
 					)}
 				</div>
 			</foreignObject>
-			{selected && hasChildren ? (
+			{node.fogState === "fog" || node.fogState === "haze" ? (
+				<QuestionBadge x={node.x + node.width - 30} y={node.y + 10} />
+			) : null}
+			{selected && hasChildren && canDive ? (
 				<foreignObject
 					height="34"
 					width="34"
 					x={node.x + node.width - 40}
-					y={node.y + 8}
+					y={node.y + node.height - 40}
 				>
 					<DiveButton onClick={() => onDive(node.node.id)} />
 				</foreignObject>
@@ -1780,31 +1781,49 @@ function renderNodeBox({
 }
 
 function StateMarker({ fogState }: { fogState: ProcessMapFogState }) {
-	const fill =
-		fogState === "clear"
-			? "#34d399"
-			: fogState === "haze"
-				? "#d7dade"
-				: "#f59e0b";
+	if (fogState !== "clear") {
+		return null;
+	}
 	return (
 		<svg aria-hidden="true" height="18" viewBox="0 0 28 18" width="28">
-			{fogState === "clear" ? (
-				<path
-					d="m8 9 4 4 8-9"
-					fill="none"
-					stroke={fill}
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					strokeWidth="2.5"
-				/>
-			) : (
-				<>
-					<ellipse cx="10" cy="10.5" fill={fill} opacity="0.55" rx="7" ry="4.5" />
-					<ellipse cx="16" cy="8" fill={fill} opacity="0.72" rx="7" ry="5" />
-					<circle cx="23" cy="5" fill={fill} r="2.2" />
-				</>
-			)}
+			<path
+				d="m8 9 4 4 8-9"
+				fill="none"
+				stroke="#34d399"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth="2.5"
+			/>
 		</svg>
+	);
+}
+
+function QuestionBadge({ x, y }: { x: number; y: number }) {
+	return (
+		<g
+			data-canvas-question-badge=""
+			pointerEvents="none"
+			transform={`translate(${x} ${y})`}
+		>
+			<circle
+				cx="10"
+				cy="10"
+				fill="var(--color-surface-elev)"
+				r="9"
+				stroke="#f59e0b"
+				strokeWidth="1.5"
+			/>
+			<text
+				fill="var(--color-text)"
+				fontSize="12"
+				fontWeight="700"
+				textAnchor="middle"
+				x="10"
+				y="14"
+			>
+				?
+			</text>
+		</g>
 	);
 }
 
@@ -1812,7 +1831,7 @@ function DiveButton({ onClick }: { onClick: () => void }) {
 	return (
 		<button
 			aria-label="Dive into this block"
-			className="grid size-8 place-items-center rounded-md border border-[var(--color-border)] bg-[rgba(16,17,19,0.92)] text-[var(--color-text)] shadow hover:border-[var(--color-accent)]"
+			className="grid size-8 place-items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] shadow hover:border-[var(--color-accent)]"
 			onClick={(event) => {
 				event.stopPropagation();
 				onClick();
@@ -1900,7 +1919,8 @@ function renderEdge(edge: LayoutEdge, zoom: number) {
 		return null;
 	}
 
-	const mid = edge.labelPoint ?? edge.points[Math.floor(edge.points.length / 2)];
+	const mid =
+		edge.labelPoint ?? edge.points[Math.floor(edge.points.length / 2)];
 
 	return (
 		<g key={edge.id} pointerEvents="none">
@@ -1995,7 +2015,9 @@ function midpointOfPolyline(
 		const previous = points[index];
 		return {
 			from: previous,
-			length: previous ? Math.hypot(point.x - previous.x, point.y - previous.y) : 0,
+			length: previous
+				? Math.hypot(point.x - previous.x, point.y - previous.y)
+				: 0,
 			to: point,
 		};
 	});

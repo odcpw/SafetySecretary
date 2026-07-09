@@ -12,6 +12,8 @@ import {
 	useState,
 } from "react";
 import TodoHud, { type CanvasTodoItem } from "../../canvas/TodoHud";
+import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
+import { ensureCsrfToken } from "../../../lib/auth/csrf-client";
 import {
 	EVENT_NODE_ID,
 	type LaidNodeKind,
@@ -105,6 +107,17 @@ type CanvasLayout = {
 	timelineItems: TimelineItem[];
 };
 
+type SelectionQuestion = {
+	readonly causeId: string | null;
+	readonly text: string;
+};
+
+type CanvasSelection = {
+	readonly questions: readonly SelectionQuestion[];
+	readonly rows: Array<{ label: string; value: string }>;
+	readonly title: string;
+};
+
 const minZoom = 0.12;
 const maxZoom = 2.2;
 const fitMargin = 24;
@@ -147,7 +160,7 @@ export default function IncidentCanvas({
 		width: 0,
 	});
 
-	const record = initialRecord;
+	const [record, setRecord] = useState(initialRecord);
 	const readiness = useMemo(
 		() =>
 			assessIncidentReadiness({
@@ -161,18 +174,24 @@ export default function IncidentCanvas({
 		[record],
 	);
 	const completePercent = readinessPercent(readiness.gaps.length);
+	const openBranchIds = useMemo(() => openCauseBranchIds(record), [record]);
 	const layout = useMemo(
 		() => buildCanvasLayout(record, locale),
 		[locale, record],
 	);
 	const selected = useMemo(
-		() => resolveSelection(selectedId, layout, record, locale),
-		[selectedId, layout, record, locale],
+		() =>
+			resolveSelection(
+				selectedId,
+				layout,
+				record,
+				locale,
+				readiness,
+				openBranchIds,
+			),
+		[selectedId, layout, record, locale, readiness, openBranchIds],
 	);
-	const todoItems = useMemo(
-		() => buildIncidentTodoItems(record),
-		[record],
-	);
+	const todoItems = useMemo(() => buildIncidentTodoItems(record), [record]);
 
 	useEffect(() => {
 		const svg = svgRef.current;
@@ -230,10 +249,55 @@ export default function IncidentCanvas({
 		flyToCanvasItem(itemId, layout, svgRef.current, transform, setTransform);
 	};
 
+	const refreshRecord = async () => {
+		const response = await fetch(
+			`/api/incidents/${encodeURIComponent(incidentId)}/record`,
+			{ credentials: "same-origin" },
+		);
+		if (!response.ok) {
+			throw new Error(`Incident refresh failed: ${response.status}`);
+		}
+		const body = (await response.json()) as { record?: IncidentCanvasRecord };
+		if (!body.record) {
+			throw new Error("Incident refresh returned no record.");
+		}
+		setRecord(body.record);
+	};
+
+	const parkCause = async (causeId: string) => {
+		const cause = record.causes.find((candidate) => candidate.id === causeId);
+		if (!cause) {
+			throw new Error("Cause branch is no longer available.");
+		}
+		const response = await fetch(
+			`/api/incidents/${encodeURIComponent(incidentId)}/causes`,
+			{
+				body: JSON.stringify({
+					branchStatus: "PARKED",
+					isRootCause: false,
+					nodeId: cause.id,
+					question: cause.question,
+					statement: cause.statement,
+				}),
+				credentials: "same-origin",
+				headers: {
+					accept: "application/json",
+					"content-type": "application/json",
+					"x-safetysecretary-csrf": ensureCsrfToken(CSRF_COOKIE_NAME),
+				},
+				method: "PATCH",
+			},
+		);
+		if (!response.ok) {
+			throw new Error(`Cause park failed: ${response.status}`);
+		}
+		await refreshRecord();
+	};
+
 	return (
-		<main className="h-screen overflow-hidden bg-[#101113] text-[var(--color-text)]">
+		<main className="h-screen overflow-hidden bg-[var(--color-bg)] text-[var(--color-text)]">
 			<div className="pointer-events-none absolute left-0 top-0 z-20 flex w-full flex-col gap-3 p-3 sm:p-4">
-				<div className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.93)] px-3 py-2 shadow-lg backdrop-blur">
+				<div className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 shadow-lg backdrop-blur">
 					<div className="flex min-w-0 items-center gap-3">
 						<Link
 							className="shrink-0 text-sm text-[var(--color-muted)] underline-offset-4 hover:text-[var(--color-text)] hover:underline"
@@ -323,42 +387,16 @@ export default function IncidentCanvas({
 						/>
 					</filter>
 					<filter
-						id="ii-fog-blur"
-						x="-40%"
-						y="-40%"
-						width="180%"
-						height="180%"
+						id="ii-content-blur"
+						x="-4%"
+						y="-8%"
+						width="108%"
+						height="116%"
 					>
-						<feGaussianBlur stdDeviation="7" />
+						<feGaussianBlur stdDeviation="1.75" />
 					</filter>
-					<g id="ii-fog-puff" opacity="0.62">
-						<ellipse
-							cx="22"
-							cy="23"
-							fill="#d7dade"
-							filter="url(#ii-fog-blur)"
-							rx="22"
-							ry="13"
-						/>
-						<ellipse
-							cx="42"
-							cy="18"
-							fill="#d7dade"
-							filter="url(#ii-fog-blur)"
-							rx="19"
-							ry="15"
-						/>
-						<ellipse
-							cx="59"
-							cy="25"
-							fill="#d7dade"
-							filter="url(#ii-fog-blur)"
-							rx="24"
-							ry="12"
-						/>
-					</g>
 				</defs>
-				<rect fill="#101113" height="100%" width="100%" />
+				<rect fill="var(--color-bg)" height="100%" width="100%" />
 				<g
 					data-canvas-world=""
 					transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}
@@ -379,9 +417,7 @@ export default function IncidentCanvas({
 					/>
 					<g>{layout.timelineItems.map((item) => renderTimelineItem(item))}</g>
 					<g>{layout.edges.map(renderCauseEdge)}</g>
-					<g>
-						{layout.causeNodes.map((node) => renderCauseNode(node))}
-					</g>
+					<g>{layout.causeNodes.map((node) => renderCauseNode(node))}</g>
 					<g>{pulseId ? renderPulse(layout, pulseId) : null}</g>
 				</g>
 			</svg>
@@ -392,7 +428,11 @@ export default function IncidentCanvas({
 				transform={transform}
 				viewportSize={viewportSize}
 			/>
-			<SelectionPanel selected={selected} />
+			<SelectionPanel
+				incidentId={incidentId}
+				onPark={parkCause}
+				selected={selected}
+			/>
 		</main>
 	);
 
@@ -412,11 +452,17 @@ export default function IncidentCanvas({
 				style={{ cursor: "pointer" }}
 			>
 				<rect
-					fill={isEvent ? "rgba(35,39,58,0.98)" : "rgba(25,28,36,0.96)"}
+					fill="var(--color-surface-elev)"
 					filter="url(#ii-soft-shadow)"
 					height={item.height}
 					rx={isEvent ? "16" : "12"}
-					stroke={selected ? "#e4e4e8" : isEvent ? "#7b83ff" : "#4b587c"}
+					stroke={
+						selected
+							? "var(--color-text)"
+							: isEvent
+								? "#7b83ff"
+								: "var(--color-border)"
+					}
 					strokeWidth={selected ? 4 : isEvent ? 2.5 : 1.7}
 					width={item.width}
 					x={item.x}
@@ -464,15 +510,18 @@ export default function IncidentCanvas({
 
 	function renderCauseNode(node: CanvasCauseNode) {
 		const selected = selectedId === node.id;
-		const style = causeNodeStyle(node.status);
-		const question = node.cause?.question?.trim() || "needs a why";
-		const isOpen = node.status === "open";
+		const isOpen = node.kind === "cause" && openBranchIds.has(node.id);
+		const displayStatus =
+			node.status === "open" && !isOpen ? "treated" : node.status;
+		const style = causeNodeStyle(displayStatus);
 		const isMeasure = node.kind === "measure";
 
 		return (
 			<g
 				data-node-id={node.id}
+				data-node-status={node.status}
 				data-has-children="false"
+				data-fog-state={isOpen ? "fog" : "clear"}
 				key={node.id}
 				onPointerDown={(event) => {
 					event.stopPropagation();
@@ -485,47 +534,25 @@ export default function IncidentCanvas({
 					filter="url(#ii-soft-shadow)"
 					height={node.height}
 					rx="6"
-					stroke={selected ? "#e4e4e8" : style.stroke}
+					stroke={selected ? "var(--color-text)" : style.stroke}
 					strokeDasharray={style.dash}
 					strokeWidth={selected ? 4 : 1.5}
 					width={node.width}
 					x={node.x}
 					y={node.y}
 				/>
-				{isOpen ? (
-					<rect
-						fill="rgba(215,218,222,0.16)"
-						height={node.height}
-						rx="6"
-						width={node.width}
-						x={node.x}
-						y={node.y}
-					/>
-				) : null}
-				{isOpen ? (
-					<use
-						href="#ii-fog-puff"
-						pointerEvents="none"
-						transform={`translate(${node.x + node.width - 48} ${node.y + node.height - 14}) scale(0.42)`}
-					/>
-				) : null}
 				<foreignObject
+					data-node-content=""
+					filter={isOpen ? "url(#ii-content-blur)" : undefined}
 					height={node.height}
+					opacity={isOpen ? 0.35 : 1}
 					pointerEvents="none"
 					width={node.width}
 					x={node.x}
 					y={node.y}
 				>
 					<div className="flex h-full flex-col justify-between gap-1 px-3 py-2 text-xs">
-						<div
-							className={
-								node.status === "parked"
-									? "opacity-65"
-									: isOpen
-										? "opacity-80 grayscale"
-										: ""
-							}
-						>
+						<div className={node.status === "parked" ? "opacity-65" : ""}>
 							<div
 								className={`line-clamp-3 leading-tight ${
 									node.kind === "event" || isMeasure
@@ -546,17 +573,16 @@ export default function IncidentCanvas({
 								</div>
 							) : null}
 						</div>
-						{isOpen ? (
-							<div className="line-clamp-1 rounded-full border border-zinc-400/60 bg-zinc-400/15 px-2 py-0.5 text-[10px] text-zinc-100">
-								{question}
-							</div>
-						) : node.status === "parked" ? (
+						{node.status === "parked" ? (
 							<div className="rounded-full border border-zinc-400/50 bg-zinc-400/10 px-2 py-0.5 text-[10px] text-zinc-200">
 								beyond our scope
 							</div>
 						) : null}
 					</div>
 				</foreignObject>
+				{isOpen ? (
+					<QuestionBadge x={node.x + node.width - 32} y={node.y + 10} />
+				) : null}
 				{node.status === "root" ? (
 					<RootMarker x={node.x + node.width - 33} y={node.y + 12} />
 				) : null}
@@ -823,13 +849,20 @@ function Minimap({
 }
 
 function SelectionPanel({
+	incidentId,
+	onPark,
 	selected,
 }: {
-	selected: { title: string; rows: Array<{ label: string; value: string }> };
+	incidentId: string;
+	onPark: (causeId: string) => Promise<void>;
+	selected: CanvasSelection;
 }) {
+	const [parkingCauseId, setParkingCauseId] = useState<string | null>(null);
+	const [parkError, setParkError] = useState(false);
+
 	return (
 		<aside className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 sm:bottom-auto sm:left-auto sm:right-[388px] sm:top-24 sm:w-80">
-			<div className="pointer-events-auto max-h-36 overflow-auto rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.94)] p-3 shadow-lg backdrop-blur sm:max-h-[58vh]">
+			<div className="pointer-events-auto max-h-36 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-lg backdrop-blur sm:max-h-[58vh]">
 				<p className="m-0 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
 					Selected
 				</p>
@@ -844,6 +877,59 @@ function SelectionPanel({
 						</div>
 					))}
 				</dl>
+				{selected.questions.length > 0 ? (
+					<div className="mt-3 border-t border-[var(--color-border)] pt-3">
+						<p className="m-0 text-xs text-[var(--color-muted)]">
+							If you know:
+						</p>
+						<ul className="m-0 mt-2 grid list-none gap-3 p-0">
+							{selected.questions.map((question) => (
+								<li
+									className="grid gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface-elev)] p-2"
+									data-selected-question=""
+									key={`${question.causeId ?? "event"}:${question.text}`}
+								>
+									<p className="m-0 text-xs leading-snug text-[var(--color-text)]">
+										{question.text}
+									</p>
+									<div className="flex flex-wrap gap-2">
+										<Link
+											className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text)] hover:border-[var(--color-accent)]"
+											href={`/incidents/${encodeURIComponent(incidentId)}/coach?ask=${encodeURIComponent(question.text)}`}
+										>
+											Answer in chat
+										</Link>
+										{question.causeId ? (
+											<button
+												className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)] disabled:opacity-60"
+												disabled={parkingCauseId === question.causeId}
+												onClick={async () => {
+													setParkError(false);
+													setParkingCauseId(question.causeId);
+													try {
+														await onPark(question.causeId as string);
+													} catch {
+														setParkError(true);
+													} finally {
+														setParkingCauseId(null);
+													}
+												}}
+												type="button"
+											>
+												Park — beyond our scope
+											</button>
+										) : null}
+									</div>
+								</li>
+							))}
+						</ul>
+						{parkError ? (
+							<p className="m-0 mt-2 text-xs text-red-300">
+								That branch could not be parked. Try again.
+							</p>
+						) : null}
+					</div>
+				) : null}
 			</div>
 		</aside>
 	);
@@ -899,7 +985,8 @@ function buildCanvasLayout(
 		record.actions.map((action) => [`m-${action.id}`, action]),
 	);
 	const causeNodes: CanvasCauseNode[] = tree.nodes.map((node) => {
-		const cause = node.kind === "cause" ? (causeById.get(node.id) ?? null) : null;
+		const cause =
+			node.kind === "cause" ? (causeById.get(node.id) ?? null) : null;
 
 		return {
 			action:
@@ -1037,19 +1124,11 @@ function buildTimelineItems(
 	});
 }
 
-function buildIncidentTodoItems(record: IncidentCanvasRecord): CanvasTodoItem[] {
+function buildIncidentTodoItems(
+	record: IncidentCanvasRecord,
+): CanvasTodoItem[] {
 	const items: CanvasTodoItem[] = [];
-	const parentIds = new Set<string>();
-	const measuredCauseIds = new Set<string>();
-
-	for (const cause of record.causes) {
-		if (cause.parentId) {
-			parentIds.add(cause.parentId);
-		}
-	}
-	for (const action of record.actions) {
-		measuredCauseIds.add(action.causeNodeId);
-	}
+	const openBranchIds = openCauseBranchIds(record);
 
 	if (!record.incident.incidentAt) {
 		items.push({
@@ -1086,15 +1165,11 @@ function buildIncidentTodoItems(record: IncidentCanvasRecord): CanvasTodoItem[] 
 
 	const ask = personToAsk(record);
 	for (const cause of record.causes) {
-		const hasChild = parentIds.has(cause.id);
-		const isRoot =
-			Boolean(cause.isRootCause) || cause.branchStatus === "ROOT_REACHED";
-		const isParked = cause.branchStatus === "PARKED";
-		if (!hasChild && !isRoot && !isParked && !measuredCauseIds.has(cause.id)) {
+		if (openBranchIds.has(cause.id)) {
 			items.push({
 				key: `cause:${cause.id}:open`,
 				nodeId: cause.id,
-				text: `${cause.question?.trim() || `Why ${cause.statement}?`} -- ${ask} would know`,
+				text: `${cause.question?.trim() || pendingWhyQuestion(cause.statement)} -- ${ask} would know`,
 			});
 		}
 	}
@@ -1131,6 +1206,27 @@ function buildIncidentTodoItems(record: IncidentCanvasRecord): CanvasTodoItem[] 
 	}
 
 	return items;
+}
+
+function openCauseBranchIds(record: IncidentCanvasRecord): ReadonlySet<string> {
+	const parentIds = new Set(
+		record.causes.flatMap((cause) => (cause.parentId ? [cause.parentId] : [])),
+	);
+	const measuredCauseIds = new Set(
+		record.actions.map((action) => action.causeNodeId),
+	);
+	return new Set(
+		record.causes
+			.filter(
+				(cause) =>
+					!parentIds.has(cause.id) &&
+					!measuredCauseIds.has(cause.id) &&
+					!cause.isRootCause &&
+					cause.branchStatus !== "ROOT_REACHED" &&
+					cause.branchStatus !== "PARKED",
+			)
+			.map((cause) => cause.id),
+	);
 }
 
 function personToAsk(record: IncidentCanvasRecord): string {
@@ -1192,9 +1288,7 @@ function computeBounds(
 	const maxTimelineX = Math.max(
 		...timelineItems.map((item) => item.x + item.width),
 	);
-	const maxCauseX = Math.max(
-		...causeNodes.map((node) => node.x + node.width),
-	);
+	const maxCauseX = Math.max(...causeNodes.map((node) => node.x + node.width));
 	const maxY = Math.max(
 		...timelineItems.map((item) => item.y + item.height),
 		...causeNodes.map((node) => node.y + node.height),
@@ -1395,9 +1489,12 @@ function resolveSelection(
 	layout: CanvasLayout,
 	record: IncidentCanvasRecord,
 	locale: string,
-): { title: string; rows: Array<{ label: string; value: string }> } {
+	readiness: ReturnType<typeof assessIncidentReadiness>,
+	openBranchIds: ReadonlySet<string>,
+): CanvasSelection {
 	if (selectedId === "event-anchor" || selectedId === EVENT_NODE_ID) {
 		return {
+			questions: eventReadinessQuestions(readiness),
 			rows: [
 				{
 					label: "Reference",
@@ -1430,6 +1527,7 @@ function resolveSelection(
 	const timeline = layout.timelineItems.find((item) => item.id === selectedId);
 	if (timeline) {
 		return {
+			questions: [],
 			rows: [
 				{ label: "Kind", value: timeline.kind },
 				{ label: "When/source", value: timeline.meta ?? "Not set" },
@@ -1445,9 +1543,17 @@ function resolveSelection(
 			(action) => action.causeNodeId === cause.id,
 		);
 		return {
+			questions: openBranchIds.has(cause.id)
+				? [
+						{
+							causeId: cause.id,
+							text:
+								cause.question?.trim() || pendingWhyQuestion(cause.statement),
+						},
+					]
+				: [],
 			rows: [
 				{ label: "Status", value: cause.branchStatus ?? "OPEN" },
-				{ label: "Question", value: cause.question?.trim() || "needs a why" },
 				{
 					label: "Measures",
 					value: actions.length > 0 ? String(actions.length) : "None linked",
@@ -1462,6 +1568,7 @@ function resolveSelection(
 	)?.action;
 	if (measure) {
 		return {
+			questions: [],
 			rows: [
 				{ label: "Owner", value: measure.ownerRole ?? "Not set" },
 				{ label: "Due", value: formatActionDueDate(measure.dueDate) },
@@ -1473,9 +1580,32 @@ function resolveSelection(
 	}
 
 	return {
+		questions: [],
 		rows: [{ label: "Selection", value: selectedId }],
 		title: "Canvas item",
 	};
+}
+
+function eventReadinessQuestions(
+	readiness: ReturnType<typeof assessIncidentReadiness>,
+): SelectionQuestion[] {
+	const keys = new Set(readiness.gaps.map((gap) => gap.key));
+	const questions: SelectionQuestion[] = [];
+	if (keys.has("incidentTime")) {
+		questions.push({ causeId: null, text: "When did the incident happen?" });
+	}
+	if (keys.has("potentialSeverity")) {
+		questions.push({
+			causeId: null,
+			text: "What is the worst credible harm that could have resulted?",
+		});
+	}
+	return questions;
+}
+
+function pendingWhyQuestion(statement: string): string {
+	const subject = statement.trim().replace(/[.!?]+$/, "");
+	return subject ? `Why ${subject}?` : "What might explain this branch?";
 }
 
 function causeNodeStyle(status: CanvasCauseNode["status"]): {
@@ -1485,20 +1615,56 @@ function causeNodeStyle(status: CanvasCauseNode["status"]): {
 } {
 	switch (status) {
 		case "event":
-			return { fill: "rgba(35,39,58,0.98)", stroke: "#7b83ff" };
+			return { fill: "var(--color-surface-elev)", stroke: "#7b83ff" };
 		case "parked":
 			return {
 				dash: "7 6",
-				fill: "rgba(34,34,39,0.78)",
+				fill: "var(--color-surface)",
 				stroke: "#8e8e9a",
 			};
 		case "root":
-			return { fill: "rgba(25,45,37,0.96)", stroke: "#34d399" };
+			return { fill: "var(--color-surface-elev)", stroke: "#34d399" };
 		case "open":
-			return { fill: "rgba(34,34,39,0.9)", stroke: "#8e8e9a" };
+			return {
+				dash: "7 6",
+				fill: "var(--color-surface)",
+				stroke: "var(--color-muted)",
+			};
 		case "treated":
-			return { fill: "rgba(25,28,36,0.96)", stroke: "var(--color-border)" };
+			return {
+				fill: "var(--color-surface-elev)",
+				stroke: "var(--color-border)",
+			};
 	}
+}
+
+function QuestionBadge({ x, y }: { x: number; y: number }) {
+	return (
+		<g
+			data-canvas-question-badge=""
+			pointerEvents="none"
+			transform={`translate(${x} ${y})`}
+		>
+			<circle
+				cx="10"
+				cy="10"
+				fill="var(--color-surface-elev)"
+				r="9"
+				stroke="#f59e0b"
+				strokeWidth="1.5"
+			/>
+			<text
+				fill="var(--color-text)"
+				fontSize="12"
+				fontWeight="700"
+				textAnchor="middle"
+				x="10"
+				y="14"
+			>
+				?
+			</text>
+		</g>
+	);
 }
 
 function RootMarker({ x, y }: { x: number; y: number }) {

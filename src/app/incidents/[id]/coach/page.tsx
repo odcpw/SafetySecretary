@@ -10,6 +10,9 @@ import type { Locale } from "../../../../lib/i18n/types";
 
 type CoachPageProps = {
 	params: Promise<{ id: string }> | { id: string };
+	searchParams?:
+		| Promise<Record<string, string | string[] | undefined>>
+		| Record<string, string | string[] | undefined>;
 };
 
 type CoachPageCopy = {
@@ -154,8 +157,13 @@ type CoachIncidentHeader = {
 const uuidPattern =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export default async function IncidentCoachPage({ params }: CoachPageProps) {
+export default async function IncidentCoachPage({
+	params,
+	searchParams,
+}: CoachPageProps) {
 	const { id } = await Promise.resolve(params);
+	const query = await Promise.resolve(searchParams ?? {});
+	const initialAsk = safeInitialAsk(query.ask);
 	const { locale, session } = await resolveLocaleContext();
 	const copy = coachPageCopyByLocale[locale] ?? coachPageCopyByLocale.en;
 
@@ -262,11 +270,27 @@ export default async function IncidentCoachPage({ params }: CoachPageProps) {
 		>
 			<CoachWorkbench
 				incidentId={incident.id}
+				initialAsk={initialAsk}
 				locale={locale}
 				replyLocale={contentLocale}
 			/>
 		</CoachShell>
 	);
+}
+
+function safeInitialAsk(
+	value: string | string[] | undefined,
+): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const plainText = Array.from(value, (character) => {
+		const code = character.charCodeAt(0);
+		return code < 32 || code === 127 ? " " : character;
+	})
+		.join("")
+		.trim();
+	return plainText ? plainText.slice(0, 300) : undefined;
 }
 
 const exportLinkClassName =

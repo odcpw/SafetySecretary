@@ -39,7 +39,11 @@ export type ProcessMapCanvasRecord = {
 };
 
 type SerializeDates<T> = {
-	[K in keyof T]: T[K] extends Date ? string : T[K] extends Date | null ? string | null : T[K];
+	[K in keyof T]: T[K] extends Date
+		? string
+		: T[K] extends Date | null
+			? string | null
+			: T[K];
 };
 
 type Transform = {
@@ -47,6 +51,13 @@ type Transform = {
 	x: number;
 	y: number;
 };
+
+type ViewportSize = {
+	height: number;
+	width: number;
+};
+
+type ElkDirection = "DOWN" | "RIGHT";
 
 type LayoutNode = {
 	aggregate: ProcessMapNodeAggregate | null;
@@ -82,8 +93,15 @@ const collapsedWidth = 236;
 const collapsedHeight = 120;
 const minZoom = 0.08;
 const maxZoom = 2.2;
+const fitMargin = 24;
+const maxFitZoom = 1.5;
+const smallViewportWidth = 480;
 
-export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasRecord }) {
+export default function ProcessMapCanvas({
+	record,
+}: {
+	record: ProcessMapCanvasRecord;
+}) {
 	const svgRef = useRef<SVGSVGElement | null>(null);
 	const pointersRef = useRef(new Map<number, { x: number; y: number }>());
 	const panStartRef = useRef<{
@@ -101,7 +119,15 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 	const [layout, setLayout] = useState<LayoutResult | null>(null);
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 	const [showQuestLog, setShowQuestLog] = useState(false);
-	const [transform, setTransform] = useState<Transform>({ k: 0.9, x: 80, y: 120 });
+	const [transform, setTransform] = useState<Transform>({
+		k: 0.9,
+		x: 80,
+		y: 120,
+	});
+	const [viewportSize, setViewportSize] = useState<ViewportSize>({
+		height: 0,
+		width: 0,
+	});
 
 	const fogStates = useMemo(() => deriveFogStates(record), [record]);
 	const altitudeView = useMemo(
@@ -116,6 +142,10 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 	);
 	const clampedAltitude = Math.min(altitude, altitudeView.maxDepth);
 	const explored = exploredPercent(record.readiness.questLog);
+	const layoutDirection: ElkDirection =
+		viewportSize.width > 0 && viewportSize.width < smallViewportWidth
+			? "DOWN"
+			: "RIGHT";
 
 	useEffect(() => {
 		if (altitude !== clampedAltitude) {
@@ -124,27 +154,76 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 	}, [altitude, clampedAltitude]);
 
 	useEffect(() => {
+		const svg = svgRef.current;
+		if (!svg) {
+			return;
+		}
+
+		const updateSize = () => {
+			const rect = svg.getBoundingClientRect();
+			const nextSize = {
+				height: rect.height,
+				width: rect.width,
+			};
+
+			setViewportSize((current) =>
+				Math.abs(current.width - nextSize.width) < 0.5 &&
+				Math.abs(current.height - nextSize.height) < 0.5
+					? current
+					: nextSize,
+			);
+		};
+
+		updateSize();
+		const observer = new ResizeObserver(updateSize);
+		observer.observe(svg);
+
+		return () => observer.disconnect();
+	}, []);
+
+	useEffect(() => {
 		let cancelled = false;
 
-		layoutWithElk(record, altitudeView, fogStates)
-			.catch(() => layoutFallback(record, altitudeView, fogStates))
+		layoutWithElk(record, altitudeView, fogStates, layoutDirection)
+			.catch(() =>
+				layoutFallback(record, altitudeView, fogStates, layoutDirection),
+			)
 			.then((nextLayout) => {
 				if (cancelled) {
 					return;
 				}
 
 				setLayout(nextLayout);
-				setTransform(fitTransform(nextLayout.bounds, svgRef.current));
 			});
 
 		return () => {
 			cancelled = true;
 		};
-	}, [altitudeView, fogStates, record]);
+	}, [altitudeView, fogStates, layoutDirection, record]);
+
+	useEffect(() => {
+		if (!layout) {
+			return;
+		}
+
+		setTransform(fitTransform(layout.bounds, viewportSize));
+	}, [layout, viewportSize]);
 
 	const visibleSelectedId = selectedNodeId
-		? resolveVisibleNodeId(selectedNodeId, record.nodes, altitudeView.visibleNodeIds)
+		? resolveVisibleNodeId(
+				selectedNodeId,
+				record.nodes,
+				altitudeView.visibleNodeIds,
+			)
 		: null;
+
+	const fitToScreen = () => {
+		if (!layout) {
+			return;
+		}
+
+		setTransform(fitTransform(layout.bounds, viewportSize));
+	};
 
 	return (
 		<main className="h-screen overflow-hidden bg-[#101113] text-[var(--color-text)]">
@@ -173,6 +252,14 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 							onChange={setAltitude}
 						/>
 						<button
+							aria-label="Fit map to screen"
+							className="inline-flex min-h-9 items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-accent)]"
+							onClick={fitToScreen}
+							type="button"
+						>
+							Fit
+						</button>
+						<button
 							className="inline-flex min-h-9 items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)]"
 							onClick={() => setShowQuestLog((value) => !value)}
 							type="button"
@@ -186,7 +273,14 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 						onSelect={(nodeId) => {
 							setShowQuestLog(false);
 							setSelectedNodeId(nodeId);
-							panToNode(nodeId, record.nodes, altitudeView.visibleNodeIds, layout, svgRef.current, setTransform);
+							panToNode(
+								nodeId,
+								record.nodes,
+								altitudeView.visibleNodeIds,
+								layout,
+								svgRef.current,
+								setTransform,
+							);
 						}}
 						quests={record.readiness.questLog.quests}
 					/>
@@ -215,16 +309,38 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 					>
 						<path d="M 0 0 L 8 4 L 0 8 z" fill="#9ca3af" />
 					</marker>
-					<filter id="pm-soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
-						<feDropShadow dx="0" dy="8" floodColor="#000000" floodOpacity="0.2" stdDeviation="8" />
+					<filter
+						id="pm-soft-shadow"
+						x="-20%"
+						y="-20%"
+						width="140%"
+						height="140%"
+					>
+						<feDropShadow
+							dx="0"
+							dy="8"
+							floodColor="#000000"
+							floodOpacity="0.2"
+							stdDeviation="8"
+						/>
 					</filter>
 				</defs>
 				<rect fill="#101113" height="100%" width="100%" />
 				{layout ? (
-					<g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
-						<g>{[...layout.nodes.values()].map((node) => renderRegion(node, visibleSelectedId))}</g>
+					<g
+						transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}
+					>
+						<g>
+							{[...layout.nodes.values()].map((node) =>
+								renderRegion(node, visibleSelectedId),
+							)}
+						</g>
 						<g>{layout.edges.map((edge) => renderEdge(edge, transform.k))}</g>
-						<g>{[...layout.nodes.values()].map((node) => renderNodeBox(node, visibleSelectedId, setSelectedNodeId))}</g>
+						<g>
+							{[...layout.nodes.values()].map((node) =>
+								renderNodeBox(node, visibleSelectedId, setSelectedNodeId),
+							)}
+						</g>
 						<g>{[...layout.nodes.values()].map(renderRegionLabel)}</g>
 					</g>
 				) : (
@@ -237,9 +353,11 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 				<Minimap
 					bounds={layout.bounds}
 					layout={layout}
-					onPan={(x, y) => centerOnWorldPoint(x, y, svgRef.current, setTransform)}
+					onPan={(x, y) =>
+						centerOnWorldPoint(x, y, svgRef.current, setTransform)
+					}
 					transform={transform}
-					viewport={svgRef.current}
+					viewportSize={viewportSize}
 				/>
 			) : null}
 			<div className="absolute bottom-3 left-3 z-10 rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.9)] px-2 py-1 text-xs text-[var(--color-muted)]">
@@ -309,8 +427,14 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 			event.preventDefault();
 			setTransform({
 				...panStartRef.current.transform,
-				x: panStartRef.current.transform.x + event.clientX - panStartRef.current.x,
-				y: panStartRef.current.transform.y + event.clientY - panStartRef.current.y,
+				x:
+					panStartRef.current.transform.x +
+					event.clientX -
+					panStartRef.current.x,
+				y:
+					panStartRef.current.transform.y +
+					event.clientY -
+					panStartRef.current.y,
 			});
 		}
 	}
@@ -333,7 +457,12 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 			minZoom,
 			maxZoom,
 		);
-		const world = screenToWorld(event.clientX, event.clientY, transform, svgRef.current);
+		const world = screenToWorld(
+			event.clientX,
+			event.clientY,
+			transform,
+			svgRef.current,
+		);
 
 		setTransform({
 			k: nextZoom,
@@ -354,9 +483,11 @@ export default function ProcessMapCanvas({ record }: { record: ProcessMapCanvasR
 			: null;
 	}
 
-	function pointerPair():
-		| { centerX: number; centerY: number; distance: number }
-		| null {
+	function pointerPair(): {
+		centerX: number;
+		centerY: number;
+		distance: number;
+	} | null {
 		const points = [...pointersRef.current.values()];
 		const first = points[0];
 		const second = points[1];
@@ -392,16 +523,24 @@ function AltitudeControl({
 			>
 				-
 			</button>
-			<div aria-label={`Altitude ${altitude} of ${maxDepth}`} className="flex items-end gap-0.5 px-1" role="img">
-				{Array.from({ length: maxDepth }, (_, index) => index + 1).map((rung) => (
-					<span
-						className={`block w-1.5 rounded-sm ${
-							rung <= altitude ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"
-						}`}
-						key={`altitude-rung-${rung}`}
-						style={{ height: 5 + rung * 3 }}
-					/>
-				))}
+			<div
+				aria-label={`Altitude ${altitude} of ${maxDepth}`}
+				className="flex items-end gap-0.5 px-1"
+				role="img"
+			>
+				{Array.from({ length: maxDepth }, (_, index) => index + 1).map(
+					(rung) => (
+						<span
+							className={`block w-1.5 rounded-sm ${
+								rung <= altitude
+									? "bg-[var(--color-accent)]"
+									: "bg-[var(--color-border)]"
+							}`}
+							key={`altitude-rung-${rung}`}
+							style={{ height: 5 + rung * 3 }}
+						/>
+					),
+				)}
 			</div>
 			<button
 				aria-label="Increase altitude"
@@ -458,47 +597,64 @@ function Minimap({
 	layout,
 	onPan,
 	transform,
-	viewport,
+	viewportSize,
 }: {
 	bounds: LayoutResult["bounds"];
 	layout: LayoutResult;
 	onPan: (x: number, y: number) => void;
 	transform: Transform;
-	viewport: SVGSVGElement | null;
+	viewportSize: ViewportSize;
 }) {
-	const width = 168;
-	const height = 118;
+	const isSmallViewport =
+		viewportSize.width > 0 && viewportSize.width < smallViewportWidth;
+	const width = isSmallViewport ? 96 : 168;
+	const height = Math.round(width * (118 / 168));
 	const view = minimapViewBox(bounds);
-	const viewportRect = viewport
-		? {
-				height: viewport.clientHeight / transform.k,
-				width: viewport.clientWidth / transform.k,
-				x: -transform.x / transform.k,
-				y: -transform.y / transform.k,
-			}
-		: null;
+	const viewportRect =
+		viewportSize.width > 0 && viewportSize.height > 0
+			? {
+					height: viewportSize.height / transform.k,
+					width: viewportSize.width / transform.k,
+					x: -transform.x / transform.k,
+					y: -transform.y / transform.k,
+				}
+			: null;
 
 	return (
 		<svg
 			aria-label="Process map minimap"
-			className="absolute bottom-3 right-3 z-20 rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.9)] shadow-lg"
+			className={`absolute right-3 z-20 rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.9)] shadow-lg ${
+				isSmallViewport ? "top-36" : "bottom-3"
+			}`}
 			height={height}
 			onPointerDown={(event) => {
 				const rect = event.currentTarget.getBoundingClientRect();
-				const x = view.x + ((event.clientX - rect.left) / rect.width) * view.width;
-				const y = view.y + ((event.clientY - rect.top) / rect.height) * view.height;
+				const x =
+					view.x + ((event.clientX - rect.left) / rect.width) * view.width;
+				const y =
+					view.y + ((event.clientY - rect.top) / rect.height) * view.height;
 				onPan(x, y);
 			}}
 			role="img"
 			viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
 			width={width}
 		>
-			<rect fill="#16161a" height={view.height} width={view.width} x={view.x} y={view.y} />
+			<rect
+				fill="#16161a"
+				height={view.height}
+				width={view.width}
+				x={view.x}
+				y={view.y}
+			/>
 			{[...layout.nodes.values()]
 				.filter((node) => !node.node.parentId)
 				.map((node) => (
 					<rect
-						fill={node.isFoggedRegion ? "rgba(245,158,11,0.28)" : "rgba(123,131,255,0.24)"}
+						fill={
+							node.isFoggedRegion
+								? "rgba(245,158,11,0.28)"
+								: "rgba(123,131,255,0.24)"
+						}
 						height={node.height}
 						key={node.node.id}
 						rx="16"
@@ -528,8 +684,9 @@ async function layoutWithElk(
 	record: ProcessMapCanvasRecord,
 	altitudeView: ReturnType<typeof computeProcessMapAltitudeView>,
 	fogStates: ReadonlyMap<string, ProcessMapFogState>,
+	direction: ElkDirection,
 ): Promise<LayoutResult> {
-	const graph = buildElkGraph(record, altitudeView);
+	const graph = buildElkGraph(record, altitudeView, direction);
 	const result = await elk.layout(graph);
 	return collectElkLayout(record, altitudeView, fogStates, result, "ELK");
 }
@@ -537,6 +694,7 @@ async function layoutWithElk(
 function buildElkGraph(
 	record: ProcessMapCanvasRecord,
 	altitudeView: ReturnType<typeof computeProcessMapAltitudeView>,
+	direction: ElkDirection,
 ): ElkNode {
 	const nodesByParent = groupNodesByParent(record.nodes);
 	const visibleNodeIds = altitudeView.visibleNodeIds;
@@ -577,7 +735,7 @@ function buildElkGraph(
 		id: "root",
 		layoutOptions: {
 			"elk.algorithm": "layered",
-			"elk.direction": "RIGHT",
+			"elk.direction": direction,
 			"elk.hierarchyHandling": "INCLUDE_CHILDREN",
 			"elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
 			"elk.layered.spacing.edgeNodeBetweenLayers": "46",
@@ -613,7 +771,11 @@ function collectElkLayout(
 					!altitudeView.collapsedNodeIds.has(recordNode.id),
 				height: elkNode.height ?? leafHeight,
 				isCollapsed: altitudeView.collapsedNodeIds.has(recordNode.id),
-				isFoggedRegion: isFoggedRegion(recordNode.id, childrenByParent, fogStates),
+				isFoggedRegion: isFoggedRegion(
+					recordNode.id,
+					childrenByParent,
+					fogStates,
+				),
 				node: recordNode,
 				width: elkNode.width ?? leafWidth,
 				x,
@@ -647,6 +809,7 @@ function layoutFallback(
 	record: ProcessMapCanvasRecord,
 	altitudeView: ReturnType<typeof computeProcessMapAltitudeView>,
 	fogStates: ReadonlyMap<string, ProcessMapFogState>,
+	direction: ElkDirection,
 ): LayoutResult {
 	const childrenByParent = groupNodesByParent(record.nodes);
 	const visibleEdgesList = visibleEdges(record, altitudeView);
@@ -668,8 +831,8 @@ function layoutFallback(
 	for (const [rank, column] of columns) {
 		column.sort((left, right) => left.orderIndex - right.orderIndex);
 		column.forEach((node, index) => {
-			const visibleChildren = (childrenByParent.get(node.id) ?? []).filter((child) =>
-				altitudeView.visibleNodeIds.has(child.id),
+			const visibleChildren = (childrenByParent.get(node.id) ?? []).filter(
+				(child) => altitudeView.visibleNodeIds.has(child.id),
 			);
 			const isCollapsed = altitudeView.collapsedNodeIds.has(node.id);
 			const hasVisibleChildren = visibleChildren.length > 0 && !isCollapsed;
@@ -678,13 +841,21 @@ function layoutFallback(
 				depth: altitudeView.depthByNodeId.get(node.id) ?? 1,
 				fogState: fogStates.get(node.id) ?? "fog",
 				hasVisibleChildren,
-				height: hasVisibleChildren ? 260 : isCollapsed ? collapsedHeight : leafHeight,
+				height: hasVisibleChildren
+					? 260
+					: isCollapsed
+						? collapsedHeight
+						: leafHeight,
 				isCollapsed,
 				isFoggedRegion: isFoggedRegion(node.id, childrenByParent, fogStates),
 				node,
-				width: hasVisibleChildren ? 320 : isCollapsed ? collapsedWidth : leafWidth,
-				x: 80 + rank * 360,
-				y: 80 + index * 180,
+				width: hasVisibleChildren
+					? 320
+					: isCollapsed
+						? collapsedWidth
+						: leafWidth,
+				x: direction === "DOWN" ? 80 + index * 280 : 80 + rank * 360,
+				y: direction === "DOWN" ? 80 + rank * 220 : 80 + index * 180,
 			});
 		});
 	}
@@ -718,10 +889,7 @@ function deriveFogStates(
 	record: ProcessMapCanvasRecord,
 ): ReadonlyMap<string, ProcessMapFogState> {
 	return new Map(
-		record.nodes.map((node) => [
-			node.id,
-			deriveCanvasFogState(node),
-		]),
+		record.nodes.map((node) => [node.id, deriveCanvasFogState(node)]),
 	);
 }
 
@@ -752,8 +920,16 @@ function visibleEdges(
 	altitudeView: ReturnType<typeof computeProcessMapAltitudeView>,
 ): Array<SerializeDates<ProcessEdge>> {
 	return record.edges.flatMap((edge) => {
-		const fromNodeId = resolveVisibleNodeId(edge.fromNodeId, record.nodes, altitudeView.visibleNodeIds);
-		const toNodeId = resolveVisibleNodeId(edge.toNodeId, record.nodes, altitudeView.visibleNodeIds);
+		const fromNodeId = resolveVisibleNodeId(
+			edge.fromNodeId,
+			record.nodes,
+			altitudeView.visibleNodeIds,
+		);
+		const toNodeId = resolveVisibleNodeId(
+			edge.toNodeId,
+			record.nodes,
+			altitudeView.visibleNodeIds,
+		);
 
 		if (!fromNodeId || !toNodeId || fromNodeId === toNodeId) {
 			return [];
@@ -776,7 +952,9 @@ function resolveVisibleNodeId(
 			return current.id;
 		}
 
-		current = current.parentId ? (nodesById.get(current.parentId) ?? null) : null;
+		current = current.parentId
+			? (nodesById.get(current.parentId) ?? null)
+			: null;
 	}
 
 	return null;
@@ -806,15 +984,24 @@ function groupNodesByParent(
 
 function isFoggedRegion(
 	nodeId: string,
-	childrenByParent: ReadonlyMap<string | null, readonly SerializeDates<ProcessNode>[]>,
+	childrenByParent: ReadonlyMap<
+		string | null,
+		readonly SerializeDates<ProcessNode>[]
+	>,
 	fogStates: ReadonlyMap<string, ProcessMapFogState>,
 ): boolean {
 	const children = childrenByParent.get(nodeId) ?? [];
 
-	return children.length > 0 && children.every((child) => fogStates.get(child.id) === "fog");
+	return (
+		children.length > 0 &&
+		children.every((child) => fogStates.get(child.id) === "fog")
+	);
 }
 
-function edgeToLayout(edge: ElkExtendedEdge, label: string | null): LayoutEdge[] {
+function edgeToLayout(
+	edge: ElkExtendedEdge,
+	label: string | null,
+): LayoutEdge[] {
 	const section = edge.sections?.[0];
 	if (!section) {
 		return [];
@@ -854,26 +1041,28 @@ function computeBounds(nodes: ReadonlyMap<string, LayoutNode>) {
 
 function fitTransform(
 	bounds: LayoutResult["bounds"],
-	viewport: SVGSVGElement | null,
+	viewportSize: ViewportSize,
 ): Transform {
-	if (!viewport) {
+	if (viewportSize.width <= 0 || viewportSize.height <= 0) {
 		return { k: 0.9, x: 80, y: 120 };
 	}
 
-	const margin = viewport.clientWidth < 600 ? 20 : 96;
+	const topInset = viewportSize.width < smallViewportWidth ? 136 : 88;
+	const usableWidth = Math.max(1, viewportSize.width - fitMargin * 2);
+	const usableHeight = Math.max(1, viewportSize.height - topInset - fitMargin);
 	const scale = clamp(
 		Math.min(
-			(viewport.clientWidth - margin * 2) / Math.max(bounds.width, 1),
-			(viewport.clientHeight - margin * 2) / Math.max(bounds.height, 1),
+			usableWidth / Math.max(bounds.width, 1),
+			usableHeight / Math.max(bounds.height, 1),
 		),
 		minZoom,
-		1.05,
+		maxFitZoom,
 	);
 
 	return {
 		k: scale,
-		x: viewport.clientWidth / 2 - (bounds.x + bounds.width / 2) * scale,
-		y: viewport.clientHeight / 2 - (bounds.y + bounds.height / 2) * scale + 24,
+		x: fitMargin + usableWidth / 2 - (bounds.x + bounds.width / 2) * scale,
+		y: topInset + usableHeight / 2 - (bounds.y + bounds.height / 2) * scale,
 	};
 }
 
@@ -950,11 +1139,19 @@ function renderRegion(node: LayoutNode, selectedNodeId: string | null) {
 	return (
 		<g data-node-id={node.node.id} key={`region-${node.node.id}`}>
 			<rect
-				fill={node.isFoggedRegion ? "rgba(120,76,20,0.22)" : "rgba(28,28,33,0.72)"}
+				fill={
+					node.isFoggedRegion ? "rgba(120,76,20,0.22)" : "rgba(28,28,33,0.72)"
+				}
 				filter="url(#pm-soft-shadow)"
 				height={node.height}
 				rx="30"
-				stroke={selectedNodeId === node.node.id ? "#e4e4e8" : node.isFoggedRegion ? "#f59e0b" : "#3f465e"}
+				stroke={
+					selectedNodeId === node.node.id
+						? "#e4e4e8"
+						: node.isFoggedRegion
+							? "#f59e0b"
+							: "#3f465e"
+				}
 				strokeDasharray={node.isFoggedRegion ? "9 8" : undefined}
 				strokeWidth={selectedNodeId === node.node.id ? 4 : 2}
 				width={node.width}
@@ -982,7 +1179,13 @@ function renderRegionLabel(node: LayoutNode) {
 
 	return (
 		<g key={`region-label-${node.node.id}`} pointerEvents="none">
-			<text fill="#e4e4e8" fontSize="16" fontWeight="700" x={node.x + 26} y={node.y + 34}>
+			<text
+				fill="#e4e4e8"
+				fontSize="16"
+				fontWeight="700"
+				x={node.x + 26}
+				y={node.y + 34}
+			>
 				{truncate(node.node.name, 34)}
 			</text>
 			{node.isFoggedRegion ? (
@@ -1048,21 +1251,31 @@ function renderNodeBox(
 					y={node.y}
 				/>
 			) : null}
-			<foreignObject height={node.height} pointerEvents="none" width={node.width} x={node.x} y={node.y}>
+			<foreignObject
+				height={node.height}
+				pointerEvents="none"
+				width={node.width}
+				x={node.x}
+				y={node.y}
+			>
 				<div className="flex h-full flex-col justify-between gap-2 p-3 text-left">
 					<div className={node.fogState === "haze" ? "grayscale" : undefined}>
 						<div className="text-sm font-semibold leading-tight text-[var(--color-text)]">
 							{node.node.name}
 						</div>
 						<div className="mt-1 text-[11px] uppercase tracking-normal text-[var(--color-muted)]">
-							{node.isCollapsed ? "Collapsed region" : node.node.kind.toLowerCase()}
+							{node.isCollapsed
+								? "Collapsed region"
+								: node.node.kind.toLowerCase()}
 						</div>
 					</div>
 					{node.isCollapsed && node.aggregate ? (
 						<div className="flex flex-wrap gap-1">
 							<Badge label={`${node.aggregate.childBlockCount} blocks`} />
 							<Badge label={`${node.aggregate.peopleCount} people`} />
-							<Badge label={`${Math.round(node.aggregate.fogShare * 100)}% fog`} />
+							<Badge
+								label={`${Math.round(node.aggregate.fogShare * 100)}% fog`}
+							/>
 						</div>
 					) : (
 						<StateChip fogState={node.fogState} who={node.node.whoWouldKnow} />
@@ -1111,7 +1324,9 @@ function Badge({
 					: "border-[var(--color-border)] bg-[rgba(255,255,255,0.04)] text-[var(--color-muted)]";
 
 	return (
-		<span className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] ${className}`}>
+		<span
+			className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] ${className}`}
+		>
 			{label}
 		</span>
 	);
@@ -1157,7 +1372,15 @@ function renderEdge(edge: LayoutEdge, zoom: number) {
 
 function CloudIcon({ x, y }: { x: number; y: number }) {
 	return (
-		<g fill="none" pointerEvents="none" stroke="#fbbf24" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" transform={`translate(${x} ${y})`}>
+		<g
+			fill="none"
+			pointerEvents="none"
+			stroke="#fbbf24"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			strokeWidth="2"
+			transform={`translate(${x} ${y})`}
+		>
 			<path d="M 8 24 H 28 C 34 24 38 20 38 15 C 38 10 34 7 29 7 C 27 3 23 1 18 1 C 11 1 6 6 6 13 C 3 14 1 17 1 20 C 1 22 4 24 8 24 Z" />
 		</g>
 	);
@@ -1202,7 +1425,9 @@ function rankVisibleNodes(
 }
 
 function truncate(value: string, length: number): string {
-	return value.length <= length ? value : `${value.slice(0, Math.max(0, length - 1))}...`;
+	return value.length <= length
+		? value
+		: `${value.slice(0, Math.max(0, length - 1))}...`;
 }
 
 function clamp(value: number, min: number, max: number): number {

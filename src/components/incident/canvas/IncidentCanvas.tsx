@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 import {
+	type CSSProperties,
 	type Dispatch,
 	type PointerEvent as ReactPointerEvent,
 	type SetStateAction,
 	type WheelEvent as ReactWheelEvent,
+	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import type { AgentStructuredOperation } from "../../../lib/agent/types";
 import TodoHud, { type CanvasTodoItem } from "../../canvas/TodoHud";
 import { CSRF_COOKIE_NAME } from "../../../lib/auth/cookies";
 import { ensureCsrfToken } from "../../../lib/auth/csrf-client";
@@ -32,13 +35,23 @@ import {
 	type RecordFact,
 	type RecordTimelineEvent,
 } from "../coach/types";
+import FloatingCoachWindow, {
+	type CanvasCoachFocus,
+	type CanvasCoachPrefill,
+} from "./FloatingCoachWindow";
+import {
+	type CanvasPendingOperation,
+	useIncidentCanvasCoach,
+} from "./useIncidentCanvasCoach";
 
 export type IncidentCanvasRecord = IncidentRecord;
 
 type IncidentCanvasProps = {
 	readonly incidentId: string;
+	readonly initialAsk?: string;
 	readonly initialRecord: IncidentCanvasRecord;
 	readonly locale: string;
+	readonly userStorageId: string;
 };
 
 type Transform = {
@@ -107,6 +120,20 @@ type CanvasLayout = {
 	timelineItems: TimelineItem[];
 };
 
+type CanvasGhost = {
+	readonly fromX?: number;
+	readonly fromY?: number;
+	readonly height: number;
+	readonly kind: "cause" | "fact" | "measure" | "timeline";
+	readonly label: string;
+	readonly message: CanvasPendingOperation["message"];
+	readonly meta: string | null;
+	readonly operation: AgentStructuredOperation;
+	readonly width: number;
+	readonly x: number;
+	readonly y: number;
+};
+
 type SelectionQuestion = {
 	readonly causeId: string | null;
 	readonly text: string;
@@ -132,8 +159,10 @@ const timelineStep = 214;
 
 export default function IncidentCanvas({
 	incidentId,
+	initialAsk,
 	initialRecord,
 	locale,
+	userStorageId,
 }: IncidentCanvasProps) {
 	const svgRef = useRef<SVGSVGElement | null>(null);
 	const pointersRef = useRef(new Map<number, { x: number; y: number }>());
@@ -148,7 +177,17 @@ export default function IncidentCanvas({
 		distance: number;
 		transform: Transform;
 	} | null>(null);
+	const hasAutoFitRef = useRef(false);
+	const previousGhostCountRef = useRef(0);
 	const [selectedId, setSelectedId] = useState<string>("event-anchor");
+	const [coachFocus, setCoachFocus] = useState<CanvasCoachFocus | null>({
+		id: "event-anchor",
+		title: initialRecord.incident.title || "Incident",
+	});
+	const [coachPrefill, setCoachPrefill] = useState<CanvasCoachPrefill | null>(
+		null,
+	);
+	const [mobileCoachHeight, setMobileCoachHeight] = useState(0);
 	const [pulseId, setPulseId] = useState<string | null>(null);
 	const [transform, setTransform] = useState<Transform>({
 		k: 0.9,
@@ -161,6 +200,14 @@ export default function IncidentCanvas({
 	});
 
 	const [record, setRecord] = useState(initialRecord);
+	const handleRecordRefresh = useCallback((nextRecord: IncidentRecord) => {
+		setRecord(nextRecord);
+	}, []);
+	const coach = useIncidentCanvasCoach({
+		incidentId,
+		onRecordRefresh: handleRecordRefresh,
+		replyLocale: record.incident.contentLanguage || locale,
+	});
 	const readiness = useMemo(
 		() =>
 			assessIncidentReadiness({
@@ -192,6 +239,34 @@ export default function IncidentCanvas({
 		[selectedId, layout, record, locale, readiness, openBranchIds],
 	);
 	const todoItems = useMemo(() => buildIncidentTodoItems(record), [record]);
+	const ghosts = useMemo(
+		() =>
+			buildCanvasGhosts(
+				coach.pendingOperations,
+				coach.messages,
+				layout,
+				record,
+			),
+		[coach.messages, coach.pendingOperations, layout, record],
+	);
+	const ghostOperationIds = useMemo(
+		() => new Set(ghosts.map((ghost) => ghost.operation.id)),
+		[ghosts],
+	);
+	const displayBounds = useMemo(
+		() => boundsIncludingGhosts(layout.bounds, ghosts),
+		[ghosts, layout.bounds],
+	);
+
+	useEffect(() => {
+		setCoachFocus((current) => {
+			if (!current) {
+				return null;
+			}
+			const title = focusTitleForItem(current.id, layout);
+			return title === current.title ? current : { ...current, title };
+		});
+	}, [layout]);
 
 	useEffect(() => {
 		const svg = svgRef.current;
@@ -222,11 +297,31 @@ export default function IncidentCanvas({
 	}, []);
 
 	useEffect(() => {
+		if (
+			hasAutoFitRef.current ||
+			viewportSize.width <= 0 ||
+			viewportSize.height <= 0
+		) {
+			return;
+		}
+		hasAutoFitRef.current = true;
 		setTransform(fitTransform(layout.bounds, viewportSize));
-	}, [layout, viewportSize]);
+	}, [layout.bounds, viewportSize]);
+
+	useEffect(() => {
+		const previousCount = previousGhostCountRef.current;
+		previousGhostCountRef.current = ghosts.length;
+		if (
+			ghosts.length > previousCount &&
+			hasAutoFitRef.current &&
+			viewportSize.width > 0
+		) {
+			setTransform(fitTransform(displayBounds, viewportSize));
+		}
+	}, [displayBounds, ghosts.length, viewportSize]);
 
 	const fitToScreen = () => {
-		setTransform(fitTransform(layout.bounds, viewportSize));
+		setTransform(fitTransform(displayBounds, viewportSize));
 	};
 
 	const zoomBy = (factor: number) => {
@@ -245,6 +340,7 @@ export default function IncidentCanvas({
 
 	const selectAndFlyToItem = (itemId: string) => {
 		setSelectedId(itemId);
+		setCoachFocus({ id: itemId, title: focusTitleForItem(itemId, layout) });
 		pulseCanvasItem(itemId, setPulseId);
 		flyToCanvasItem(itemId, layout, svgRef.current, transform, setTransform);
 	};
@@ -261,7 +357,7 @@ export default function IncidentCanvas({
 		if (!body.record) {
 			throw new Error("Incident refresh returned no record.");
 		}
-		setRecord(body.record);
+		handleRecordRefresh(body.record);
 	};
 
 	const parkCause = async (causeId: string) => {
@@ -418,20 +514,37 @@ export default function IncidentCanvas({
 					<g>{layout.timelineItems.map((item) => renderTimelineItem(item))}</g>
 					<g>{layout.edges.map(renderCauseEdge)}</g>
 					<g>{layout.causeNodes.map((node) => renderCauseNode(node))}</g>
+					<g pointerEvents="none">{ghosts.map(renderGhost)}</g>
 					<g>{pulseId ? renderPulse(layout, pulseId) : null}</g>
 				</g>
 			</svg>
 			<Minimap
-				bounds={layout.bounds}
+				bounds={displayBounds}
+				ghosts={ghosts}
 				layout={layout}
 				onPan={(x, y) => centerOnWorldPoint(x, y, svgRef.current, setTransform)}
 				transform={transform}
 				viewportSize={viewportSize}
 			/>
 			<SelectionPanel
-				incidentId={incidentId}
+				mobileCoachHeight={mobileCoachHeight}
+				onAnswerInChat={(question) => {
+					setCoachPrefill({ nonce: Date.now(), text: question });
+				}}
 				onPark={parkCause}
 				selected={selected}
+			/>
+			<FloatingCoachWindow
+				coach={coach}
+				focus={coachFocus}
+				initialAsk={initialAsk}
+				incidentId={incidentId}
+				locale={locale}
+				mapGhostOperationIds={ghostOperationIds}
+				onClearFocus={() => setCoachFocus(null)}
+				onMobileSheetHeightChange={setMobileCoachHeight}
+				prefillRequest={coachPrefill}
+				userStorageId={userStorageId}
 			/>
 		</main>
 	);
@@ -448,6 +561,7 @@ export default function IncidentCanvas({
 				onPointerDown={(event) => {
 					event.stopPropagation();
 					setSelectedId(item.id);
+					setCoachFocus({ id: item.id, title: item.title });
 				}}
 				style={{ cursor: "pointer" }}
 			>
@@ -526,6 +640,7 @@ export default function IncidentCanvas({
 				onPointerDown={(event) => {
 					event.stopPropagation();
 					setSelectedId(node.id);
+					setCoachFocus({ id: node.id, title: node.label });
 				}}
 				style={{ cursor: "pointer" }}
 			>
@@ -586,6 +701,95 @@ export default function IncidentCanvas({
 				{node.status === "root" ? (
 					<RootMarker x={node.x + node.width - 33} y={node.y + 12} />
 				) : null}
+			</g>
+		);
+	}
+
+	function renderGhost(ghost: CanvasGhost) {
+		const busy =
+			coach.bulkApplying || coach.busyOperationIds.has(ghost.operation.id);
+		const dismissing = coach.dismissingOperationIds.has(ghost.operation.id);
+		return (
+			<g
+				className="transition-opacity duration-200"
+				data-ghost-kind={ghost.operation.kind}
+				data-ghost-operation-id={ghost.operation.id}
+				key={ghost.operation.id}
+				opacity={dismissing ? 0 : 1}
+				pointerEvents="none"
+			>
+				{ghost.fromX !== undefined && ghost.fromY !== undefined ? (
+					<path
+						d={`M ${ghost.fromX} ${ghost.fromY} L ${ghost.x - 18} ${ghost.y + ghost.height / 2} L ${ghost.x} ${ghost.y + ghost.height / 2}`}
+						fill="none"
+						stroke="var(--color-accent)"
+						strokeDasharray="8 6"
+						strokeWidth="2"
+					/>
+				) : null}
+				<rect
+					fill="color-mix(in srgb, var(--color-accent) 12%, var(--color-surface-elev))"
+					height={ghost.height}
+					rx="10"
+					stroke="var(--color-accent)"
+					strokeDasharray="8 6"
+					strokeWidth="2"
+					width={ghost.width}
+					x={ghost.x}
+					y={ghost.y}
+				/>
+				<foreignObject
+					height={ghost.height}
+					pointerEvents="auto"
+					width={ghost.width}
+					x={ghost.x}
+					y={ghost.y}
+				>
+					<div
+						className="flex h-full flex-col justify-between gap-1 overflow-hidden p-2 text-xs"
+						data-ghost-card=""
+						onPointerDown={(event) => event.stopPropagation()}
+					>
+						<div className="min-h-0">
+							<div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)]">
+								<span>Ghost</span>
+								<span className="truncate">· {ghost.kind}</span>
+							</div>
+							<p className="m-0 mt-1 line-clamp-2 leading-tight">
+								{ghost.label}
+							</p>
+							{ghost.meta ? (
+								<p className="m-0 mt-1 truncate text-[10px] text-[var(--color-muted)]">
+									{ghost.meta}
+								</p>
+							) : null}
+						</div>
+						<div className="flex justify-end gap-1">
+							<button
+								aria-label={`Accept ${ghost.kind} proposal`}
+								className="grid size-6 place-items-center rounded bg-[var(--color-accent)] font-bold text-white disabled:opacity-60"
+								disabled={busy}
+								onClick={() =>
+									void coach.decide(ghost.message, ghost.operation, "apply")
+								}
+								type="button"
+							>
+								✓
+							</button>
+							<button
+								aria-label={`Dismiss ${ghost.kind} proposal`}
+								className="grid size-6 place-items-center rounded border border-[var(--color-border)] bg-[var(--color-surface)] font-bold disabled:opacity-60"
+								disabled={busy}
+								onClick={() =>
+									void coach.decide(ghost.message, ghost.operation, "dismiss")
+								}
+								type="button"
+							>
+								×
+							</button>
+						</div>
+					</div>
+				</foreignObject>
 			</g>
 		);
 	}
@@ -745,12 +949,14 @@ function BandLabel({ label, x, y }: { label: string; x: number; y: number }) {
 
 function Minimap({
 	bounds,
+	ghosts,
 	layout,
 	onPan,
 	transform,
 	viewportSize,
 }: {
 	bounds: CanvasLayout["bounds"];
+	ghosts: readonly CanvasGhost[];
 	layout: CanvasLayout;
 	onPan: (x: number, y: number) => void;
 	transform: Transform;
@@ -833,6 +1039,20 @@ function Minimap({
 					y={node.y}
 				/>
 			))}
+			{ghosts.map((ghost) => (
+				<rect
+					fill="rgba(123,131,255,0.16)"
+					height={ghost.height}
+					key={`mini-ghost-${ghost.operation.id}`}
+					rx="8"
+					stroke="#7b83ff"
+					strokeDasharray="8 6"
+					strokeWidth="4"
+					width={ghost.width}
+					x={ghost.x}
+					y={ghost.y}
+				/>
+			))}
 			{viewportRect ? (
 				<rect
 					fill="rgba(255,255,255,0.08)"
@@ -849,11 +1069,13 @@ function Minimap({
 }
 
 function SelectionPanel({
-	incidentId,
+	mobileCoachHeight,
+	onAnswerInChat,
 	onPark,
 	selected,
 }: {
-	incidentId: string;
+	mobileCoachHeight: number;
+	onAnswerInChat: (question: string) => void;
 	onPark: (causeId: string) => Promise<void>;
 	selected: CanvasSelection;
 }) {
@@ -861,7 +1083,14 @@ function SelectionPanel({
 	const [parkError, setParkError] = useState(false);
 
 	return (
-		<aside className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 sm:bottom-auto sm:left-auto sm:right-[388px] sm:top-24 sm:w-80">
+		<aside
+			className="pointer-events-none absolute bottom-[calc(var(--mobile-coach-offset)+0.75rem)] left-3 right-3 z-20 min-[480px]:!bottom-auto min-[480px]:left-auto min-[480px]:right-[388px] min-[480px]:top-24 min-[480px]:w-80"
+			style={
+				{
+					"--mobile-coach-offset": `${mobileCoachHeight}px`,
+				} as CSSProperties
+			}
+		>
 			<div className="pointer-events-auto max-h-36 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-lg backdrop-blur sm:max-h-[58vh]">
 				<p className="m-0 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
 					Selected
@@ -893,12 +1122,13 @@ function SelectionPanel({
 										{question.text}
 									</p>
 									<div className="flex flex-wrap gap-2">
-										<Link
+										<button
 											className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text)] hover:border-[var(--color-accent)]"
-											href={`/incidents/${encodeURIComponent(incidentId)}/coach?ask=${encodeURIComponent(question.text)}`}
+											onClick={() => onAnswerInChat(question.text)}
+											type="button"
 										>
 											Answer in chat
-										</Link>
+										</button>
 										{question.causeId ? (
 											<button
 												className="rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-text)] disabled:opacity-60"
@@ -959,6 +1189,251 @@ function renderCauseEdge(edge: CanvasEdge) {
 			strokeLinejoin="round"
 			strokeWidth="1.6"
 		/>
+	);
+}
+
+function buildCanvasGhosts(
+	pendingOperations: readonly CanvasPendingOperation[],
+	messages: readonly CanvasPendingOperation["message"][],
+	layout: CanvasLayout,
+	record: IncidentCanvasRecord,
+): CanvasGhost[] {
+	const appliedRecordIds = new Map<string, string>();
+	for (const message of messages) {
+		for (const [operationId, decision] of Object.entries(
+			message.operationDecisions,
+		)) {
+			if (decision.status === "applied" && decision.recordId) {
+				appliedRecordIds.set(operationId, decision.recordId);
+			}
+		}
+	}
+	const knownCauseIds = new Set(record.causes.map((cause) => cause.id));
+	const syntheticCauses: RecordCauseNode[] = [];
+	const syntheticActions: RecordAction[] = [];
+	const mapOperationIds = new Set<string>();
+	const resolveCauseReference = (
+		reference: string | null | undefined,
+	): string | null | undefined => {
+		if (!reference) {
+			return null;
+		}
+		if (
+			knownCauseIds.has(reference) ||
+			syntheticCauses.some((cause) => cause.id === reference)
+		) {
+			return reference;
+		}
+		const appliedId = appliedRecordIds.get(reference);
+		return appliedId && knownCauseIds.has(appliedId) ? appliedId : undefined;
+	};
+
+	for (const { operation } of pendingOperations) {
+		if (operation.kind === "cause_node") {
+			const parentId = resolveCauseReference(operation.payload.parentId);
+			if (operation.payload.parentId && parentId === undefined) {
+				continue;
+			}
+			syntheticCauses.push({
+				branchStatus:
+					operation.payload.branchStatus ??
+					(operation.payload.isRootCause ? "ROOT_REACHED" : "OPEN"),
+				id: operation.id,
+				isRootCause: operation.payload.isRootCause ?? false,
+				parentId: parentId ?? null,
+				question: null,
+				statement: operation.payload.label,
+				timelineEventId: null,
+			});
+			mapOperationIds.add(operation.id);
+			continue;
+		}
+		if (operation.kind !== "stop_action") {
+			continue;
+		}
+		let causeNodeId = resolveCauseReference(
+			operation.payload.linkedCauseNodeId,
+		);
+		if (!operation.payload.linkedCauseNodeId) {
+			const allCauseIds = [
+				...record.causes.map((cause) => cause.id),
+				...syntheticCauses.map((cause) => cause.id),
+			];
+			causeNodeId = allCauseIds.length === 1 ? allCauseIds[0] : undefined;
+		}
+		if (!causeNodeId) {
+			continue;
+		}
+		syntheticActions.push({
+			actionType: operation.payload.stopClass,
+			causeNodeId,
+			description: operation.payload.title,
+			dueDate: operation.payload.dueDate ?? null,
+			id: operation.id,
+			ownerRole: operation.payload.owner ?? null,
+			status: "OPEN",
+		});
+		mapOperationIds.add(operation.id);
+	}
+
+	const augmentedTree = layoutCauseTree({
+		actions: [...record.actions, ...syntheticActions],
+		causes: [...record.causes, ...syntheticCauses],
+		eventTitle: record.incident.title || "Event",
+	});
+	const eventTreeNode = augmentedTree.nodes.find(
+		(node) => node.id === EVENT_NODE_ID,
+	);
+	const treeOffsetX = eventTreeNode
+		? layout.eventAnchor.x +
+			layout.eventAnchor.width / 2 -
+			(eventTreeNode.x + NODE_W / 2)
+		: 160;
+	const augmentedNodes = new Map(
+		augmentedTree.nodes.map((node) => [node.id, node]),
+	);
+	const positionedNode = (id: string) => {
+		const base = layout.causeNodes.find((node) => node.id === id);
+		if (base) {
+			return base;
+		}
+		const node = augmentedNodes.get(id);
+		return node
+			? {
+					height: NODE_H,
+					width: NODE_W,
+					x: treeOffsetX + node.x,
+					y: treeY + node.y,
+				}
+			: null;
+	};
+
+	let timelineX =
+		Math.max(...layout.timelineItems.map((item) => item.x + item.width)) + 24;
+	const ghosts: CanvasGhost[] = [];
+
+	for (const entry of pendingOperations) {
+		const { message, operation } = entry;
+		switch (operation.kind) {
+			case "timeline_event": {
+				ghosts.push({
+					height: timelineCardHeight,
+					kind: "timeline",
+					label: operation.payload.narrative ?? operation.payload.title,
+					message,
+					meta: operation.payload.occurredAt ?? operation.payload.phase ?? null,
+					operation,
+					width: timelineCardWidth,
+					x: timelineX,
+					y: timelineY,
+				});
+				timelineX += timelineStep;
+				break;
+			}
+			case "fact": {
+				ghosts.push({
+					height: timelineCardHeight,
+					kind: "fact",
+					label: operation.payload.text,
+					message,
+					meta: "Proposed fact",
+					operation,
+					width: timelineCardWidth,
+					x: timelineX,
+					y: timelineY,
+				});
+				timelineX += timelineStep;
+				break;
+			}
+			case "cause_node": {
+				if (!mapOperationIds.has(operation.id)) {
+					break;
+				}
+				const cause = syntheticCauses.find(
+					(candidate) => candidate.id === operation.id,
+				);
+				const node = positionedNode(operation.id);
+				const parent = positionedNode(cause?.parentId ?? EVENT_NODE_ID);
+				if (!cause || !node || !parent) {
+					break;
+				}
+				ghosts.push({
+					fromX: parent.x + parent.width,
+					fromY: parent.y + parent.height / 2,
+					height: NODE_H,
+					kind: "cause",
+					label: operation.payload.label,
+					message,
+					meta: operation.payload.branchStatus ?? "Proposed cause",
+					operation,
+					width: NODE_W,
+					x: node.x,
+					y: node.y,
+				});
+				break;
+			}
+			case "stop_action": {
+				if (!mapOperationIds.has(operation.id)) {
+					break;
+				}
+				const action = syntheticActions.find(
+					(candidate) => candidate.id === operation.id,
+				);
+				const node = positionedNode(`m-${operation.id}`);
+				const parent = action ? positionedNode(action.causeNodeId) : null;
+				if (!action || !node || !parent) {
+					break;
+				}
+				ghosts.push({
+					fromX: parent.x + parent.width,
+					fromY: parent.y + parent.height / 2,
+					height: 72,
+					kind: "measure",
+					label: operation.payload.title,
+					message,
+					meta: `${operation.payload.stopClass}${operation.payload.owner ? ` · ${operation.payload.owner}` : ""}`,
+					operation,
+					width: NODE_W,
+					x: node.x,
+					y: node.y + (NODE_H - 72) / 2,
+				});
+				break;
+			}
+			default:
+				break;
+		}
+	}
+
+	return ghosts;
+}
+
+function boundsIncludingGhosts(
+	bounds: CanvasLayout["bounds"],
+	ghosts: readonly CanvasGhost[],
+): CanvasLayout["bounds"] {
+	if (ghosts.length === 0) {
+		return bounds;
+	}
+	const minX = Math.min(bounds.x, ...ghosts.map((ghost) => ghost.x));
+	const minY = Math.min(bounds.y, ...ghosts.map((ghost) => ghost.y));
+	const maxX = Math.max(
+		bounds.x + bounds.width,
+		...ghosts.map((ghost) => ghost.x + ghost.width),
+	);
+	const maxY = Math.max(
+		bounds.y + bounds.height,
+		...ghosts.map((ghost) => ghost.y + ghost.height),
+	);
+	return { height: maxY - minY, width: maxX - minX, x: minX, y: minY };
+}
+
+function focusTitleForItem(itemId: string, layout: CanvasLayout): string {
+	const timeline = layout.timelineItems.find((item) => item.id === itemId);
+	if (timeline) {
+		return timeline.title;
+	}
+	return (
+		layout.causeNodes.find((node) => node.id === itemId)?.label ?? "Selection"
 	);
 }
 

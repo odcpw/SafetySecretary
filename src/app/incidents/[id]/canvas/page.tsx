@@ -11,6 +11,9 @@ import { KindEnum } from "../../../../lib/llm";
 
 type IncidentCanvasPageProps = {
 	params: Promise<{ id: string }> | { id: string };
+	searchParams?:
+		| Promise<Record<string, string | string[] | undefined>>
+		| Record<string, string | string[] | undefined>;
 };
 
 const uuidPattern =
@@ -18,8 +21,11 @@ const uuidPattern =
 
 export default async function IncidentCanvasPage({
 	params,
+	searchParams,
 }: IncidentCanvasPageProps) {
 	const { id } = await Promise.resolve(params);
+	const query = await Promise.resolve(searchParams ?? {});
+	const initialAsk = safeInitialAsk(query.ask);
 	const { locale, session } = await resolveLocaleContext();
 
 	if (!isUuid(id)) {
@@ -48,7 +54,13 @@ export default async function IncidentCanvasPage({
 	}
 
 	return (
-		<IncidentCanvas incidentId={id} initialRecord={record} locale={locale} />
+		<IncidentCanvas
+			incidentId={id}
+			initialAsk={initialAsk}
+			initialRecord={record}
+			locale={locale}
+			userStorageId={session.userId}
+		/>
 	);
 }
 
@@ -91,4 +103,19 @@ async function loadIncidentCanvasRecord({
 
 function isUuid(value: string | null | undefined): value is string {
 	return typeof value === "string" && uuidPattern.test(value);
+}
+
+function safeInitialAsk(
+	value: string | string[] | undefined,
+): string | undefined {
+	if (typeof value !== "string") {
+		return undefined;
+	}
+	const plainText = Array.from(value, (character) => {
+		const code = character.charCodeAt(0);
+		return code < 32 || code === 127 ? " " : character;
+	})
+		.join("")
+		.trim();
+	return plainText ? plainText.slice(0, 300) : undefined;
 }

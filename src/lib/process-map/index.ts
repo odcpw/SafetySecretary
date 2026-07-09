@@ -31,6 +31,7 @@ export type ProcessNode = {
 	sourceConfidence: ProcessNodeSourceConfidence;
 	durationNote: string | null;
 	frequencyNote: string | null;
+	whoWouldKnow: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 };
@@ -84,6 +85,8 @@ export type AddProcessNodeInput = {
 	kind: ProcessNodeKind;
 	name: string;
 	description?: string | null;
+	sourceConfidence?: ProcessNodeSourceConfidence;
+	whoWouldKnow?: string | null;
 };
 
 export type UpdateProcessNodeInput = {
@@ -93,6 +96,7 @@ export type UpdateProcessNodeInput = {
 	sourceConfidence?: ProcessNodeSourceConfidence;
 	durationNote?: string | null;
 	frequencyNote?: string | null;
+	whoWouldKnow?: string | null;
 };
 
 export type AddProcessFlowInput = {
@@ -286,6 +290,13 @@ export async function addProcessNode(
 	mapId: string,
 	input: AddProcessNodeInput,
 ): Promise<ProcessNode | null> {
+	if (
+		input.sourceConfidence !== undefined &&
+		!isProcessNodeSourceConfidence(input.sourceConfidence)
+	) {
+		return null;
+	}
+
 	return withTenantConnection(tenantId, async (tx) => {
 		await lockProcessMap(tx, mapId);
 
@@ -305,7 +316,9 @@ export async function addProcessNode(
 				kind,
 				order_index,
 				name,
-				description
+				description,
+				source_confidence,
+				who_would_know
 			)
 			SELECT
 				${nodeId}::uuid,
@@ -322,7 +335,9 @@ export async function addProcessNode(
 					0
 				),
 				${input.name},
-				${input.description ?? null}
+				${input.description ?? null},
+				${input.sourceConfidence ?? "DIRECT"},
+				${input.whoWouldKnow ?? null}
 			FROM process_map
 			WHERE process_map.id = ${mapId}::uuid
 				AND process_map.deleted_at IS NULL
@@ -337,6 +352,7 @@ export async function addProcessNode(
 				source_confidence AS "sourceConfidence",
 				duration_note AS "durationNote",
 				frequency_note AS "frequencyNote",
+				who_would_know AS "whoWouldKnow",
 				created_at AS "createdAt",
 				updated_at AS "updatedAt"
 		`;
@@ -383,6 +399,11 @@ export async function updateProcessNode(
 						THEN ${input.frequencyNote ?? null}
 					ELSE node.frequency_note
 				END,
+				who_would_know = CASE
+					WHEN ${input.whoWouldKnow !== undefined}
+						THEN ${input.whoWouldKnow ?? null}
+					ELSE node.who_would_know
+				END,
 				updated_at = CURRENT_TIMESTAMP
 			FROM process_map AS map
 			WHERE node.id = ${nodeId}::uuid
@@ -400,6 +421,7 @@ export async function updateProcessNode(
 				node.source_confidence AS "sourceConfidence",
 				node.duration_note AS "durationNote",
 				node.frequency_note AS "frequencyNote",
+				node.who_would_know AS "whoWouldKnow",
 				node.created_at AS "createdAt",
 				node.updated_at AS "updatedAt"
 		`;
@@ -440,6 +462,7 @@ export async function moveProcessNode(
 					node.source_confidence AS "sourceConfidence",
 					node.duration_note AS "durationNote",
 					node.frequency_note AS "frequencyNote",
+					node.who_would_know AS "whoWouldKnow",
 					node.created_at AS "createdAt",
 					node.updated_at AS "updatedAt"
 			`;
@@ -719,6 +742,11 @@ export async function addProcessFlow(
 	return withTenantConnection(tenantId, async (tx) => {
 		await lockProcessMap(tx, mapId);
 
+		const existing = await findProcessFlowByNormalizedLabel(tx, mapId, input);
+		if (existing) {
+			return existing;
+		}
+
 		const flowId = randomUUID();
 		const rows = await tx.$queryRaw<ProcessFlow[]>`
 			INSERT INTO process_flow (
@@ -839,6 +867,17 @@ export async function addProcessResource(
 	return withTenantConnection(tenantId, async (tx) => {
 		await lockProcessMap(tx, mapId);
 
+		const returnable =
+			input.resourceType === "MATERIAL_POOL" ? (input.returnable ?? false) : false;
+		const existing = await findProcessResourceByNormalizedLabel(
+			tx,
+			mapId,
+			input,
+		);
+		if (existing) {
+			return existing;
+		}
+
 		const resourceId = randomUUID();
 		const rows = await tx.$queryRaw<ProcessResource[]>`
 			INSERT INTO process_resource (
@@ -858,7 +897,7 @@ export async function addProcessResource(
 				${input.resourceType},
 				${input.label},
 				${input.quantityNote ?? null},
-				${input.returnable ?? false},
+				${returnable},
 				COALESCE(
 					(
 						SELECT MAX(order_index) + 1
@@ -912,8 +951,20 @@ export async function updateProcessResource(
 				END,
 				returnable = CASE
 					WHEN ${input.returnable !== undefined}
-						THEN ${input.returnable ?? false}
-					ELSE resource.returnable
+						THEN CASE
+							WHEN COALESCE(
+								${input.resourceType ?? null},
+								resource.resource_type
+							) = 'MATERIAL_POOL'
+								THEN ${input.returnable ?? false}
+							ELSE false
+						END
+					WHEN COALESCE(
+						${input.resourceType ?? null},
+						resource.resource_type
+					) = 'MATERIAL_POOL'
+						THEN resource.returnable
+					ELSE false
 				END,
 				updated_at = CURRENT_TIMESTAMP
 			FROM process_map AS map
@@ -1092,6 +1143,7 @@ async function listProcessNodes(
 			source_confidence AS "sourceConfidence",
 			duration_note AS "durationNote",
 			frequency_note AS "frequencyNote",
+			who_would_know AS "whoWouldKnow",
 			created_at AS "createdAt",
 			updated_at AS "updatedAt"
 		FROM process_node
@@ -1170,6 +1222,71 @@ async function findProcessEdge(
 	return rows[0] ?? null;
 }
 
+async function findProcessFlowByNormalizedLabel(
+	tx: TenantTx,
+	mapId: string,
+	input: AddProcessFlowInput,
+): Promise<ProcessFlow | null> {
+	const normalizedLabel = normalizeProcessMapLabel(input.label);
+	const rows = await tx.$queryRaw<ProcessFlow[]>`
+		SELECT
+			flow.id::text AS id,
+			flow.map_id::text AS "mapId",
+			flow.node_id::text AS "nodeId",
+			flow.direction,
+			flow.flow_type AS "flowType",
+			flow.label,
+			flow.counterparty,
+			flow.order_index AS "orderIndex",
+			flow.created_at AS "createdAt",
+			flow.updated_at AS "updatedAt"
+		FROM process_flow AS flow
+		JOIN process_map AS map ON map.id = flow.map_id
+		WHERE flow.map_id = ${mapId}::uuid
+			AND flow.node_id = ${input.nodeId}::uuid
+			AND flow.direction = ${input.direction}
+			AND flow.flow_type = ${input.flowType}
+			AND lower(regexp_replace(btrim(flow.label), '[[:space:]]+', ' ', 'g')) = ${normalizedLabel}
+			AND map.deleted_at IS NULL
+		ORDER BY flow.order_index ASC, flow.created_at ASC, flow.id ASC
+		LIMIT 1
+	`;
+
+	return rows[0] ?? null;
+}
+
+async function findProcessResourceByNormalizedLabel(
+	tx: TenantTx,
+	mapId: string,
+	input: AddProcessResourceInput,
+): Promise<ProcessResource | null> {
+	const normalizedLabel = normalizeProcessMapLabel(input.label);
+	const rows = await tx.$queryRaw<ProcessResource[]>`
+		SELECT
+			resource.id::text AS id,
+			resource.map_id::text AS "mapId",
+			resource.node_id::text AS "nodeId",
+			resource.resource_type AS "resourceType",
+			resource.label,
+			resource.quantity_note AS "quantityNote",
+			resource.returnable,
+			resource.order_index AS "orderIndex",
+			resource.created_at AS "createdAt",
+			resource.updated_at AS "updatedAt"
+		FROM process_resource AS resource
+		JOIN process_map AS map ON map.id = resource.map_id
+		WHERE resource.map_id = ${mapId}::uuid
+			AND resource.node_id = ${input.nodeId}::uuid
+			AND resource.resource_type = ${input.resourceType}
+			AND lower(regexp_replace(btrim(resource.label), '[[:space:]]+', ' ', 'g')) = ${normalizedLabel}
+			AND map.deleted_at IS NULL
+		ORDER BY resource.order_index ASC, resource.created_at ASC, resource.id ASC
+		LIMIT 1
+	`;
+
+	return rows[0] ?? null;
+}
+
 async function listProcessFlows(
 	tx: TenantTx,
 	mapId: string,
@@ -1190,4 +1307,8 @@ async function listProcessFlows(
 		WHERE map_id = ${mapId}::uuid
 		ORDER BY order_index ASC, created_at ASC, id ASC
 	`;
+}
+
+function normalizeProcessMapLabel(value: string): string {
+	return value.trim().replace(/\s+/g, " ").toLowerCase();
 }

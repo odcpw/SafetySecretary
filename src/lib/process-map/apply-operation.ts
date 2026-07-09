@@ -62,6 +62,8 @@ export async function applyProcessMapOperation(input: {
 				kind: input.operation.payload.kind,
 				name: input.operation.payload.name,
 				parentId: parentRef.value,
+				sourceConfidence: input.operation.payload.sourceConfidence,
+				whoWouldKnow: input.operation.payload.whoWouldKnow,
 			});
 			return resultForRecord(input.operation.kind, node, "NODE_NOT_FOUND");
 		}
@@ -81,6 +83,7 @@ export async function applyProcessMapOperation(input: {
 				kind: input.operation.payload.kind,
 				name: input.operation.payload.name,
 				sourceConfidence: input.operation.payload.sourceConfidence,
+				whoWouldKnow: input.operation.payload.whoWouldKnow,
 			});
 			return resultForRecord(input.operation.kind, node, "NODE_NOT_FOUND");
 		}
@@ -256,7 +259,7 @@ function resolveExistingId(
 	operationRecordMap: Readonly<Record<string, string | null>> | undefined,
 ): { readonly ok: true; readonly value: string } | { readonly ok: false } {
 	const resolved = resolveOperationReference(value, operationRecordMap);
-	return resolved.ok && resolved.value
+	return resolved.ok && resolved.value && isUuid(resolved.value)
 		? { ok: true, value: resolved.value }
 		: { ok: false };
 }
@@ -274,5 +277,11 @@ function resolveOperationReference(
 		return resolved ? { ok: true, value: resolved } : { ok: false };
 	}
 
-	return { ok: true, value };
+	return isUuid(value) ? { ok: true, value } : { ok: false };
+}
+
+function isUuid(value: string): boolean {
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+		value,
+	);
 }

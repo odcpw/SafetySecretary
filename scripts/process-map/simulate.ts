@@ -20,7 +20,10 @@ import type {
 	ProcessMapOperation,
 	ProcessMapOperationKind,
 } from "../../src/lib/process-map/operations";
-import type { ProcessMapReadiness } from "../../src/lib/process-map/readiness";
+import type {
+	ProcessMapFogState,
+	ProcessMapReadiness,
+} from "../../src/lib/process-map/readiness";
 import type {
 	ProcessMapPersona,
 	ProcessMapPersonaName,
@@ -64,6 +67,7 @@ type OperationApplyLog = {
 	readonly operation: ProcessMapOperation;
 	readonly ok: boolean;
 	readonly code?: string;
+	readonly question?: boolean;
 	readonly recordId?: string | null;
 };
 
@@ -80,6 +84,7 @@ type OperationStats = {
 	proposed: number;
 	applied: number;
 	failed: number;
+	questions: number;
 	byKind: Record<ProcessMapOperationKind, { proposed: number; applied: number; failed: number }>;
 };
 
@@ -142,6 +147,7 @@ try {
 			applyProcessMapOperation: processMapApply.applyProcessMapOperation,
 			computeProcessMapPhase: processMapPrompt.computeProcessMapPhase,
 			computeProcessMapReadiness: processMapReadiness.computeProcessMapReadiness,
+			deriveProcessMapFogState: processMapReadiness.deriveProcessMapFogState,
 			dispatchOptions: localSimulationDispatchOptions(),
 			generateNarratorTurn,
 			loadProcessMap: processMapStore.loadProcessMap,
@@ -209,9 +215,11 @@ async function runSimulation(input: {
 	readonly loadProcessMap: typeof import("../../src/lib/process-map/index").loadProcessMap;
 	readonly computeProcessMapPhase: typeof import("../../src/lib/process-map/coach-prompt").computeProcessMapPhase;
 	readonly computeProcessMapReadiness: typeof import("../../src/lib/process-map/readiness").computeProcessMapReadiness;
+	readonly deriveProcessMapFogState: typeof import("../../src/lib/process-map/readiness").deriveProcessMapFogState;
 	readonly dispatchOptions: import("../../src/lib/llm/dispatch").DispatchOptions;
 }): Promise<{
 	readonly outputDir: string;
+	readonly fogStates: Readonly<Record<string, ProcessMapFogState>>;
 	readonly persona: ProcessMapPersona;
 	readonly personaName: ProcessMapPersonaName;
 	readonly record: LoadedProcessMap;
@@ -267,6 +275,22 @@ async function runSimulation(input: {
 		for (const operation of coach.operations) {
 			stats.proposed += 1;
 			stats.byKind[operation.kind].proposed += 1;
+
+			if (operation.kind === "ask_question") {
+				operationRecordMap[operation.id] = null;
+				stats.questions += 1;
+				operationLogs.push({
+					ok: true,
+					operation,
+					question: true,
+					recordId: null,
+					turn,
+				});
+				console.log(
+					`[${input.personaName}] turn ${turn} op ${operation.kind} ${operation.id}: question`,
+				);
+				continue;
+			}
 
 			const result = await input
 				.applyProcessMapOperation({
@@ -351,6 +375,7 @@ async function runSimulation(input: {
 
 	return {
 		outputDir,
+		fogStates: computeFogStates(record, input.deriveProcessMapFogState),
 		persona: input.persona,
 		personaName: input.personaName,
 		readiness,
@@ -363,6 +388,7 @@ async function runSimulation(input: {
 
 function writeSimulationArtifacts(input: {
 	readonly outputDir: string;
+	readonly fogStates: Readonly<Record<string, ProcessMapFogState>>;
 	readonly persona: ProcessMapPersona;
 	readonly personaName: ProcessMapPersonaName;
 	readonly record: LoadedProcessMap;
@@ -381,6 +407,7 @@ function writeSimulationArtifacts(input: {
 }
 
 function renderMapMarkdown(input: {
+	readonly fogStates: Readonly<Record<string, ProcessMapFogState>>;
 	readonly personaName: ProcessMapPersonaName;
 	readonly record: LoadedProcessMap;
 	readonly readiness: ProcessMapReadiness;
@@ -395,7 +422,7 @@ function renderMapMarkdown(input: {
 		"",
 		"## Outline",
 		"",
-		renderOutline(input.record),
+		renderOutline(input.record, input.fogStates),
 		"",
 		"## Edges",
 		"",
@@ -408,6 +435,10 @@ function renderMapMarkdown(input: {
 		"## Readiness",
 		"",
 		renderReadiness(input.readiness),
+		"",
+		"## Quest log",
+		"",
+		renderQuestLog(input.readiness),
 		"",
 		"## Operation Stats",
 		"",
@@ -431,7 +462,9 @@ function renderTranscriptMarkdown(input: {
 		} else {
 			for (const op of turn.operations) {
 				const status = op.ok
-					? `applied${op.recordId ? ` -> ${op.recordId}` : ""}`
+					? op.question
+						? "question"
+						: `applied${op.recordId ? ` -> ${op.recordId}` : ""}`
 					: `failed: ${op.code ?? "unknown"}`;
 				lines.push(
 					`- ${op.operation.kind} ${op.operation.id}: ${status}`,
@@ -444,7 +477,10 @@ function renderTranscriptMarkdown(input: {
 	return `${lines.join("\n")}\n`;
 }
 
-function renderOutline(record: LoadedProcessMap): string {
+function renderOutline(
+	record: LoadedProcessMap,
+	fogStates: Readonly<Record<string, ProcessMapFogState>>,
+): string {
 	const childrenByParent = new Map<string | null, ProcessNode[]>();
 	for (const node of record.nodes) {
 		const siblings = childrenByParent.get(node.parentId) ?? [];
@@ -473,6 +509,7 @@ function renderOutline(record: LoadedProcessMap): string {
 			.map((flow) => `${flow.direction} ${flow.flowType} ${flow.label}${flow.counterparty ? ` (${flow.counterparty})` : ""}`);
 		const notes = [
 			node.sourceConfidence === "HEARSAY" ? "HEARSAY" : null,
+			node.whoWouldKnow ? `who would know: ${node.whoWouldKnow}` : null,
 			node.durationNote ? `duration: ${node.durationNote}` : null,
 			node.frequencyNote ? `frequency: ${node.frequencyNote}` : null,
 			resources.length > 0 ? `resources: ${resources.join("; ")}` : null,
@@ -480,7 +517,8 @@ function renderOutline(record: LoadedProcessMap): string {
 		].filter(Boolean);
 		const suffix = notes.length > 0 ? ` [${notes.join(" | ")}]` : "";
 		const description = node.description ? ` - ${node.description}` : "";
-		lines.push(`${"  ".repeat(depth)}- [${node.kind}] ${node.name}${description}${suffix}`);
+		const fogState = fogStates[node.id] ?? "fog";
+		lines.push(`${"  ".repeat(depth)}- [${fogState}] [${node.kind}] ${node.name}${description}${suffix}`);
 
 		for (const child of childrenByParent.get(node.id) ?? []) {
 			visit(child, depth + 1);
@@ -548,16 +586,36 @@ function renderMermaid(record: LoadedProcessMap): string {
 }
 
 function renderReadiness(readiness: ProcessMapReadiness): string {
+	const counts = `Fog counts: clear=${readiness.questLog.clearCount}, haze=${readiness.questLog.hazeCount}, fog=${readiness.questLog.fogCount}`;
 	if (readiness.ready) {
-		return "Ready: yes\n\nOpen items: none";
+		return `Ready: yes\n${counts}\n\nOpen items: none`;
 	}
 
 	return [
 		"Ready: no",
+		counts,
 		"",
 		"Open items:",
 		...readiness.items.map((item) => `- ${item.code}${item.count ? ` (${item.count})` : ""}: ${item.label}`),
 	].join("\n");
+}
+
+function renderQuestLog(readiness: ProcessMapReadiness): string {
+	const lines = [
+		`Clear: ${readiness.questLog.clearCount}`,
+		`Haze: ${readiness.questLog.hazeCount}`,
+		`Fog: ${readiness.questLog.fogCount}`,
+		"",
+		"Quests:",
+	];
+	if (readiness.questLog.quests.length === 0) {
+		lines.push("- none");
+	} else {
+		for (const quest of readiness.questLog.quests) {
+			lines.push(`- ${quest.nodeName}: ask ${quest.whoWouldKnow}`);
+		}
+	}
+	return lines.join("\n");
 }
 
 function renderStats(stats: OperationStats): string {
@@ -565,6 +623,7 @@ function renderStats(stats: OperationStats): string {
 		`Proposed: ${stats.proposed}`,
 		`Applied: ${stats.applied}`,
 		`Failed: ${stats.failed}`,
+		`Questions: ${stats.questions}`,
 		"",
 		"| Kind | Proposed | Applied | Failed |",
 		"| --- | ---: | ---: | ---: |",
@@ -576,6 +635,50 @@ function renderStats(stats: OperationStats): string {
 		lines.push(`| ${kind} | ${entry.proposed} | ${entry.applied} | ${entry.failed} |`);
 	}
 	return lines.join("\n");
+}
+
+function computeFogStates(
+	record: LoadedProcessMap,
+	deriveProcessMapFogState: typeof import("../../src/lib/process-map/readiness").deriveProcessMapFogState,
+): Readonly<Record<string, ProcessMapFogState>> {
+	const childCountByParent = countBy(
+		record.nodes
+			.filter((node) => node.parentId)
+			.map((node) => node.parentId as string),
+	);
+	const incomingByNode = countBy(record.edges.map((edge) => edge.toNodeId));
+	const outgoingByNode = countBy(record.edges.map((edge) => edge.fromNodeId));
+	const resourcesByNode = countBy(
+		record.resources.map((resource) => resource.nodeId),
+	);
+	const roleResourcesByNode = countBy(
+		record.resources
+			.filter((resource) => resource.resourceType === "ROLE")
+			.map((resource) => resource.nodeId),
+	);
+
+	return Object.fromEntries(
+		record.nodes.map((node) => [
+			node.id,
+			deriveProcessMapFogState({
+				childCount: childCountByParent.get(node.id) ?? 0,
+				edgeCount:
+					(incomingByNode.get(node.id) ?? 0) +
+					(outgoingByNode.get(node.id) ?? 0),
+				node,
+				resourceCount: resourcesByNode.get(node.id) ?? 0,
+				roleResourceCount: roleResourcesByNode.get(node.id) ?? 0,
+			}),
+		]),
+	);
+}
+
+function countBy(values: readonly string[]): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const value of values) {
+		counts.set(value, (counts.get(value) ?? 0) + 1);
+	}
+	return counts;
 }
 
 async function createLabTenant(input: {
@@ -638,6 +741,7 @@ async function provisionProcessMapSchema(
 	await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA "shared" TO ${quoteIdent(role)}`);
 	await prisma.$executeRawUnsafe(`SELECT shared.apply_process_map_schema(${sqlString(schema)}::name)`);
 	await prisma.$executeRawUnsafe(`SELECT shared.apply_process_map_edges_schema(${sqlString(schema)}::name)`);
+	await prisma.$executeRawUnsafe(`SELECT shared.apply_process_map_quest_schema(${sqlString(schema)}::name)`);
 }
 
 async function cleanupLabTenant(input: {
@@ -703,6 +807,7 @@ function emptyOperationStats(): OperationStats {
 		byKind,
 		failed: 0,
 		proposed: 0,
+		questions: 0,
 	};
 }
 

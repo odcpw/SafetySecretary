@@ -4,6 +4,8 @@ import type {
 	ProcessResource,
 } from "./index";
 
+export type ProcessMapFogState = "clear" | "haze" | "fog";
+
 export type ProcessMapReadinessCode =
 	| "SPINE_GAP"
 	| "FORK_UNEXPLAINED"
@@ -26,6 +28,19 @@ export type ProcessMapReadinessInput = {
 export type ProcessMapReadiness = {
 	readonly ready: boolean;
 	readonly items: readonly ProcessMapReadinessItem[];
+	readonly questLog: ProcessMapQuestLog;
+};
+
+export type ProcessMapQuestLog = {
+	readonly clearCount: number;
+	readonly hazeCount: number;
+	readonly fogCount: number;
+	readonly quests: readonly ProcessMapQuest[];
+};
+
+export type ProcessMapQuest = {
+	readonly nodeName: string;
+	readonly whoWouldKnow: string;
 };
 
 export function computeProcessMapReadiness(
@@ -121,7 +136,95 @@ export function computeProcessMapReadiness(
 		});
 	}
 
-	return { items, ready: items.length === 0 };
+	return {
+		items,
+		questLog: deriveProcessMapQuestLog(input),
+		ready: items.length === 0,
+	};
+}
+
+export function deriveProcessMapQuestLog(
+	input: ProcessMapReadinessInput,
+): ProcessMapQuestLog {
+	const childCountByParent = countBy(
+		input.nodes
+			.filter((node) => node.parentId)
+			.map((node) => node.parentId as string),
+	);
+	const incomingByNode = countBy(input.edges.map((edge) => edge.toNodeId));
+	const outgoingByNode = countBy(input.edges.map((edge) => edge.fromNodeId));
+	const resourcesByNode = countBy(input.resources.map((resource) => resource.nodeId));
+	const roleResourcesByNode = countBy(
+		input.resources
+			.filter((resource) => resource.resourceType === "ROLE")
+			.map((resource) => resource.nodeId),
+	);
+
+	let clearCount = 0;
+	let hazeCount = 0;
+	let fogCount = 0;
+	const quests: ProcessMapQuest[] = [];
+
+	for (const node of input.nodes) {
+		const state = deriveProcessMapFogState({
+			childCount: childCountByParent.get(node.id) ?? 0,
+			edgeCount:
+				(incomingByNode.get(node.id) ?? 0) +
+				(outgoingByNode.get(node.id) ?? 0),
+			node,
+			resourceCount: resourcesByNode.get(node.id) ?? 0,
+			roleResourceCount: roleResourcesByNode.get(node.id) ?? 0,
+		});
+
+		if (state === "clear") {
+			clearCount += 1;
+		} else if (state === "haze") {
+			hazeCount += 1;
+		} else {
+			fogCount += 1;
+		}
+
+		if (state !== "clear" && node.whoWouldKnow?.trim()) {
+			quests.push({
+				nodeName: node.name,
+				whoWouldKnow: node.whoWouldKnow.trim(),
+			});
+		}
+	}
+
+	return { clearCount, fogCount, hazeCount, quests };
+}
+
+export function deriveProcessMapFogState(input: {
+	readonly node: ProcessNode;
+	readonly childCount: number;
+	readonly edgeCount: number;
+	readonly resourceCount: number;
+	readonly roleResourceCount: number;
+}): ProcessMapFogState {
+	const description = input.node.description?.trim() ?? "";
+	const hasDescription = description.length > 0;
+	const hasSubstantiveDescription =
+		hasDescription && description.toLowerCase() !== "unexplored";
+	const isLeaf = input.childCount === 0;
+	const leafIsOwned = !isLeaf || input.roleResourceCount > 0;
+
+	if (
+		input.node.sourceConfidence === "DIRECT" &&
+		hasSubstantiveDescription &&
+		leafIsOwned
+	) {
+		return "clear";
+	}
+
+	const isEmptyStub =
+		!hasSubstantiveDescription ||
+		(input.edgeCount === 0 && input.resourceCount === 0);
+	if (input.node.sourceConfidence === "HEARSAY" && !isEmptyStub) {
+		return "haze";
+	}
+
+	return "fog";
 }
 
 function countSpineGaps(input: {

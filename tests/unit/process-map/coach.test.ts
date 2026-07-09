@@ -61,7 +61,12 @@ test("process-map operations parse, reject invalid kinds, and rewire refs", () =
 	const operations = parseProcessMapOperations([
 		{
 			kind: "node_add",
-			payload: { kind: "ACTIVITY", name: "Receive order" },
+			payload: {
+				kind: "ACTIVITY",
+				name: "Receive order",
+				sourceConfidence: "HEARSAY",
+				whoWouldKnow: "Sales",
+			},
 			ref: "n1",
 		},
 		{
@@ -81,6 +86,9 @@ test("process-map operations parse, reject invalid kinds, and rewire refs", () =
 	const edge = operations[2];
 	assert.ok(firstNode);
 	assert.ok(secondNode);
+	assert.ok(firstNode.kind === "node_add");
+	assert.equal(firstNode.payload.sourceConfidence, "HEARSAY");
+	assert.equal(firstNode.payload.whoWouldKnow, "Sales");
 	assert.ok(edge?.kind === "edge_add");
 	assert.equal(edge.payload.fromRef, firstNode.id);
 	assert.equal(edge.payload.toRef, secondNode.id);
@@ -108,9 +116,21 @@ test("process-map operations parse, reject invalid kinds, and rewire refs", () =
 test("process-map readiness flags fork notes and leaf roles, then passes", () => {
 	const ids = fixtureIds();
 	const nodes = [
-		node({ id: ids.a, name: "Receive order" }),
-		node({ id: ids.b, name: "Molding line" }),
-		node({ id: ids.c, name: "Injection line" }),
+		node({
+			description: "The office receives the order and checks it.",
+			id: ids.a,
+			name: "Receive order",
+		}),
+		node({
+			description: "The molding line makes molded parts.",
+			id: ids.b,
+			name: "Molding line",
+		}),
+		node({
+			description: "The injection line makes injected parts.",
+			id: ids.c,
+			name: "Injection line",
+		}),
 	];
 	const broken = computeProcessMapReadiness({
 		edges: [
@@ -149,7 +169,58 @@ test("process-map readiness flags fork notes and leaf roles, then passes", () =>
 		resources: [role({ nodeId: ids.a }), role({ nodeId: ids.b }), role({ nodeId: ids.c })],
 	});
 
-	assert.deepEqual(fixed, { items: [], ready: true });
+	assert.deepEqual(fixed, {
+		items: [],
+		questLog: {
+			clearCount: 3,
+			fogCount: 0,
+			hazeCount: 0,
+			quests: [],
+		},
+		ready: true,
+	});
+});
+
+test("process-map readiness derives quest log fog states", () => {
+	const ids = fixtureIds();
+	const clear = node({
+		description: "Operator receives the order and checks the delivery date.",
+		id: ids.a,
+		name: "Receive order",
+	});
+	const haze = node({
+		description: "Billing prepares the monthly invoice.",
+		id: ids.b,
+		name: "Monthly billing",
+		sourceConfidence: "HEARSAY",
+		whoWouldKnow: "Frau Keller",
+	});
+	const fog = node({
+		description: "unexplored",
+		id: ids.c,
+		name: "Damage recharge",
+		sourceConfidence: "HEARSAY",
+		whoWouldKnow: "Yard lead",
+	});
+
+	const readiness = computeProcessMapReadiness({
+		edges: [
+			edge({ fromNodeId: ids.a, toNodeId: ids.b }),
+			edge({ fromNodeId: ids.b, toNodeId: ids.c }),
+		],
+		nodes: [clear, haze, fog],
+		resources: [role({ nodeId: ids.a }), role({ nodeId: ids.b })],
+	});
+
+	assert.deepEqual(readiness.questLog, {
+		clearCount: 1,
+		fogCount: 1,
+		hazeCount: 1,
+		quests: [
+			{ nodeName: "Monthly billing", whoWouldKnow: "Frau Keller" },
+			{ nodeName: "Damage recharge", whoWouldKnow: "Yard lead" },
+		],
+	});
 });
 
 test("process-map phase signal follows the deterministic gates", () => {
@@ -226,6 +297,8 @@ test("process-map prompt phase-gates the SPINE coaching section", () => {
 
 	assert.match(prompt, /Pick one concrete thing/);
 	assert.match(prompt, /NEVER ask for money amounts/);
+	assert.match(prompt, /Loop rule: close every loop/i);
+	assert.match(prompt, /Hedging discipline: NEVER write "confirm with X" or "to confirm" in descriptions/);
 	assert.doesNotMatch(prompt, /ACTIVE COACHING SECTION — STRUCTURE/);
 	assert.doesNotMatch(prompt, /ACTIVE COACHING SECTION — RESOURCES/);
 });
@@ -318,11 +391,17 @@ function processMap() {
 	};
 }
 
-function node(input: { readonly id: string; readonly name: string }) {
+function node(input: {
+	readonly id: string;
+	readonly name: string;
+	readonly description?: string | null;
+	readonly sourceConfidence?: "DIRECT" | "HEARSAY";
+	readonly whoWouldKnow?: string | null;
+}) {
 	const now = new Date("2026-07-08T08:00:00.000Z");
 	return {
 		createdAt: now,
-		description: null,
+		description: input.description ?? null,
 		durationNote: null,
 		frequencyNote: null,
 		id: input.id,
@@ -331,8 +410,9 @@ function node(input: { readonly id: string; readonly name: string }) {
 		name: input.name,
 		orderIndex: 0,
 		parentId: null,
-		sourceConfidence: "DIRECT" as const,
+		sourceConfidence: input.sourceConfidence ?? ("DIRECT" as const),
 		updatedAt: now,
+		whoWouldKnow: input.whoWouldKnow ?? null,
 	};
 }
 

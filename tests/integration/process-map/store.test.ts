@@ -173,6 +173,15 @@ if (!databaseUrl) {
 				nodeId: node.id,
 			});
 			assert.ok(material);
+			const duplicateMaterial = await addProcessFlow(tenant.tenantId, map.id, {
+				counterparty: "Supplier duplicate",
+				direction: "IN",
+				flowType: "MATERIAL",
+				label: "  pallets  ",
+				nodeId: node.id,
+			});
+			assert.ok(duplicateMaterial);
+			assert.equal(duplicateMaterial.id, material.id);
 			const information = await addProcessFlow(tenant.tenantId, map.id, {
 				counterparty: "ERP",
 				direction: "OUT",
@@ -444,8 +453,17 @@ if (!databaseUrl) {
 				nodeId: node.id,
 				quantityNote: "2 riggers",
 				resourceType: "ROLE",
+				returnable: true,
 			});
 			assert.ok(role);
+			assert.equal(role.returnable, false);
+			const duplicateRole = await addProcessResource(tenant.tenantId, map.id, {
+				label: " riggers ",
+				nodeId: node.id,
+				resourceType: "ROLE",
+			});
+			assert.ok(duplicateRole);
+			assert.equal(duplicateRole.id, role.id);
 			const equipment = await addProcessResource(tenant.tenantId, map.id, {
 				label: "forklift",
 				nodeId: node.id,
@@ -459,17 +477,20 @@ if (!databaseUrl) {
 				loaded.resources.map((resource) => ({
 					label: resource.label,
 					quantityNote: resource.quantityNote,
+					returnable: resource.returnable,
 					resourceType: resource.resourceType,
 				})),
 				[
 					{
 						label: "Riggers",
 						quantityNote: "2 riggers",
+						returnable: false,
 						resourceType: "ROLE",
 					},
 					{
 						label: "forklift",
 						quantityNote: null,
+						returnable: false,
 						resourceType: "EQUIPMENT",
 					},
 				],
@@ -504,21 +525,27 @@ if (!databaseUrl) {
 				kind: "ACTIVITY",
 				name: "Unload",
 				parentId: null,
+				sourceConfidence: "HEARSAY",
+				whoWouldKnow: "Night shift lead",
 			});
 			assert.ok(node);
+			assert.equal(node.whoWouldKnow, "Night shift lead");
 
 			const updated = await updateProcessNode(tenant.tenantId, map.id, node.id, {
 				durationNote: "2-3h, estimate",
 				sourceConfidence: "HEARSAY",
+				whoWouldKnow: "Warehouse manager",
 			});
 			assert.ok(updated);
 			assert.equal(updated.sourceConfidence, "HEARSAY");
 			assert.equal(updated.durationNote, "2-3h, estimate");
+			assert.equal(updated.whoWouldKnow, "Warehouse manager");
 
 			const loaded = await loadProcessMap(tenant.tenantId, map.id);
 			assert.ok(loaded);
 			assert.equal(loaded.nodes[0]?.sourceConfidence, "HEARSAY");
 			assert.equal(loaded.nodes[0]?.durationNote, "2-3h, estimate");
+			assert.equal(loaded.nodes[0]?.whoWouldKnow, "Warehouse manager");
 
 			const rejected = await updateProcessNode(tenant.tenantId, map.id, node.id, {
 				sourceConfidence: "MAYBE",
@@ -589,6 +616,9 @@ async function provisionProcessMapSchema(tenantId: string): Promise<void> {
 	);
 	await prisma.$executeRawUnsafe(
 		`SELECT shared.apply_process_map_edges_schema(${sqlString(schema)}::name)`,
+	);
+	await prisma.$executeRawUnsafe(
+		`SELECT shared.apply_process_map_quest_schema(${sqlString(schema)}::name)`,
 	);
 }
 

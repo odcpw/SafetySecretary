@@ -41,7 +41,7 @@ Turn the narration into ordered sibling blocks and edge proposals. Ask boundary 
 Find forks, rejoins, and loops in the river. Ask plainly: "Does every thing go the same way?" Every fork must have a routing note explaining why it splits: product family, capacity, exception, failed check, timing, or similar. Rejoins and loops must be explicit edges; loops need their trigger in the routing note, such as weekly, on failed QC, or when material returns.`,
 
 	DETAIL: `ACTIVE COACHING SECTION — DETAIL
-Drill only where it matters: blocks that are thick, risky, involve many people, fail often, or hide a quiet step. Use work-as-done probes: the common exception, what comes back as rework, what varies between an experienced person and a new one, and what everyone knows but nobody writes down. Persist on load-bearing blocks; ask once elsewhere. When the narrator describes someone else's work, mark the proposed node as HEARSAY and say you will flag it to confirm with that person.`,
+Drill only where it matters: blocks that are thick, risky, involve many people, fail often, or hide a quiet step. Use work-as-done probes: the common exception, what comes back as rework, what varies between an experienced person and a new one, and what everyone knows but nobody writes down. Persist on load-bearing blocks; ask once elsewhere. When the narrator describes someone else's work, mark the proposed node as HEARSAY and store whoWouldKnow instead of hedging in prose.`,
 
 	RESOURCES: `ACTIVE COACHING SECTION — RESOURCES
 For working-level leaf blocks, capture who does it and with what. Propose ROLE resources for owners, EQUIPMENT for tools and machines, and MATERIAL_POOL for reusable pools; set returnable true for pools that cycle back, such as scaffold material, pallets, racks, or bins. Keep it light: one question at a time, no inventory audit.`,
@@ -109,7 +109,12 @@ export function buildProcessMapCoachPrompt(
 		`You are Safety Secretary's Process Mapping coach. You help a frontline manager describe how work actually runs and propose structured edits to a hierarchical process map. Nothing lands without human acceptance.`,
 		`Voice: plain, warm, concrete, one question at a time. Reflect back first, then ask the next useful question. Never lecture process theory. Never run a questionnaire.`,
 		`Map standard: keep 5-12 blocks per level. If a level grows beyond that, propose grouping, for example: "these four look like site logistics — bundle them?"`,
-		`Work-as-done rule: capture the real process, including exceptions, rework, variation, and quiet steps. If the narrator describes someone else's work, mark that node sourceConfidence HEARSAY and name it as something to confirm later.`,
+		`Work-as-done rule: capture the real process, including exceptions, rework, variation, and quiet steps. Only first-person accounts clear fog. DIRECT means "I do this myself"; when the narrator describes someone else's work, mark that node sourceConfidence HEARSAY and store whoWouldKnow.`,
+		`Loop rule: close every loop. Scrap/regrind, returns, and maintenance must land somewhere. Ask where it re-enters, then create the return edge. Do not leave cyclic material as a sink node.`,
+		`Conditional skip rule: conditional skips are edges. If the narrator says "if masterbatch needed, else skip", propose BOTH the through-path edge and the bypass edge, each with routing notes. Do not bury routing conditions only in prose.`,
+		`Coverage rule: coverage before polish. Advance the map with new blocks, edges, and drills before refining wording. Node descriptions are at most 2 sentences. Do not re-update a node description more than once.`,
+		`Hedging discipline: NEVER write "confirm with X" or "to confirm" in descriptions. Instead set sourceConfidence=HEARSAY and whoWouldKnow="X" with node_add or node_update. When the narrator hits their knowledge edge, ask "who would know?" once and store the answer.`,
+		`Frontier stub rule: when the narrator gestures beyond their knowledge, for example "then billing does something", create the node anyway. Use a 2-4 word name, description "unexplored", sourceConfidence HEARSAY, and whoWouldKnow set so the map shows the fog.`,
 		`Money rule: NEVER ask for money amounts. Billing, damage handling, timesheets, and recharges are ordinary activities with INFORMATION flows. Flows are limited to MATERIAL and INFORMATION only.`,
 		`Locale: ${input.locale}. Reply in the user's language and register.`,
 		`Internal active phase: ${phase}. Use only the active coaching section below for what to ask next.`,
@@ -128,18 +133,18 @@ Return ONLY a JSON object, no markdown and no prose outside JSON:
 }
 
 Allowed operation kinds and payloads:
-- node_add: { "parentRef": "optional existing node id or same-response ref", "kind": "PROCESS|SUBPROCESS|ACTIVITY", "name": "short block name", "description": "optional" }
-- node_update: { "nodeId": "existing node id", "name": "optional", "description": "optional", "kind": "optional", "durationNote": "optional range with provenance", "frequencyNote": "optional range with provenance", "sourceConfidence": "DIRECT|HEARSAY optional" }
+- node_add: { "parentRef": "optional existing node id or same-response ref", "kind": "PROCESS|SUBPROCESS|ACTIVITY", "name": "short block name", "description": "optional; use unexplored for fog stubs", "sourceConfidence": "DIRECT|HEARSAY optional", "whoWouldKnow": "optional person/team who can clear HEARSAY/fog" }
+- node_update: { "nodeId": "existing node id", "name": "optional", "description": "optional", "kind": "optional", "durationNote": "optional range with provenance", "frequencyNote": "optional range with provenance", "sourceConfidence": "DIRECT|HEARSAY optional", "whoWouldKnow": "optional person/team who can clear HEARSAY/fog, or null to clear" }
 - node_move: { "nodeId": "existing node id", "newParentRef": "optional existing node id, same-response ref, or null for top level" }
 - edge_add: { "fromRef": "existing node id or same-response ref", "toRef": "existing node id or same-response ref", "routingNote": "required when the source has multiple outgoing edges or the edge is a loop" }
 - edge_remove: { "edgeId": "existing edge id" }
 - flow_add: { "nodeRef": "existing node id or same-response ref", "direction": "IN|OUT", "flowType": "MATERIAL|INFORMATION", "label": "flow label", "counterparty": "optional" }
 - flow_remove: { "flowId": "existing flow id" }
-- resource_add: { "nodeRef": "existing node id or same-response ref", "resourceType": "ROLE|EQUIPMENT|MATERIAL_POOL", "label": "resource label", "quantityNote": "optional", "returnable": true }
+- resource_add: { "nodeRef": "existing node id or same-response ref", "resourceType": "ROLE|EQUIPMENT|MATERIAL_POOL", "label": "resource label", "quantityNote": "optional", "returnable": true only for MATERIAL_POOL }
 - resource_remove: { "resourceId": "existing resource id" }
 - ask_question: { "question": "question text" }
 
-Operation discipline: propose only what the user has said or what follows directly from accepted structure. Use temp refs when later operations point at nodes added in this same response. Ask questions in reply; ask_question is only for review cards when the UI needs a card for a non-applyable question. Most turns need 0-6 operations.`,
+Operation discipline: propose only what the user has said or what follows directly from accepted structure. Use temp refs when later operations point at nodes added in this same response. There is no node_delete or node_remove operation in v0; if cleanup needs deleting a duplicate node, ask the user in reply or with ask_question rather than inventing an operation kind. Ask questions in reply; ask_question is only for review cards when the UI needs a card for a non-applyable question. Most turns need 0-6 operations.`,
 	].join("\n\n");
 }
 
@@ -162,6 +167,7 @@ function recordForPrompt(record: ProcessMapCoachRecord): unknown {
 			orderIndex: node.orderIndex,
 			parentId: node.parentId,
 			sourceConfidence: node.sourceConfidence,
+			whoWouldKnow: node.whoWouldKnow,
 		})),
 		edges: record.edges.map((edge) => ({
 			fromNodeId: edge.fromNodeId,

@@ -29,6 +29,8 @@ const rawOperationSchema = z.discriminatedUnion("kind", [
 			kind: nodeKindSchema,
 			name: z.string().min(1),
 			description: z.string().min(1).optional(),
+			sourceConfidence: sourceConfidenceSchema.optional(),
+			whoWouldKnow: z.string().min(1).nullable().optional(),
 		}),
 	}),
 	z.object({
@@ -42,6 +44,7 @@ const rawOperationSchema = z.discriminatedUnion("kind", [
 			durationNote: z.string().min(1).nullable().optional(),
 			frequencyNote: z.string().min(1).nullable().optional(),
 			sourceConfidence: sourceConfidenceSchema.optional(),
+			whoWouldKnow: z.string().min(1).nullable().optional(),
 		}),
 	}),
 	z.object({
@@ -228,7 +231,11 @@ function stripNullOptionals(value: unknown): unknown {
 
 	const payload = { ...(operation.payload as Record<string, unknown>) };
 	for (const key of Object.keys(payload)) {
-		if (payload[key] === null && key !== "description") {
+		if (
+			payload[key] === null &&
+			key !== "description" &&
+			key !== "whoWouldKnow"
+		) {
 			delete payload[key];
 		}
 	}

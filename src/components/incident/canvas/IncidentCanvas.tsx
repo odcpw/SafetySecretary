@@ -11,6 +11,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import TodoHud, { type CanvasTodoItem } from "../../canvas/TodoHud";
 import {
 	EVENT_NODE_ID,
 	type LaidNodeKind,
@@ -135,6 +136,7 @@ export default function IncidentCanvas({
 		transform: Transform;
 	} | null>(null);
 	const [selectedId, setSelectedId] = useState<string>("event-anchor");
+	const [pulseId, setPulseId] = useState<string | null>(null);
 	const [transform, setTransform] = useState<Transform>({
 		k: 0.9,
 		x: 80,
@@ -166,6 +168,10 @@ export default function IncidentCanvas({
 	const selected = useMemo(
 		() => resolveSelection(selectedId, layout, record, locale),
 		[selectedId, layout, record, locale],
+	);
+	const todoItems = useMemo(
+		() => buildIncidentTodoItems(record),
+		[record],
 	);
 
 	useEffect(() => {
@@ -218,6 +224,12 @@ export default function IncidentCanvas({
 		});
 	};
 
+	const selectAndFlyToItem = (itemId: string) => {
+		setSelectedId(itemId);
+		pulseCanvasItem(itemId, setPulseId);
+		flyToCanvasItem(itemId, layout, svgRef.current, transform, setTransform);
+	};
+
 	return (
 		<main className="h-screen overflow-hidden bg-[#101113] text-[var(--color-text)]">
 			<div className="pointer-events-none absolute left-0 top-0 z-20 flex w-full flex-col gap-3 p-3 sm:p-4">
@@ -267,6 +279,11 @@ export default function IncidentCanvas({
 					</div>
 				</div>
 			</div>
+			<TodoHud
+				items={todoItems}
+				onSelect={selectAndFlyToItem}
+				storageScope={`incident:${incidentId}`}
+			/>
 			<svg
 				aria-label="Incident investigation canvas"
 				className="h-full w-full touch-none select-none"
@@ -343,6 +360,7 @@ export default function IncidentCanvas({
 				</defs>
 				<rect fill="#101113" height="100%" width="100%" />
 				<g
+					data-canvas-world=""
 					transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}
 				>
 					<BandLabel label="Timeline" x={layout.bounds.x + 8} y={42} />
@@ -364,6 +382,7 @@ export default function IncidentCanvas({
 					<g>
 						{layout.causeNodes.map((node) => renderCauseNode(node))}
 					</g>
+					<g>{pulseId ? renderPulse(layout, pulseId) : null}</g>
 				</g>
 			</svg>
 			<Minimap
@@ -384,6 +403,7 @@ export default function IncidentCanvas({
 		return (
 			<g
 				data-node-id={item.id}
+				data-has-children="false"
 				key={item.id}
 				onPointerDown={(event) => {
 					event.stopPropagation();
@@ -452,6 +472,7 @@ export default function IncidentCanvas({
 		return (
 			<g
 				data-node-id={node.id}
+				data-has-children="false"
 				key={node.id}
 				onPointerDown={(event) => {
 					event.stopPropagation();
@@ -807,7 +828,7 @@ function SelectionPanel({
 	selected: { title: string; rows: Array<{ label: string; value: string }> };
 }) {
 	return (
-		<aside className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 sm:bottom-auto sm:left-auto sm:right-3 sm:top-24 sm:w-80">
+		<aside className="pointer-events-none absolute bottom-3 left-3 right-3 z-20 sm:bottom-auto sm:left-auto sm:right-[388px] sm:top-24 sm:w-80">
 			<div className="pointer-events-auto max-h-36 overflow-auto rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.94)] p-3 shadow-lg backdrop-blur sm:max-h-[58vh]">
 				<p className="m-0 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
 					Selected
@@ -1016,6 +1037,112 @@ function buildTimelineItems(
 	});
 }
 
+function buildIncidentTodoItems(record: IncidentCanvasRecord): CanvasTodoItem[] {
+	const items: CanvasTodoItem[] = [];
+	const parentIds = new Set<string>();
+	const measuredCauseIds = new Set<string>();
+
+	for (const cause of record.causes) {
+		if (cause.parentId) {
+			parentIds.add(cause.parentId);
+		}
+	}
+	for (const action of record.actions) {
+		measuredCauseIds.add(action.causeNodeId);
+	}
+
+	if (!record.incident.incidentAt) {
+		items.push({
+			key: "incident:time",
+			nodeId: "event-anchor",
+			text: "Set the incident date and time",
+		});
+	}
+	if (!record.incident.potentialSeverity) {
+		items.push({
+			key: "incident:potential-severity",
+			nodeId: "event-anchor",
+			text: "Assess the worst credible harm",
+		});
+	}
+	if (record.causes.length === 0) {
+		items.push({
+			key: "causes:none",
+			nodeId: EVENT_NODE_ID,
+			text: "Add the first cause branch",
+		});
+	} else if (
+		!record.causes.some(
+			(cause) =>
+				Boolean(cause.isRootCause) || cause.branchStatus === "ROOT_REACHED",
+		)
+	) {
+		items.push({
+			key: "causes:no-root",
+			nodeId: EVENT_NODE_ID,
+			text: "Mark a root cause when the branch is explained",
+		});
+	}
+
+	const ask = personToAsk(record);
+	for (const cause of record.causes) {
+		const hasChild = parentIds.has(cause.id);
+		const isRoot =
+			Boolean(cause.isRootCause) || cause.branchStatus === "ROOT_REACHED";
+		const isParked = cause.branchStatus === "PARKED";
+		if (!hasChild && !isRoot && !isParked && !measuredCauseIds.has(cause.id)) {
+			items.push({
+				key: `cause:${cause.id}:open`,
+				nodeId: cause.id,
+				text: `${cause.question?.trim() || `Why ${cause.statement}?`} -- ${ask} would know`,
+			});
+		}
+	}
+
+	if (record.causes.length > 0 && record.actions.length === 0) {
+		items.push({
+			key: "actions:none",
+			nodeId: EVENT_NODE_ID,
+			text: "Add at least one measure",
+		});
+	}
+	for (const action of record.actions) {
+		if (!action.ownerRole) {
+			items.push({
+				key: `action:${action.id}:owner`,
+				nodeId: `m-${action.id}`,
+				text: `'${action.description}' needs an owner`,
+			});
+		}
+		if (!action.dueDate) {
+			items.push({
+				key: `action:${action.id}:due`,
+				nodeId: `m-${action.id}`,
+				text: `'${action.description}' needs a due date`,
+			});
+		}
+	}
+	if (record.hiraFollowup.needed && !record.hiraFollowup.text?.trim()) {
+		items.push({
+			key: "hira:followup-text",
+			nodeId: "event-anchor",
+			text: "Describe the risk-assessment follow-up",
+		});
+	}
+
+	return items;
+}
+
+function personToAsk(record: IncidentCanvasRecord): string {
+	const preferred =
+		record.people.find((person) =>
+			/maintenance|supervisor|coordinator|operator/i.test(
+				`${person.role} ${person.name ?? ""} ${person.otherInfo ?? ""}`,
+			),
+		) ?? record.people[0];
+	return preferred?.name || preferred?.role || "someone close to the work";
+}
+
 function timelineItemFromEvent(
 	event: RecordTimelineEvent,
 	x: number,
@@ -1122,6 +1249,119 @@ function centerOnWorldPoint(
 		x: viewport.clientWidth / 2 - x * current.k,
 		y: viewport.clientHeight / 2 - y * current.k,
 	}));
+}
+
+function flyToCanvasItem(
+	itemId: string,
+	layout: CanvasLayout,
+	viewport: SVGSVGElement | null,
+	currentTransform: Transform,
+	setTransform: Dispatch<SetStateAction<Transform>>,
+) {
+	const target = canvasItemCenter(itemId, layout);
+	if (!target || !viewport) {
+		return;
+	}
+	animateTransform(
+		currentTransform,
+		{
+			k: currentTransform.k,
+			x: viewport.clientWidth / 2 - target.x * currentTransform.k,
+			y: viewport.clientHeight / 2 - target.y * currentTransform.k,
+		},
+		setTransform,
+	);
+}
+
+function canvasItemCenter(
+	itemId: string,
+	layout: CanvasLayout,
+): { x: number; y: number } | null {
+	const timeline = layout.timelineItems.find((item) => item.id === itemId);
+	if (timeline) {
+		return {
+			x: timeline.x + timeline.width / 2,
+			y: timeline.y + timeline.height / 2,
+		};
+	}
+	const cause = layout.causeNodes.find((node) => node.id === itemId);
+	if (cause) {
+		return {
+			x: cause.x + cause.width / 2,
+			y: cause.y + cause.height / 2,
+		};
+	}
+	return null;
+}
+
+function animateTransform(
+	from: Transform,
+	to: Transform,
+	setTransform: Dispatch<SetStateAction<Transform>>,
+) {
+	const startedAt = performance.now();
+	const durationMs = 360;
+	const tick = (now: number) => {
+		const progress = clamp((now - startedAt) / durationMs, 0, 1);
+		const eased = 1 - (1 - progress) ** 3;
+		setTransform({
+			k: from.k + (to.k - from.k) * eased,
+			x: from.x + (to.x - from.x) * eased,
+			y: from.y + (to.y - from.y) * eased,
+		});
+		if (progress < 1) {
+			requestAnimationFrame(tick);
+		}
+	};
+	requestAnimationFrame(tick);
+}
+
+function pulseCanvasItem(
+	itemId: string,
+	setPulseId: Dispatch<SetStateAction<string | null>>,
+) {
+	setPulseId(itemId);
+	window.setTimeout(() => {
+		setPulseId((current) => (current === itemId ? null : current));
+	}, 950);
+}
+
+function renderPulse(layout: CanvasLayout, itemId: string) {
+	const timeline = layout.timelineItems.find((item) => item.id === itemId);
+	const node = layout.causeNodes.find((candidate) => candidate.id === itemId);
+	const box = timeline ?? node;
+	if (!box) {
+		return null;
+	}
+	return (
+		<rect
+			fill="none"
+			height={box.height + 14}
+			key={`pulse-${itemId}`}
+			pointerEvents="none"
+			rx="16"
+			stroke="#fbbf24"
+			strokeWidth="4"
+			width={box.width + 14}
+			x={box.x - 7}
+			y={box.y - 7}
+		>
+			<animate
+				attributeName="opacity"
+				dur="0.9s"
+				fill="freeze"
+				from="1"
+				to="0"
+			/>
+			<animate
+				attributeName="stroke-width"
+				dur="0.9s"
+				fill="freeze"
+				from="4"
+				to="12"
+			/>
+		</rect>
+	);
 }
 
 function screenToWorld(

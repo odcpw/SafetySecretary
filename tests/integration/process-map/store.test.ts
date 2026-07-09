@@ -7,6 +7,10 @@ import { pathToFileURL } from "node:url";
 
 registerHooks({
 	resolve(specifier, context, nextResolve) {
+		if (specifier === "next/server") {
+			return nextResolve("next/server.js", context);
+		}
+
 		if (!context.parentURL || !isLocalImport(specifier)) {
 			return nextResolve(specifier, context);
 		}
@@ -49,9 +53,18 @@ const {
 } = (await import(
 	moduleUrl("src/lib/process-map/index.ts")
 )) as typeof import("../../../src/lib/process-map");
+const { NextRequest } = (await import(
+	"next/server.js"
+)) as typeof import("next/server");
 const { prisma, dropTenantSchema, withTenantConnection } = (await import(
 	moduleUrl("src/lib/db/index.ts")
 )) as typeof import("../../../src/lib/db");
+const { issueSession } = (await import(
+	moduleUrl("src/lib/auth/session.ts")
+)) as typeof import("../../../src/lib/auth/session");
+const { mintCsrfToken } = (await import(
+	moduleUrl("src/lib/auth/csrf.ts")
+)) as typeof import("../../../src/lib/auth/csrf");
 
 test.after(async () => {
 	await prisma.$disconnect();
@@ -590,6 +603,91 @@ if (!databaseUrl) {
 			await cleanupTenant(tenant);
 		}
 	});
+
+	test("process node PATCH route updates only who-to-ask and confidence fields", async () => {
+		const route = (await import(
+			moduleUrl("src/app/api/process-maps/[id]/nodes/[nodeId]/route.ts")
+		)) as typeof import("../../../src/app/api/process-maps/[id]/nodes/[nodeId]/route");
+		const mapRoute = (await import(
+			moduleUrl("src/app/api/process-maps/[id]/route.ts")
+		)) as typeof import("../../../src/app/api/process-maps/[id]/route");
+		const tenant = await seedTenant("node-patch-route");
+
+		try {
+			const map = await createProcessMap(tenant.tenantId, {
+				contentLanguage: "en",
+				createdBy: tenant.userId,
+				title: "Route update process",
+			});
+			const node = await addProcessNode(tenant.tenantId, map.id, {
+				description: null,
+				kind: "ACTIVITY",
+				name: "Pack",
+				parentId: null,
+				sourceConfidence: "HEARSAY",
+				whoWouldKnow: "Office",
+			});
+			assert.ok(node);
+
+			const unauthenticated = await route.PATCH(
+				patchRequest(map.id, node.id, null, { whoWouldKnow: "Operator" }),
+				{ params: { id: map.id, nodeId: node.id } },
+			);
+			assert.equal(unauthenticated.status, 401);
+
+			const session = await issueSession(tenant.userId, tenant.tenantId);
+			const missingCsrf = await route.PATCH(
+				patchRequest(map.id, node.id, session.cookieValue, {
+					whoWouldKnow: "Operator",
+				}, false),
+				{ params: { id: map.id, nodeId: node.id } },
+			);
+			assert.equal(missingCsrf.status, 403);
+
+			const rejectedExtraField = await route.PATCH(
+				patchRequest(map.id, node.id, session.cookieValue, {
+					name: "Changed",
+					whoWouldKnow: "Operator",
+				}),
+				{ params: { id: map.id, nodeId: node.id } },
+			);
+			assert.equal(rejectedExtraField.status, 400);
+			assert.deepEqual(await rejectedExtraField.json(), {
+				code: "INVALID_PROCESS_NODE_PATCH",
+			});
+
+			const updated = await route.PATCH(
+				patchRequest(map.id, node.id, session.cookieValue, {
+					sourceConfidence: "DIRECT",
+					whoWouldKnow: "Machine operator",
+				}),
+				{ params: { id: map.id, nodeId: node.id } },
+			);
+			assert.equal(updated.status, 200);
+			const updatedBody = (await updated.json()) as {
+				node: { sourceConfidence: string; whoWouldKnow: string | null };
+			};
+			assert.equal(updatedBody.node.sourceConfidence, "DIRECT");
+			assert.equal(updatedBody.node.whoWouldKnow, "Machine operator");
+
+			const roundTrip = await mapRoute.GET(
+				getProcessMapRequest(map.id, session.cookieValue),
+				{ params: { id: map.id } },
+			);
+			assert.equal(roundTrip.status, 200);
+			const roundTripBody = (await roundTrip.json()) as {
+				nodes: Array<{ id: string; sourceConfidence: string; whoWouldKnow: string | null }>;
+			};
+			const roundTripNode = roundTripBody.nodes.find(
+				(candidate) => candidate.id === node.id,
+			);
+			assert.ok(roundTripNode);
+			assert.equal(roundTripNode.sourceConfidence, "DIRECT");
+			assert.equal(roundTripNode.whoWouldKnow, "Machine operator");
+		} finally {
+			await cleanupTenant(tenant);
+		}
+	});
 }
 
 async function seedTenant(label: string): Promise<{
@@ -712,6 +810,43 @@ function quoteIdent(value: string): string {
 
 function sqlString(value: string): string {
 	return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function patchRequest(
+	mapId: string,
+	nodeId: string,
+	sessionCookie: string | null,
+	body: unknown,
+	includeCsrf = true,
+) {
+	const headers: Record<string, string> = {
+		"content-type": "application/json",
+	};
+	if (sessionCookie) {
+		const csrf = mintCsrfToken(sessionCookie);
+		headers.cookie = includeCsrf
+			? `ssfw_session=${sessionCookie}; ssfw_csrf=${csrf}`
+			: `ssfw_session=${sessionCookie}`;
+		if (includeCsrf) {
+			headers["x-ssfw-csrf"] = csrf;
+		}
+	}
+	return new NextRequest(
+		`https://app.example.test/api/process-maps/${mapId}/nodes/${nodeId}`,
+		{
+			body: JSON.stringify(body),
+			headers,
+			method: "PATCH",
+		},
+	);
+}
+
+function getProcessMapRequest(mapId: string, sessionCookie: string) {
+	return new NextRequest(`https://app.example.test/api/process-maps/${mapId}`, {
+		headers: {
+			cookie: `ssfw_session=${sessionCookie}`,
+		},
+	});
 }
 
 function isLocalImport(specifier: string): boolean {

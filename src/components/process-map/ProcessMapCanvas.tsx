@@ -12,6 +12,9 @@ import {
 	useRef,
 	useState,
 } from "react";
+import TodoHud, { type CanvasTodoItem } from "../canvas/TodoHud";
+import { CSRF_COOKIE_NAME } from "../../lib/auth/cookies";
+import { ensureCsrfToken } from "../../lib/auth/csrf-client";
 import {
 	computeProcessMapAltitudeView,
 	exploredPercent,
@@ -28,6 +31,7 @@ import type {
 	ProcessMapFogState,
 	ProcessMapReadiness,
 } from "../../lib/process-map/readiness";
+import { computeProcessMapReadiness } from "../../lib/process-map/readiness";
 
 export type ProcessMapCanvasRecord = {
 	map: SerializeDates<ProcessMap>;
@@ -61,6 +65,7 @@ type ElkDirection = "DOWN" | "RIGHT";
 
 type LayoutNode = {
 	aggregate: ProcessMapNodeAggregate | null;
+	childCount: number;
 	depth: number;
 	fogState: ProcessMapFogState;
 	hasVisibleChildren: boolean;
@@ -76,6 +81,7 @@ type LayoutNode = {
 type LayoutEdge = {
 	id: string;
 	label: string | null;
+	labelPoint: { x: number; y: number } | null;
 	points: Array<{ x: number; y: number }>;
 };
 
@@ -116,9 +122,12 @@ export default function ProcessMapCanvas({
 		transform: Transform;
 	} | null>(null);
 	const [altitude, setAltitude] = useState(2);
+	const [focusStack, setFocusStack] = useState<string[]>([]);
 	const [layout, setLayout] = useState<LayoutResult | null>(null);
+	const [nodes, setNodes] = useState(record.nodes);
+	const [pendingFitNodeId, setPendingFitNodeId] = useState<string | null>(null);
+	const [pulseNodeId, setPulseNodeId] = useState<string | null>(null);
 	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-	const [showQuestLog, setShowQuestLog] = useState(false);
 	const [transform, setTransform] = useState<Transform>({
 		k: 0.9,
 		x: 80,
@@ -129,19 +138,48 @@ export default function ProcessMapCanvas({
 		width: 0,
 	});
 
-	const fogStates = useMemo(() => deriveFogStates(record), [record]);
+	useEffect(() => {
+		setNodes(record.nodes);
+	}, [record.nodes]);
+
+	const currentRecord = useMemo(
+		() => ({
+			...record,
+			nodes,
+			readiness: computeProcessMapReadiness({
+				edges: record.edges as unknown as ProcessEdge[],
+				nodes: nodes as unknown as ProcessNode[],
+				resources: record.resources as unknown as ProcessResource[],
+			}),
+		}),
+		[nodes, record],
+	);
+	const childCountByNodeId = useMemo(
+		() => countChildrenByParent(currentRecord.nodes),
+		[currentRecord.nodes],
+	);
+	const fogStates = useMemo(
+		() => deriveFogStates(currentRecord),
+		[currentRecord],
+	);
 	const altitudeView = useMemo(
 		() =>
 			computeProcessMapAltitudeView({
 				altitude,
 				fogStates,
-				nodes: record.nodes,
-				resources: record.resources,
+				nodes: currentRecord.nodes,
+				resources: currentRecord.resources,
 			}),
-		[altitude, fogStates, record.nodes, record.resources],
+		[altitude, currentRecord.nodes, currentRecord.resources, fogStates],
 	);
 	const clampedAltitude = Math.min(altitude, altitudeView.maxDepth);
-	const explored = exploredPercent(record.readiness.questLog);
+	const explored = exploredPercent(currentRecord.readiness.questLog);
+	const todoItems = buildProcessMapTodoItems(
+		currentRecord,
+		childCountByNodeId,
+		updateWho,
+	);
+	const focusNodeId = focusStack.at(-1) ?? null;
 	useEffect(() => {
 		if (altitude !== clampedAltitude) {
 			setAltitude(clampedAltitude);
@@ -179,8 +217,10 @@ export default function ProcessMapCanvas({
 	useEffect(() => {
 		let cancelled = false;
 
-		layoutWithElk(record, altitudeView, fogStates, "RIGHT")
-			.catch(() => layoutFallback(record, altitudeView, fogStates, "RIGHT"))
+		layoutWithElk(currentRecord, altitudeView, fogStates, "RIGHT")
+			.catch(() =>
+				layoutFallback(currentRecord, altitudeView, fogStates, "RIGHT"),
+			)
 			.then((nextLayout) => {
 				if (cancelled) {
 					return;
@@ -192,20 +232,40 @@ export default function ProcessMapCanvas({
 		return () => {
 			cancelled = true;
 		};
-	}, [altitudeView, fogStates, record]);
+	}, [altitudeView, currentRecord, fogStates]);
 
 	useEffect(() => {
 		if (!layout) {
 			return;
 		}
 
+		if (pendingFitNodeId) {
+			const visibleNodeId = resolveVisibleNodeId(
+				pendingFitNodeId,
+				currentRecord.nodes,
+				altitudeView.visibleNodeIds,
+			);
+			const node = visibleNodeId ? layout.nodes.get(visibleNodeId) : null;
+			if (node) {
+				setTransform(fitTransform(paddedNodeBounds(node), viewportSize));
+				setPendingFitNodeId(null);
+				return;
+			}
+		}
+
 		setTransform(fitTransform(layout.bounds, viewportSize));
-	}, [layout, viewportSize]);
+	}, [
+		altitudeView.visibleNodeIds,
+		currentRecord.nodes,
+		layout,
+		pendingFitNodeId,
+		viewportSize,
+	]);
 
 	const visibleSelectedId = selectedNodeId
 		? resolveVisibleNodeId(
 				selectedNodeId,
-				record.nodes,
+				currentRecord.nodes,
 				altitudeView.visibleNodeIds,
 			)
 		: null;
@@ -217,6 +277,92 @@ export default function ProcessMapCanvas({
 
 		setTransform(fitTransform(layout.bounds, viewportSize));
 	};
+
+	const setAltitudeFromControl = (value: number) => {
+		setFocusStack([]);
+		setAltitude(value);
+	};
+
+	const selectAndFlyToNode = (nodeId: string) => {
+		const visibleNodeId = resolveVisibleNodeId(
+			nodeId,
+			currentRecord.nodes,
+			altitudeView.visibleNodeIds,
+		);
+		setSelectedNodeId(visibleNodeId ?? nodeId);
+		if (visibleNodeId) {
+			pulseNode(visibleNodeId, setPulseNodeId);
+		}
+		flyToNode(
+			nodeId,
+			currentRecord.nodes,
+			altitudeView.visibleNodeIds,
+			layout,
+			svgRef.current,
+			transform,
+			setTransform,
+		);
+	};
+
+	const selectNodeOnly = (nodeId: string) => {
+		const visibleNodeId = resolveVisibleNodeId(
+			nodeId,
+			currentRecord.nodes,
+			altitudeView.visibleNodeIds,
+		);
+		setSelectedNodeId(visibleNodeId ?? nodeId);
+	};
+
+	const diveIntoNode = (nodeId: string) => {
+		const depth = altitudeView.depthByNodeId.get(nodeId) ?? clampedAltitude;
+		setFocusStack((current) => [...current, nodeId]);
+		setSelectedNodeId(nodeId);
+		setPendingFitNodeId(nodeId);
+		const visibleNodeId = resolveVisibleNodeId(
+			nodeId,
+			currentRecord.nodes,
+			altitudeView.visibleNodeIds,
+		);
+		const node = visibleNodeId ? layout?.nodes.get(visibleNodeId) : null;
+		if (node) {
+			setTransform(fitTransform(paddedNodeBounds(node), viewportSize));
+		}
+		setAltitude(Math.min(altitudeView.maxDepth, Math.max(clampedAltitude, depth + 1)));
+	};
+
+	const surfaceOneLevel = () => {
+		const nextStack = focusStack.slice(0, -1);
+		setFocusStack(nextStack);
+		setAltitude(Math.max(1, clampedAltitude - 1));
+		setPendingFitNodeId(nextStack.at(-1) ?? null);
+	};
+
+	async function updateWho(nodeId: string, value: string | null) {
+		const csrfToken = ensureCsrfToken(CSRF_COOKIE_NAME);
+		const response = await fetch(
+			`/api/process-maps/${currentRecord.map.id}/nodes/${nodeId}`,
+			{
+				body: JSON.stringify({ whoWouldKnow: value }),
+				headers: {
+					"content-type": "application/json",
+					"x-safetysecretary-csrf": csrfToken,
+				},
+				method: "PATCH",
+			},
+		);
+		if (!response.ok) {
+			throw new Error(`Process node update failed: ${response.status}`);
+		}
+		const body = (await response.json()) as {
+			node?: SerializeDates<ProcessNode>;
+		};
+		if (!body.node) {
+			throw new Error("Process node update returned no node.");
+		}
+		setNodes((current) =>
+			current.map((node) => (node.id === body.node?.id ? body.node : node)),
+		);
+	}
 
 	return (
 		<main className="h-screen overflow-hidden bg-[#101113] text-[var(--color-text)]">
@@ -242,8 +388,19 @@ export default function ProcessMapCanvas({
 						<AltitudeControl
 							altitude={clampedAltitude}
 							maxDepth={altitudeView.maxDepth}
-							onChange={setAltitude}
+							onChange={setAltitudeFromControl}
 						/>
+						{focusNodeId ? (
+							<button
+								aria-label="Surface one level"
+								className="inline-flex min-h-9 items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-accent)]"
+								onClick={surfaceOneLevel}
+								type="button"
+							>
+								<SurfaceIcon />
+								Surface
+							</button>
+						) : null}
 						<button
 							aria-label="Fit map to screen"
 							className="inline-flex min-h-9 items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-xs font-medium text-[var(--color-text)] hover:border-[var(--color-accent)]"
@@ -252,33 +409,14 @@ export default function ProcessMapCanvas({
 						>
 							Fit
 						</button>
-						<button
-							className="inline-flex min-h-9 items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text)] hover:border-[var(--color-accent)]"
-							onClick={() => setShowQuestLog((value) => !value)}
-							type="button"
-						>
-							Quest log
-						</button>
 					</div>
 				</div>
-				{showQuestLog ? (
-					<QuestPanel
-						onSelect={(nodeId) => {
-							setShowQuestLog(false);
-							setSelectedNodeId(nodeId);
-							panToNode(
-								nodeId,
-								record.nodes,
-								altitudeView.visibleNodeIds,
-								layout,
-								svgRef.current,
-								setTransform,
-							);
-						}}
-						quests={record.readiness.questLog.quests}
-					/>
-				) : null}
 			</div>
+			<TodoHud
+				items={todoItems}
+				onSelect={selectAndFlyToNode}
+				storageScope={`process-map:${currentRecord.map.id}`}
+			/>
 			<svg
 				aria-label="Process map canvas"
 				className="h-full w-full touch-none select-none"
@@ -356,18 +494,35 @@ export default function ProcessMapCanvas({
 				<rect fill="#101113" height="100%" width="100%" />
 				{layout ? (
 					<g
+						data-canvas-world=""
 						transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}
 					>
 						<g>
 							{[...layout.nodes.values()].map((node) =>
-								renderRegion(node, visibleSelectedId),
+								renderRegion(
+									node,
+									visibleSelectedId,
+									selectNodeOnly,
+									diveIntoNode,
+								),
 							)}
 						</g>
 						<g>{layout.edges.map((edge) => renderEdge(edge, transform.k))}</g>
 						<g>
 							{[...layout.nodes.values()].map((node) =>
-								renderNodeBox(node, visibleSelectedId, setSelectedNodeId),
+								renderNodeBox({
+									childCountByNodeId,
+									node,
+									onDive: diveIntoNode,
+									onSelect: selectNodeOnly,
+									selectedNodeId: visibleSelectedId,
+								}),
 							)}
+						</g>
+						<g>
+							{pulseNodeId
+								? renderPulse(layout.nodes.get(pulseNodeId) ?? null)
+								: null}
 						</g>
 						<g>{[...layout.nodes.values()].map(renderRegionLabel)}</g>
 					</g>
@@ -583,43 +738,6 @@ function AltitudeControl({
 	);
 }
 
-function QuestPanel({
-	onSelect,
-	quests,
-}: {
-	onSelect: (nodeId: string) => void;
-	quests: ProcessMapReadiness["questLog"]["quests"];
-}) {
-	return (
-		<aside className="pointer-events-auto max-h-[45vh] w-full max-w-sm overflow-auto rounded-md border border-[var(--color-border)] bg-[rgba(22,22,26,0.96)] p-2 shadow-lg backdrop-blur">
-			{quests.length === 0 ? (
-				<p className="m-0 px-2 py-2 text-sm text-[var(--color-muted)]">
-					No open quests.
-				</p>
-			) : (
-				<ul className="m-0 grid list-none gap-1 p-0">
-					{quests.map((quest) => (
-						<li key={quest.nodeId}>
-							<button
-								className="grid w-full gap-0.5 rounded px-2 py-2 text-left hover:bg-[var(--color-surface-elev)]"
-								onClick={() => onSelect(quest.nodeId)}
-								type="button"
-							>
-								<span className="text-sm font-medium text-[var(--color-text)]">
-									{quest.nodeName}
-								</span>
-								<span className="text-xs text-amber-300">
-									Ask {quest.whoWouldKnow}
-								</span>
-							</button>
-						</li>
-					))}
-				</ul>
-			)}
-		</aside>
-	);
-}
-
 function Minimap({
 	bounds,
 	layout,
@@ -739,7 +857,9 @@ function buildElkGraph(
 				id: node.id,
 				layoutOptions: {
 					"elk.direction": "RIGHT",
+					"elk.edgeRouting": "ORTHOGONAL",
 					"elk.padding": "[top=58,left=30,bottom=30,right=30]",
+					"elk.spacing.edgeEdge": "18",
 					"elk.layered.spacing.edgeNodeBetweenLayers": "34",
 					"elk.layered.spacing.nodeNodeBetweenLayers": "64",
 					"elk.spacing.nodeNode": "52",
@@ -760,6 +880,9 @@ function buildElkGraph(
 			.map(buildNode),
 		edges: visibleEdges(record, altitudeView).map((edge) => ({
 			id: edge.id,
+			layoutOptions: {
+				"elk.edgeRouting": "ORTHOGONAL",
+			},
 			sources: [edge.fromNodeId],
 			targets: [edge.toNodeId],
 		})),
@@ -767,8 +890,11 @@ function buildElkGraph(
 		layoutOptions: {
 			"elk.algorithm": "layered",
 			"elk.direction": direction,
+			"elk.edgeRouting": "ORTHOGONAL",
 			"elk.hierarchyHandling": "INCLUDE_CHILDREN",
 			"elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+			"elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+			"elk.spacing.edgeEdge": "22",
 			"elk.layered.spacing.edgeNodeBetweenLayers": "56",
 			"elk.layered.spacing.nodeNodeBetweenLayers": "128",
 			"elk.spacing.nodeNode": "76",
@@ -795,6 +921,7 @@ function collectElkLayout(
 		if (recordNode) {
 			nodes.set(recordNode.id, {
 				aggregate: altitudeView.aggregatesByNodeId.get(recordNode.id) ?? null,
+				childCount: childrenByParent.get(recordNode.id)?.length ?? 0,
 				depth: altitudeView.depthByNodeId.get(recordNode.id) ?? 1,
 				fogState: fogStates.get(recordNode.id) ?? "fog",
 				hasVisibleChildren:
@@ -869,6 +996,7 @@ function layoutFallback(
 			const hasVisibleChildren = visibleChildren.length > 0 && !isCollapsed;
 			nodes.set(node.id, {
 				aggregate: altitudeView.aggregatesByNodeId.get(node.id) ?? null,
+				childCount: childrenByParent.get(node.id)?.length ?? 0,
 				depth: altitudeView.depthByNodeId.get(node.id) ?? 1,
 				fogState: fogStates.get(node.id) ?? "fog",
 				hasVisibleChildren,
@@ -904,6 +1032,10 @@ function layoutFallback(
 				{
 					id: edge.id,
 					label: edge.routingNote,
+					labelPoint: midpointOfPolyline([
+						{ x: from.x + from.width, y: from.y + from.height / 2 },
+						{ x: to.x, y: to.y + to.height / 2 },
+					]),
 					points: [
 						{ x: from.x + from.width, y: from.y + from.height / 2 },
 						{ x: to.x, y: to.y + to.height / 2 },
@@ -944,6 +1076,120 @@ function deriveCanvasFogState(
 	}
 
 	return "fog";
+}
+
+function buildProcessMapTodoItems(
+	record: ProcessMapCanvasRecord,
+	childCountByNodeId: ReadonlyMap<string, number>,
+	onSaveWho: (nodeId: string, value: string | null) => Promise<void>,
+): CanvasTodoItem[] {
+	const items: CanvasTodoItem[] = [];
+	const nodesById = new Map(record.nodes.map((node) => [node.id, node]));
+	const outgoingByNode = new Map<string, Array<SerializeDates<ProcessEdge>>>();
+	const roleResourcesByNode = new Map<string, number>();
+
+	for (const edge of record.edges) {
+		const edges = outgoingByNode.get(edge.fromNodeId) ?? [];
+		edges.push(edge);
+		outgoingByNode.set(edge.fromNodeId, edges);
+	}
+	for (const resource of record.resources) {
+		if (resource.resourceType === "ROLE") {
+			roleResourcesByNode.set(
+				resource.nodeId,
+				(roleResourcesByNode.get(resource.nodeId) ?? 0) + 1,
+			);
+		}
+	}
+
+	for (const node of record.nodes) {
+		const description = node.description?.trim() ?? "";
+		const hasDescription =
+			description.length > 0 && description.toLowerCase() !== "unexplored";
+		if (!hasDescription) {
+			items.push({
+				editablePerson: {
+					ariaLabel: `Who would know about ${node.name}`,
+					onSave: (value) => onSaveWho(node.id, value),
+					value: node.whoWouldKnow,
+				},
+				key: `node:${node.id}:unexplored`,
+				nodeId: node.id,
+				text: `${node.name} -- talk to`,
+			});
+		}
+		if (node.sourceConfidence === "HEARSAY") {
+			items.push({
+				editablePerson: {
+					ariaLabel: `Who can confirm ${node.name}`,
+					onSave: (value) => onSaveWho(node.id, value),
+					value: node.whoWouldKnow,
+				},
+				key: `node:${node.id}:hearsay`,
+				nodeId: node.id,
+				text: `${node.name} -- confirm with`,
+			});
+		}
+		if (
+			(childCountByNodeId.get(node.id) ?? 0) === 0 &&
+			(roleResourcesByNode.get(node.id) ?? 0) === 0
+		) {
+			items.push({
+				key: `node:${node.id}:owner`,
+				nodeId: node.id,
+				text: `Who does '${node.name}'?`,
+			});
+		}
+	}
+
+	for (const [nodeId, edges] of outgoingByNode) {
+		if (edges.length < 2) {
+			continue;
+		}
+		const source = nodesById.get(nodeId);
+		if (!source) {
+			continue;
+		}
+		for (const edge of edges) {
+			if (!edge.routingNote?.trim()) {
+				items.push({
+					key: `edge:${edge.id}:fork-note`,
+					nodeId,
+					text: `${source.name} -- explain this fork`,
+				});
+			}
+		}
+	}
+
+	for (const node of record.nodes) {
+		const childCount = childCountByNodeId.get(node.id) ?? 0;
+		const edgeCount =
+			(record.edges.filter(
+				(edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id,
+			).length);
+		if (node.kind !== "ACTIVITY" && childCount === 0 && edgeCount === 0) {
+			items.push({
+				key: `node:${node.id}:empty-branch`,
+				nodeId: node.id,
+				text: `${node.name} -- fill in this branch or mark it handled`,
+			});
+		}
+	}
+
+	return dedupeTodoItems(items);
+}
+
+function dedupeTodoItems(items: readonly CanvasTodoItem[]): CanvasTodoItem[] {
+	const seen = new Set<string>();
+	const result: CanvasTodoItem[] = [];
+	for (const item of items) {
+		if (seen.has(item.key)) {
+			continue;
+		}
+		seen.add(item.key);
+		result.push(item);
+	}
+	return result;
 }
 
 function visibleEdges(
@@ -1013,6 +1259,18 @@ function groupNodesByParent(
 	return groups;
 }
 
+function countChildrenByParent(
+	nodes: readonly SerializeDates<ProcessNode>[],
+): ReadonlyMap<string, number> {
+	const counts = new Map<string, number>();
+	for (const node of nodes) {
+		if (node.parentId) {
+			counts.set(node.parentId, (counts.get(node.parentId) ?? 0) + 1);
+		}
+	}
+	return counts;
+}
+
 function isFoggedRegion(
 	nodeId: string,
 	childrenByParent: ReadonlyMap<
@@ -1042,6 +1300,11 @@ function edgeToLayout(
 		{
 			id: edge.id,
 			label,
+			labelPoint: midpointOfPolyline([
+				section.startPoint,
+				...(section.bendPoints ?? []),
+				section.endPoint,
+			]),
 			points: [
 				section.startPoint,
 				...(section.bendPoints ?? []),
@@ -1097,12 +1360,13 @@ function fitTransform(
 	};
 }
 
-function panToNode(
+function flyToNode(
 	nodeId: string,
 	nodes: readonly SerializeDates<ProcessNode>[],
 	visibleNodeIds: ReadonlySet<string>,
 	layout: LayoutResult | null,
 	viewport: SVGSVGElement | null,
+	currentTransform: Transform,
 	setTransform: Dispatch<SetStateAction<Transform>>,
 ) {
 	const visibleNodeId = resolveVisibleNodeId(nodeId, nodes, visibleNodeIds);
@@ -1111,12 +1375,13 @@ function panToNode(
 		return;
 	}
 
-	centerOnWorldPoint(
+	const target = centeredTransform(
 		node.x + node.width / 2,
 		node.y + node.height / 2,
 		viewport,
-		setTransform,
+		currentTransform,
 	);
+	animateTransform(currentTransform, target, setTransform);
 }
 
 function centerOnWorldPoint(
@@ -1130,10 +1395,103 @@ function centerOnWorldPoint(
 	}
 
 	setTransform((current) => ({
+		...centeredTransform(x, y, viewport, current),
+	}));
+}
+
+function centeredTransform(
+	x: number,
+	y: number,
+	viewport: SVGSVGElement | null,
+	current: Transform,
+): Transform {
+	if (!viewport) {
+		return current;
+	}
+
+	return {
 		k: current.k,
 		x: viewport.clientWidth / 2 - x * current.k,
 		y: viewport.clientHeight / 2 - y * current.k,
-	}));
+	};
+}
+
+function animateTransform(
+	from: Transform,
+	to: Transform,
+	setTransform: Dispatch<SetStateAction<Transform>>,
+) {
+	const startedAt = performance.now();
+	const durationMs = 360;
+	const tick = (now: number) => {
+		const progress = clamp((now - startedAt) / durationMs, 0, 1);
+		const eased = 1 - (1 - progress) ** 3;
+		setTransform({
+			k: from.k + (to.k - from.k) * eased,
+			x: from.x + (to.x - from.x) * eased,
+			y: from.y + (to.y - from.y) * eased,
+		});
+		if (progress < 1) {
+			requestAnimationFrame(tick);
+		}
+	};
+	requestAnimationFrame(tick);
+}
+
+function pulseNode(
+	nodeId: string,
+	setPulseNodeId: Dispatch<SetStateAction<string | null>>,
+) {
+	setPulseNodeId(nodeId);
+	window.setTimeout(() => {
+		setPulseNodeId((current) => (current === nodeId ? null : current));
+	}, 950);
+}
+
+function paddedNodeBounds(node: LayoutNode): LayoutResult["bounds"] {
+	const pad = 80;
+	return {
+		height: node.height + pad * 2,
+		width: node.width + pad * 2,
+		x: node.x - pad,
+		y: node.y - pad,
+	};
+}
+
+function renderPulse(node: LayoutNode | null) {
+	if (!node) {
+		return null;
+	}
+
+	return (
+		<rect
+			fill="none"
+			height={node.height + 14}
+			key={`pulse-${node.node.id}`}
+			pointerEvents="none"
+			rx={node.hasVisibleChildren ? "34" : "16"}
+			stroke="#fbbf24"
+			strokeWidth="4"
+			width={node.width + 14}
+			x={node.x - 7}
+			y={node.y - 7}
+		>
+			<animate
+				attributeName="opacity"
+				dur="0.9s"
+				from="1"
+				to="0"
+				fill="freeze"
+			/>
+			<animate
+				attributeName="stroke-width"
+				dur="0.9s"
+				from="4"
+				to="12"
+				fill="freeze"
+			/>
+		</rect>
+	);
 }
 
 function screenToWorld(
@@ -1162,13 +1520,37 @@ function minimapViewBox(bounds: LayoutResult["bounds"]) {
 	};
 }
 
-function renderRegion(node: LayoutNode, selectedNodeId: string | null) {
+function renderRegion(
+	node: LayoutNode,
+	selectedNodeId: string | null,
+	onSelect: (nodeId: string) => void,
+	onDive: (nodeId: string) => void,
+) {
 	if (!node.hasVisibleChildren) {
 		return null;
 	}
 
+	const selected = selectedNodeId === node.node.id;
 	return (
-		<g data-node-id={node.node.id} key={`region-${node.node.id}`}>
+		// biome-ignore lint/a11y/noStaticElementInteractions: SVG canvas regions are pointer-selectable; the nested dive control is a semantic button.
+		<g
+			data-node-id={node.node.id}
+			data-has-children={node.childCount > 0 ? "true" : "false"}
+			key={`region-${node.node.id}`}
+			onClick={(event) => {
+				event.stopPropagation();
+				onSelect(node.node.id);
+			}}
+			onDoubleClick={(event) => {
+				event.stopPropagation();
+				onDive(node.node.id);
+			}}
+			onPointerDown={(event) => {
+				event.stopPropagation();
+				onSelect(node.node.id);
+			}}
+			style={{ cursor: "pointer" }}
+		>
 			<rect
 				fill={
 					node.isFoggedRegion
@@ -1179,14 +1561,14 @@ function renderRegion(node: LayoutNode, selectedNodeId: string | null) {
 				height={node.height}
 				rx="30"
 				stroke={
-					selectedNodeId === node.node.id
+					selected
 						? "#e4e4e8"
 						: node.isFoggedRegion
 							? "#f59e0b"
 							: "#3f465e"
 				}
 				strokeDasharray={node.isFoggedRegion ? "9 8" : undefined}
-				strokeWidth={selectedNodeId === node.node.id ? 4 : 2}
+				strokeWidth={selected ? 4 : 2}
 				width={node.width}
 				x={node.x}
 				y={node.y}
@@ -1214,6 +1596,16 @@ function renderRegion(node: LayoutNode, selectedNodeId: string | null) {
 					/>
 				</>
 			) : null}
+			{selected && node.childCount > 0 ? (
+				<foreignObject
+					height="38"
+					width="38"
+					x={node.x + node.width - 48}
+					y={node.y + 12}
+				>
+					<DiveButton onClick={() => onDive(node.node.id)} />
+				</foreignObject>
+			) : null}
 		</g>
 	);
 }
@@ -1238,17 +1630,27 @@ function renderRegionLabel(node: LayoutNode) {
 	);
 }
 
-function renderNodeBox(
-	node: LayoutNode,
-	selectedNodeId: string | null,
-	setSelectedNodeId: (nodeId: string) => void,
-) {
+function renderNodeBox({
+	childCountByNodeId,
+	node,
+	onDive,
+	onSelect,
+	selectedNodeId,
+}: {
+	childCountByNodeId: ReadonlyMap<string, number>;
+	node: LayoutNode;
+	onDive: (nodeId: string) => void;
+	onSelect: (nodeId: string) => void;
+	selectedNodeId: string | null;
+}) {
 	if (node.hasVisibleChildren) {
 		return null;
 	}
 
+	const selected = selectedNodeId === node.node.id;
+	const hasChildren = (childCountByNodeId.get(node.node.id) ?? 0) > 0;
 	const stroke =
-		selectedNodeId === node.node.id
+		selected
 			? "#e4e4e8"
 			: node.fogState === "fog"
 				? "#f59e0b"
@@ -1269,12 +1671,24 @@ function renderNodeBox(
 				: "";
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: SVG canvas nodes are pointer-selectable; the nested dive control is a semantic button.
 		<g
 			data-node-id={node.node.id}
+			data-has-children={hasChildren ? "true" : "false"}
 			key={`box-${node.node.id}`}
+			onClick={(event) => {
+				event.stopPropagation();
+				onSelect(node.node.id);
+			}}
+			onDoubleClick={(event) => {
+				event.stopPropagation();
+				if (hasChildren) {
+					onDive(node.node.id);
+				}
+			}}
 			onPointerDown={(event) => {
 				event.stopPropagation();
-				setSelectedNodeId(node.node.id);
+				onSelect(node.node.id);
 			}}
 			style={{ cursor: "pointer" }}
 		>
@@ -1285,7 +1699,7 @@ function renderNodeBox(
 				rx="12"
 				stroke={stroke}
 				strokeDasharray={node.fogState === "haze" ? "7 6" : undefined}
-				strokeWidth={selectedNodeId === node.node.id ? 4 : 2}
+				strokeWidth={selected ? 4 : 2}
 				width={node.width}
 				x={node.x}
 				y={node.y}
@@ -1339,38 +1753,121 @@ function renderNodeBox(
 						</div>
 					</div>
 					{node.isCollapsed && node.aggregate ? (
-						<div className="flex flex-wrap gap-1">
+						<div className="flex flex-wrap gap-1 text-[10px] text-[var(--color-muted)]">
 							<Badge label={`${node.aggregate.childBlockCount} blocks`} />
 							<Badge label={`${node.aggregate.peopleCount} people`} />
 							<Badge
-								label={`${Math.round(node.aggregate.fogShare * 100)}% fog`}
+								label={`${Math.round(node.aggregate.fogShare * 100)}% open`}
 							/>
 						</div>
 					) : (
-						<StateChip fogState={node.fogState} who={node.node.whoWouldKnow} />
+						<StateMarker fogState={node.fogState} />
 					)}
 				</div>
 			</foreignObject>
+			{selected && hasChildren ? (
+				<foreignObject
+					height="34"
+					width="34"
+					x={node.x + node.width - 40}
+					y={node.y + 8}
+				>
+					<DiveButton onClick={() => onDive(node.node.id)} />
+				</foreignObject>
+			) : null}
 		</g>
 	);
 }
 
-function StateChip({
-	fogState,
-	who,
-}: {
-	fogState: ProcessMapFogState;
-	who: string | null;
-}) {
-	if (fogState === "clear") {
-		return <Badge label="clear" tone="clear" />;
-	}
+function StateMarker({ fogState }: { fogState: ProcessMapFogState }) {
+	const fill =
+		fogState === "clear"
+			? "#34d399"
+			: fogState === "haze"
+				? "#d7dade"
+				: "#f59e0b";
+	return (
+		<svg aria-hidden="true" height="18" viewBox="0 0 28 18" width="28">
+			{fogState === "clear" ? (
+				<path
+					d="m8 9 4 4 8-9"
+					fill="none"
+					stroke={fill}
+					strokeLinecap="round"
+					strokeLinejoin="round"
+					strokeWidth="2.5"
+				/>
+			) : (
+				<>
+					<ellipse cx="10" cy="10.5" fill={fill} opacity="0.55" rx="7" ry="4.5" />
+					<ellipse cx="16" cy="8" fill={fill} opacity="0.72" rx="7" ry="5" />
+					<circle cx="23" cy="5" fill={fill} r="2.2" />
+				</>
+			)}
+		</svg>
+	);
+}
 
-	if (fogState === "haze") {
-		return <Badge label={`ask ${who || "owner"}`} tone="haze" />;
-	}
+function DiveButton({ onClick }: { onClick: () => void }) {
+	return (
+		<button
+			aria-label="Dive into this block"
+			className="grid size-8 place-items-center rounded-md border border-[var(--color-border)] bg-[rgba(16,17,19,0.92)] text-[var(--color-text)] shadow hover:border-[var(--color-accent)]"
+			onClick={(event) => {
+				event.stopPropagation();
+				onClick();
+			}}
+			type="button"
+		>
+			<svg
+				aria-hidden="true"
+				fill="none"
+				height="18"
+				viewBox="0 0 18 18"
+				width="18"
+			>
+				<path
+					d="M4 4h7a3 3 0 0 1 3 3v1.5"
+					stroke="currentColor"
+					strokeLinecap="round"
+					strokeWidth="1.6"
+				/>
+				<path
+					d="M10.5 8.5 14 12l3.5-3.5"
+					stroke="currentColor"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+					strokeWidth="1.6"
+				/>
+				<path
+					d="M14 12V4"
+					stroke="currentColor"
+					strokeLinecap="round"
+					strokeWidth="1.6"
+				/>
+			</svg>
+		</button>
+	);
+}
 
-	return <Badge label={`quest: ask ${who || "who knows"}`} tone="fog" />;
+function SurfaceIcon() {
+	return (
+		<svg
+			aria-hidden="true"
+			fill="none"
+			height="15"
+			viewBox="0 0 16 16"
+			width="15"
+		>
+			<path
+				d="M8 3v10M4.5 6.5 8 3l3.5 3.5"
+				stroke="currentColor"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				strokeWidth="1.7"
+			/>
+		</svg>
+	);
 }
 
 function Badge({
@@ -1403,7 +1900,7 @@ function renderEdge(edge: LayoutEdge, zoom: number) {
 		return null;
 	}
 
-	const mid = edge.points[Math.floor(edge.points.length / 2)];
+	const mid = edge.labelPoint ?? edge.points[Math.floor(edge.points.length / 2)];
 
 	return (
 		<g key={edge.id} pointerEvents="none">
@@ -1442,7 +1939,82 @@ function toPath(points: Array<{ x: number; y: number }>): string {
 		return "";
 	}
 
-	return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(" ")}`;
+	if (points.length < 3) {
+		return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(" ")}`;
+	}
+
+	const commands = [`M ${first.x} ${first.y}`];
+	const radius = 12;
+	for (let index = 1; index < points.length - 1; index += 1) {
+		const previous = points[index - 1];
+		const current = points[index];
+		const next = points[index + 1];
+		if (!previous || !current || !next) {
+			continue;
+		}
+		const inLength = Math.hypot(current.x - previous.x, current.y - previous.y);
+		const outLength = Math.hypot(next.x - current.x, next.y - current.y);
+		const corner = Math.min(radius, inLength / 2, outLength / 2);
+		const before = pointToward(current, previous, corner);
+		const after = pointToward(current, next, corner);
+		commands.push(`L ${before.x} ${before.y}`);
+		commands.push(`Q ${current.x} ${current.y} ${after.x} ${after.y}`);
+	}
+	const last = points[points.length - 1];
+	if (last) {
+		commands.push(`L ${last.x} ${last.y}`);
+	}
+	return commands.join(" ");
+}
+
+function pointToward(
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	distance: number,
+): { x: number; y: number } {
+	const length = Math.hypot(to.x - from.x, to.y - from.y);
+	if (length === 0) {
+		return from;
+	}
+	return {
+		x: from.x + ((to.x - from.x) / length) * distance,
+		y: from.y + ((to.y - from.y) / length) * distance,
+	};
+}
+
+function midpointOfPolyline(
+	points: Array<{ x: number; y: number }>,
+): { x: number; y: number } | null {
+	if (points.length === 0) {
+		return null;
+	}
+	if (points.length === 1) {
+		return points[0] ?? null;
+	}
+	const segments = points.slice(1).map((point, index) => {
+		const previous = points[index];
+		return {
+			from: previous,
+			length: previous ? Math.hypot(point.x - previous.x, point.y - previous.y) : 0,
+			to: point,
+		};
+	});
+	const total = segments.reduce((sum, segment) => sum + segment.length, 0);
+	let cursor = 0;
+	for (const segment of segments) {
+		if (!segment.from || segment.length === 0) {
+			continue;
+		}
+		if (cursor + segment.length >= total / 2) {
+			const ratio = (total / 2 - cursor) / segment.length;
+			return {
+				x: segment.from.x + (segment.to.x - segment.from.x) * ratio,
+				y: segment.from.y + (segment.to.y - segment.from.y) * ratio,
+			};
+		}
+		cursor += segment.length;
+	}
+	return points.at(-1) ?? null;
 }
 
 function rankVisibleNodes(

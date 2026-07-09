@@ -67,6 +67,11 @@ Additions (migration 00470):
   `duration_note text NULL, frequency_note text NULL` — free-text ranges with
   provenance ("2–3h, foreman's estimate"; "weekly"). Structure first; numbers
   are a later annotation pass, never blocking.
+  `who_would_know text NULL` (migration 00480) — the quest target: when the
+  narrator hits the edge of their knowledge, the coach asks "who would know?"
+  and stores the answer here. Per-session narrator labels and per-node
+  provenance are deferred to the multi-session slice — but they land *before*
+  any second-narrator feature, because retrofitting provenance is miserable.
 
 Store semantics (extend `src/lib/process-map`):
 
@@ -76,6 +81,27 @@ Store semantics (extend `src/lib/process-map`):
 - Edge add validates: same map, no self-edge; duplicate (from,to) is a no-op
   returning the existing edge.
 - All mutations under the existing per-map advisory lock.
+
+## Fog of war and the quest loop
+
+The map renders its own knowledge boundaries, Civ-style. Three states per node,
+derived: **clear** (first-person account + described + owned), **haze**
+(HEARSAY — desaturated/dashed in the diagram), **fog** (frontier stub: the
+narrator gestured beyond their knowledge — "then billing does something" — an
+explicit placeholder block). Rules:
+
+- **Only first-person accounts clear fog.** DIRECT means "I do this myself";
+  the coach enforces it. Otherwise clarity becomes a gamified lie.
+- **"Confirm with X" must be structural.** Whenever the coach would hedge in
+  prose, it must instead mark the node HEARSAY and store X in `who_would_know`.
+- **The review phase emits a quest log**: fog coverage (X of Y blocks clear)
+  plus the interview queue — "thickest fog: billing → ask Frau Keller". The
+  human carrier works that list, bringing each person in front of the coach
+  for a twenty-minute session; sectors clear as first-person accounts land.
+  Multi-narrator mapping = sequential solo sessions on one map; no
+  collaboration features needed.
+- The Civ-style visual blur is UI-slice polish; the semantic states and quest
+  log ship first (map.md renders a state tag per node and a Quest log section).
 
 ## Definition of done (the coach's one standard — no "purpose" question)
 
@@ -120,8 +146,27 @@ bundle them?").
    (equipment / material pools, returnable flagged). Light touch.
 6. **Review.** Coach re-reads the map against the definition of done, names
    holes ("packaging has no owner; the recycling fork has no rejoin — where
-   does it end?"), offers to fill or leave them. Times/frequencies offered as
-   an optional final pass, ranges + provenance only.
+   does it end?"), emits the quest log, offers to fill or leave the rest.
+   Times/frequencies offered as an optional final pass, ranges + provenance
+   only.
+
+### Coaching rules learned from simulation round 1 (2026-07-08)
+
+- **Close every loop.** Scrap/regrind, returns, weekly maintenance: a loop
+  must land somewhere — the coach asks "where does it re-enter?" and creates
+  the return edge. No sink nodes for cyclic material.
+- **Conditional skips are edges.** "If masterbatch needed, else skip" requires
+  BOTH edges (through-path and bypass), each with its routing note — prose
+  conditions are not structure.
+- **Coverage before polish.** Advance the map (new blocks, edges, drills)
+  before refining descriptions; node descriptions ≤ 2 sentences. Round 1
+  burned 16 of 24 turns polishing prose and never reached ready.
+- **Hedging discipline.** "Confirm with X" in prose is forbidden — mark
+  HEARSAY + set who_would_know instead (see fog rules).
+- **Returnable is for material pools only**, never roles/equipment (apply-path
+  guard, not just prompt).
+- **Dedup guards** on resources and flows (normalized label within node),
+  mirroring the II cause dedup.
 
 ## Structured operations (proposal-gated, mirroring II)
 

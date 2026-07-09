@@ -39,6 +39,7 @@ export type ProcessMapQuestLog = {
 };
 
 export type ProcessMapQuest = {
+	readonly nodeId: string;
 	readonly nodeName: string;
 	readonly whoWouldKnow: string;
 };
@@ -164,6 +165,8 @@ export function deriveProcessMapQuestLog(
 	let hazeCount = 0;
 	let fogCount = 0;
 	const quests: ProcessMapQuest[] = [];
+	const existingNodeIds = new Set(input.nodes.map((node) => node.id));
+	const questNodeIds = new Set<string>();
 
 	for (const node of input.nodes) {
 		const state = deriveProcessMapFogState({
@@ -184,8 +187,15 @@ export function deriveProcessMapQuestLog(
 			fogCount += 1;
 		}
 
-		if (state !== "clear" && node.whoWouldKnow?.trim()) {
+		if (
+			state !== "clear" &&
+			existingNodeIds.has(node.id) &&
+			!questNodeIds.has(node.id) &&
+			node.whoWouldKnow?.trim()
+		) {
+			questNodeIds.add(node.id);
 			quests.push({
+				nodeId: node.id,
 				nodeName: node.name,
 				whoWouldKnow: node.whoWouldKnow.trim(),
 			});
@@ -203,24 +213,18 @@ export function deriveProcessMapFogState(input: {
 	readonly roleResourceCount: number;
 }): ProcessMapFogState {
 	const description = input.node.description?.trim() ?? "";
-	const hasDescription = description.length > 0;
 	const hasSubstantiveDescription =
-		hasDescription && description.toLowerCase() !== "unexplored";
-	const isLeaf = input.childCount === 0;
-	const leafIsOwned = !isLeaf || input.roleResourceCount > 0;
+		description.length > 0 && description.toLowerCase() !== "unexplored";
 
-	if (
-		input.node.sourceConfidence === "DIRECT" &&
-		hasSubstantiveDescription &&
-		leafIsOwned
-	) {
+	if (!hasSubstantiveDescription) {
+		return "fog";
+	}
+
+	if (input.node.sourceConfidence === "DIRECT") {
 		return "clear";
 	}
 
-	const isEmptyStub =
-		!hasSubstantiveDescription ||
-		(input.edgeCount === 0 && input.resourceCount === 0);
-	if (input.node.sourceConfidence === "HEARSAY" && !isEmptyStub) {
+	if (input.node.sourceConfidence === "HEARSAY") {
 		return "haze";
 	}
 

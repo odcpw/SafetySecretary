@@ -4,6 +4,7 @@ import {
 	addProcessFlow,
 	addProcessNode,
 	addProcessResource,
+	deleteProcessNode,
 	moveProcessNode,
 	removeProcessEdge,
 	removeProcessFlow,
@@ -107,6 +108,28 @@ export async function applyProcessMapOperation(input: {
 				parentRef.value,
 			);
 			return resultForRecord(input.operation.kind, node, "NODE_NOT_FOUND");
+		}
+
+		case "node_remove": {
+			const nodeId = resolveExistingId(
+				input.operation.payload.nodeId,
+				input.operationRecordMap,
+			);
+			if (!nodeId.ok) {
+				return { code: "UNRESOLVED_OPERATION_REFERENCE", ok: false };
+			}
+			const removed = await deleteProcessNode(
+				input.tenantId,
+				input.mapId,
+				nodeId.value,
+			);
+			return removed
+				? {
+						appliedKind: input.operation.kind,
+						ok: true,
+						recordId: nodeId.value,
+					}
+				: { code: "NODE_NOT_FOUND", ok: false };
 		}
 
 		case "edge_add": {

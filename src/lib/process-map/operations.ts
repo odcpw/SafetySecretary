@@ -5,6 +5,7 @@ export const PROCESS_MAP_OPERATION_KINDS = [
 	"node_add",
 	"node_update",
 	"node_move",
+	"node_remove",
 	"edge_add",
 	"edge_remove",
 	"flow_add",
@@ -53,6 +54,13 @@ const rawOperationSchema = z.discriminatedUnion("kind", [
 		payload: z.object({
 			nodeId: z.string().min(1),
 			newParentRef: z.string().min(1).nullable().optional(),
+		}),
+	}),
+	z.object({
+		kind: z.literal("node_remove"),
+		ref: z.string().min(1).optional(),
+		payload: z.object({
+			nodeId: z.string().min(1),
 		}),
 	}),
 	z.object({
@@ -199,6 +207,7 @@ function rewirePayloadReferences(
 	for (const key of [
 		"parentRef",
 		"newParentRef",
+		"nodeId",
 		"fromRef",
 		"toRef",
 		"nodeRef",

@@ -792,6 +792,7 @@ function emptyOperationStats(): OperationStats {
 			"node_add",
 			"node_update",
 			"node_move",
+			"node_remove",
 			"edge_add",
 			"edge_remove",
 			"flow_add",

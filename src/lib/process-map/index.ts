@@ -300,6 +300,15 @@ export async function addProcessNode(
 	return withTenantConnection(tenantId, async (tx) => {
 		await lockProcessMap(tx, mapId);
 
+		const existing = await findProcessNodeByNormalizedName(
+			tx,
+			mapId,
+			input.name,
+		);
+		if (existing) {
+			return existing;
+		}
+
 		if (input.parentId) {
 			const parent = await processNodeExists(tx, mapId, input.parentId);
 			if (!parent) {
@@ -1216,6 +1225,39 @@ async function findProcessEdge(
 			AND edge.from_node_id = ${fromNodeId}::uuid
 			AND edge.to_node_id = ${toNodeId}::uuid
 			AND map.deleted_at IS NULL
+		LIMIT 1
+	`;
+
+	return rows[0] ?? null;
+}
+
+async function findProcessNodeByNormalizedName(
+	tx: TenantTx,
+	mapId: string,
+	name: string,
+): Promise<ProcessNode | null> {
+	const normalizedName = normalizeProcessMapLabel(name);
+	const rows = await tx.$queryRaw<ProcessNode[]>`
+		SELECT
+			node.id::text AS id,
+			node.map_id::text AS "mapId",
+			node.parent_id::text AS "parentId",
+			node.kind,
+			node.order_index AS "orderIndex",
+			node.name,
+			node.description,
+			node.source_confidence AS "sourceConfidence",
+			node.duration_note AS "durationNote",
+			node.frequency_note AS "frequencyNote",
+			node.who_would_know AS "whoWouldKnow",
+			node.created_at AS "createdAt",
+			node.updated_at AS "updatedAt"
+		FROM process_node AS node
+		JOIN process_map AS map ON map.id = node.map_id
+		WHERE node.map_id = ${mapId}::uuid
+			AND lower(regexp_replace(btrim(node.name), '[[:space:]]+', ' ', 'g')) = ${normalizedName}
+			AND map.deleted_at IS NULL
+		ORDER BY node.order_index ASC, node.created_at ASC, node.id ASC
 		LIMIT 1
 	`;
 

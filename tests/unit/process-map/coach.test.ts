@@ -78,12 +78,17 @@ test("process-map operations parse, reject invalid kinds, and rewire refs", () =
 			kind: "edge_add",
 			payload: { fromRef: "n1", toRef: "n2" },
 		},
+		{
+			kind: "node_remove",
+			payload: { nodeId: "n2" },
+		},
 	]);
 
-	assert.equal(operations.length, 3);
+	assert.equal(operations.length, 4);
 	const firstNode = operations[0];
 	const secondNode = operations[1];
 	const edge = operations[2];
+	const remove = operations[3];
 	assert.ok(firstNode);
 	assert.ok(secondNode);
 	assert.ok(firstNode.kind === "node_add");
@@ -92,6 +97,8 @@ test("process-map operations parse, reject invalid kinds, and rewire refs", () =
 	assert.ok(edge?.kind === "edge_add");
 	assert.equal(edge.payload.fromRef, firstNode.id);
 	assert.equal(edge.payload.toRef, secondNode.id);
+	assert.ok(remove?.kind === "node_remove");
+	assert.equal(remove.payload.nodeId, secondNode.id);
 
 	assert.throws(() =>
 		parseProcessMapOperations([
@@ -217,8 +224,69 @@ test("process-map readiness derives quest log fog states", () => {
 		fogCount: 1,
 		hazeCount: 1,
 		quests: [
-			{ nodeName: "Monthly billing", whoWouldKnow: "Frau Keller" },
-			{ nodeName: "Damage recharge", whoWouldKnow: "Yard lead" },
+			{
+				nodeId: ids.b,
+				nodeName: "Monthly billing",
+				whoWouldKnow: "Frau Keller",
+			},
+			{
+				nodeId: ids.c,
+				nodeName: "Damage recharge",
+				whoWouldKnow: "Yard lead",
+			},
+		],
+	});
+});
+
+test("process-map readiness treats ownership gaps separately from fog", () => {
+	const ids = fixtureIds();
+	const directWithoutRole = node({
+		description: "The baker checks the order list before dough prep starts.",
+		id: ids.a,
+		name: "Review order list",
+	});
+	const explicitStub = node({
+		description: "unexplored",
+		id: ids.b,
+		name: "Weekly invoicing",
+		sourceConfidence: "DIRECT",
+		whoWouldKnow: "Office",
+	});
+	const hearsaySubstantive = node({
+		description: "The office prepares the invoice from delivery notes.",
+		id: ids.c,
+		name: "Prepare invoice",
+		sourceConfidence: "HEARSAY",
+		whoWouldKnow: "Office",
+	});
+
+	const readiness = computeProcessMapReadiness({
+		edges: [
+			edge({ fromNodeId: ids.a, toNodeId: ids.b }),
+			edge({ fromNodeId: ids.b, toNodeId: ids.c }),
+		],
+		nodes: [directWithoutRole, explicitStub, hearsaySubstantive],
+		resources: [],
+	});
+
+	assert.ok(
+		readiness.items.some((item) => item.code === "LEAF_WITHOUT_ROLE"),
+	);
+	assert.deepEqual(readiness.questLog, {
+		clearCount: 1,
+		fogCount: 1,
+		hazeCount: 1,
+		quests: [
+			{
+				nodeId: ids.b,
+				nodeName: "Weekly invoicing",
+				whoWouldKnow: "Office",
+			},
+			{
+				nodeId: ids.c,
+				nodeName: "Prepare invoice",
+				whoWouldKnow: "Office",
+			},
 		],
 	});
 });
@@ -284,6 +352,74 @@ test("process-map phase signal follows the deterministic gates", () => {
 	);
 });
 
+test("process-map phase signal consolidates oversized and duplicate-looking maps", () => {
+	const baseMap = processMap();
+	const manySiblings = Array.from({ length: 13 }, (_value, index) =>
+		node({
+			description: `Step ${index + 1} is described.`,
+			id: randomUUID(),
+			name: `Step ${index + 1}`,
+		}),
+	);
+
+	assert.equal(
+		computeProcessMapPhase({
+			edges: manySiblings
+				.slice(0, -1)
+				.map((current, index) =>
+					edge({ fromNodeId: current.id, toNodeId: manySiblings[index + 1]?.id ?? current.id }),
+				),
+			flows: [],
+			map: baseMap,
+			nodes: manySiblings,
+			resources: manySiblings.map((entry) => role({ nodeId: entry.id })),
+		}),
+		"CONSOLIDATE",
+	);
+
+	const ids = fixtureIds();
+	assert.equal(
+		computeProcessMapPhase({
+			edges: [edge({ fromNodeId: ids.a, toNodeId: ids.b })],
+			flows: [],
+			map: baseMap,
+			nodes: [
+				node({ id: ids.a, name: "Foreman flags mod need" }),
+				node({ id: ids.b, name: "Foreman flags mod need" }),
+			],
+			resources: [role({ nodeId: ids.a }), role({ nodeId: ids.b })],
+		}),
+		"CONSOLIDATE",
+	);
+});
+
+test("process-map phase signal yields to resources once a routed spine exists", () => {
+	const ids = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+	const nodes = ids.map((id, index) =>
+		node({
+			description: `Step ${index + 1} is described.`,
+			id,
+			name: `Process step ${index + 1}`,
+		}),
+	);
+
+	assert.equal(
+		computeProcessMapPhase({
+			edges: [
+				edge({ fromNodeId: ids[0] ?? "", toNodeId: ids[1] ?? "" }),
+				edge({ fromNodeId: ids[1] ?? "", routingNote: "Normal path", toNodeId: ids[2] ?? "" }),
+				edge({ fromNodeId: ids[1] ?? "", routingNote: "Exception path", toNodeId: ids[3] ?? "" }),
+				edge({ fromNodeId: ids[3] ?? "", toNodeId: ids[4] ?? "" }),
+			],
+			flows: [],
+			map: processMap(),
+			nodes,
+			resources: [],
+		}),
+		"RESOURCES",
+	);
+});
+
 test("process-map prompt phase-gates the SPINE coaching section", () => {
 	const prompt = buildProcessMapCoachPrompt({
 		conversation: [],
@@ -299,6 +435,7 @@ test("process-map prompt phase-gates the SPINE coaching section", () => {
 	assert.match(prompt, /NEVER ask for money amounts/);
 	assert.match(prompt, /Loop rule: close every loop/i);
 	assert.match(prompt, /Hedging discipline: NEVER write "confirm with X" or "to confirm" in descriptions/);
+	assert.match(prompt, /node_remove to eliminate duplicates or dead blocks/);
 	assert.doesNotMatch(prompt, /ACTIVE COACHING SECTION — STRUCTURE/);
 	assert.doesNotMatch(prompt, /ACTIVE COACHING SECTION — RESOURCES/);
 });

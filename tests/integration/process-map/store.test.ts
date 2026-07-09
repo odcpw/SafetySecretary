@@ -148,6 +148,41 @@ if (!databaseUrl) {
 		}
 	});
 
+	test("addProcessNode returns the existing node for a normalized name duplicate", async () => {
+		const tenant = await seedTenant("node-dedup");
+
+		try {
+			const map = await createProcessMap(tenant.tenantId, {
+				contentLanguage: "en",
+				createdBy: tenant.userId,
+				title: "Dedup process",
+			});
+			const first = await addProcessNode(tenant.tenantId, map.id, {
+				description: "The foreman flags that a modification is needed.",
+				kind: "ACTIVITY",
+				name: "Foreman flags mod need",
+				parentId: null,
+			});
+			assert.ok(first);
+			const duplicate = await addProcessNode(tenant.tenantId, map.id, {
+				description: "DUPLICATE of existing node",
+				kind: "ACTIVITY",
+				name: "  foreman   flags mod need  ",
+				parentId: null,
+			});
+			assert.ok(duplicate);
+			assert.equal(duplicate.id, first.id);
+			assert.equal(duplicate.description, first.description);
+
+			const loaded = await loadProcessMap(tenant.tenantId, map.id);
+			assert.ok(loaded);
+			assert.equal(loaded.nodes.length, 1);
+			assert.equal(loaded.nodes[0]?.name, "Foreman flags mod need");
+		} finally {
+			await cleanupTenant(tenant);
+		}
+	});
+
 	test("add, update, load, and remove process flows", async () => {
 		const tenant = await seedTenant("flows");
 

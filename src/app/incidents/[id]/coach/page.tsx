@@ -206,6 +206,12 @@ export default async function IncidentCoachPage({ params }: CoachPageProps) {
 			}
 			action={
 				<div className="flex flex-wrap items-center gap-2">
+					<Link
+						className="inline-flex min-h-10 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elev)] px-4 py-2 text-sm font-medium text-[var(--color-text)] transition hover:border-[var(--color-accent)]"
+						href={`/incidents/${incident.id}/canvas`}
+					>
+						Canvas (beta)
+					</Link>
 					<details className="relative">
 						<summary className="inline-flex min-h-10 cursor-pointer list-none items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface-elev)] px-4 py-2 text-sm font-medium text-[var(--color-text)] transition hover:border-[var(--color-accent)]">
 							{copy.export}

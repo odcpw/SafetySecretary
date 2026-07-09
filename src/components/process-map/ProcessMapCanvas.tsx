@@ -142,11 +142,6 @@ export default function ProcessMapCanvas({
 	);
 	const clampedAltitude = Math.min(altitude, altitudeView.maxDepth);
 	const explored = exploredPercent(record.readiness.questLog);
-	const layoutDirection: ElkDirection =
-		viewportSize.width > 0 && viewportSize.width < smallViewportWidth
-			? "DOWN"
-			: "RIGHT";
-
 	useEffect(() => {
 		if (altitude !== clampedAltitude) {
 			setAltitude(clampedAltitude);
@@ -184,10 +179,8 @@ export default function ProcessMapCanvas({
 	useEffect(() => {
 		let cancelled = false;
 
-		layoutWithElk(record, altitudeView, fogStates, layoutDirection)
-			.catch(() =>
-				layoutFallback(record, altitudeView, fogStates, layoutDirection),
-			)
+		layoutWithElk(record, altitudeView, fogStates, "RIGHT")
+			.catch(() => layoutFallback(record, altitudeView, fogStates, "RIGHT"))
 			.then((nextLayout) => {
 				if (cancelled) {
 					return;
@@ -199,7 +192,7 @@ export default function ProcessMapCanvas({
 		return () => {
 			cancelled = true;
 		};
-	}, [altitudeView, fogStates, layoutDirection, record]);
+	}, [altitudeView, fogStates, record]);
 
 	useEffect(() => {
 		if (!layout) {
@@ -324,6 +317,41 @@ export default function ProcessMapCanvas({
 							stdDeviation="8"
 						/>
 					</filter>
+					<filter
+						id="pm-fog-blur"
+						x="-40%"
+						y="-40%"
+						width="180%"
+						height="180%"
+					>
+						<feGaussianBlur stdDeviation="8" />
+					</filter>
+					<g id="pm-fog-puff" opacity="0.64">
+						<ellipse
+							cx="22"
+							cy="23"
+							fill="#d7dade"
+							filter="url(#pm-fog-blur)"
+							rx="22"
+							ry="13"
+						/>
+						<ellipse
+							cx="42"
+							cy="18"
+							fill="#d7dade"
+							filter="url(#pm-fog-blur)"
+							rx="19"
+							ry="15"
+						/>
+						<ellipse
+							cx="59"
+							cy="25"
+							fill="#d7dade"
+							filter="url(#pm-fog-blur)"
+							rx="24"
+							ry="12"
+						/>
+					</g>
 				</defs>
 				<rect fill="#101113" height="100%" width="100%" />
 				{layout ? (
@@ -710,8 +738,11 @@ function buildElkGraph(
 				children: visibleChildren.map(buildNode),
 				id: node.id,
 				layoutOptions: {
+					"elk.direction": "RIGHT",
 					"elk.padding": "[top=58,left=30,bottom=30,right=30]",
-					"elk.spacing.nodeNode": "44",
+					"elk.layered.spacing.edgeNodeBetweenLayers": "34",
+					"elk.layered.spacing.nodeNodeBetweenLayers": "64",
+					"elk.spacing.nodeNode": "52",
 				},
 			};
 		}
@@ -738,9 +769,9 @@ function buildElkGraph(
 			"elk.direction": direction,
 			"elk.hierarchyHandling": "INCLUDE_CHILDREN",
 			"elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-			"elk.layered.spacing.edgeNodeBetweenLayers": "46",
-			"elk.layered.spacing.nodeNodeBetweenLayers": "96",
-			"elk.spacing.nodeNode": "64",
+			"elk.layered.spacing.edgeNodeBetweenLayers": "56",
+			"elk.layered.spacing.nodeNodeBetweenLayers": "128",
+			"elk.spacing.nodeNode": "76",
 		},
 	};
 }
@@ -1140,7 +1171,9 @@ function renderRegion(node: LayoutNode, selectedNodeId: string | null) {
 		<g data-node-id={node.node.id} key={`region-${node.node.id}`}>
 			<rect
 				fill={
-					node.isFoggedRegion ? "rgba(120,76,20,0.22)" : "rgba(28,28,33,0.72)"
+					node.isFoggedRegion
+						? "rgba(42,43,47,0.68)"
+						: "rgba(28,28,33,0.72)"
 				}
 				filter="url(#pm-soft-shadow)"
 				height={node.height}
@@ -1159,14 +1192,27 @@ function renderRegion(node: LayoutNode, selectedNodeId: string | null) {
 				y={node.y}
 			/>
 			{node.isFoggedRegion ? (
-				<rect
-					fill="rgba(245,158,11,0.12)"
-					height={node.height}
-					rx="30"
-					width={node.width}
-					x={node.x}
-					y={node.y}
-				/>
+				<>
+					<rect
+						fill="rgba(215,218,222,0.36)"
+						height={node.height}
+						rx="30"
+						width={node.width}
+						x={node.x}
+						y={node.y}
+					/>
+					<use
+						href="#pm-fog-puff"
+						pointerEvents="none"
+						transform={`translate(${node.x + node.width - 70} ${node.y + 8}) scale(0.72)`}
+					/>
+					<use
+						href="#pm-fog-puff"
+						opacity="0.54"
+						pointerEvents="none"
+						transform={`translate(${node.x + node.width - 32} ${node.y - 20}) scale(0.58)`}
+					/>
+				</>
 			) : null}
 		</g>
 	);
@@ -1188,9 +1234,6 @@ function renderRegionLabel(node: LayoutNode) {
 			>
 				{truncate(node.node.name, 34)}
 			</text>
-			{node.isFoggedRegion ? (
-				<CloudIcon x={node.x + node.width - 58} y={node.y + 18} />
-			) : null}
 		</g>
 	);
 }
@@ -1214,10 +1257,16 @@ function renderNodeBox(
 					: "#4b587c";
 	const fill =
 		node.fogState === "fog"
-			? "rgba(43,33,19,0.96)"
+			? "rgba(42,43,47,0.96)"
 			: node.fogState === "haze"
 				? "rgba(34,34,39,0.86)"
 				: "rgba(25,28,36,0.96)";
+	const contentTone =
+		node.fogState === "fog"
+			? "opacity-60 grayscale"
+			: node.fogState === "haze"
+				? "opacity-85 grayscale"
+				: "";
 
 	return (
 		<g
@@ -1242,13 +1291,33 @@ function renderNodeBox(
 				y={node.y}
 			/>
 			{node.fogState === "fog" ? (
-				<rect
-					fill="rgba(244,244,245,0.13)"
-					height={node.height}
-					rx="12"
-					width={node.width}
-					x={node.x}
-					y={node.y}
+				<>
+					<rect
+						fill="rgba(215,218,222,0.55)"
+						height={node.height}
+						rx="12"
+						width={node.width}
+						x={node.x}
+						y={node.y}
+					/>
+					<use
+						href="#pm-fog-puff"
+						pointerEvents="none"
+						transform={`translate(${node.x + node.width - 48} ${node.y - 14}) scale(0.46)`}
+					/>
+					<use
+						href="#pm-fog-puff"
+						opacity="0.54"
+						pointerEvents="none"
+						transform={`translate(${node.x + node.width - 24} ${node.y + 16}) scale(0.36)`}
+					/>
+				</>
+			) : node.fogState === "haze" ? (
+				<use
+					href="#pm-fog-puff"
+					opacity="0.28"
+					pointerEvents="none"
+					transform={`translate(${node.x + node.width - 44} ${node.y - 10}) scale(0.34)`}
 				/>
 			) : null}
 			<foreignObject
@@ -1259,7 +1328,7 @@ function renderNodeBox(
 				y={node.y}
 			>
 				<div className="flex h-full flex-col justify-between gap-2 p-3 text-left">
-					<div className={node.fogState === "haze" ? "grayscale" : undefined}>
+					<div className={contentTone}>
 						<div className="text-sm font-semibold leading-tight text-[var(--color-text)]">
 							{node.node.name}
 						</div>
@@ -1282,9 +1351,6 @@ function renderNodeBox(
 					)}
 				</div>
 			</foreignObject>
-			{node.fogState === "fog" ? (
-				<CloudIcon x={node.x + node.width - 42} y={node.y + 12} />
-			) : null}
 		</g>
 	);
 }
@@ -1366,22 +1432,6 @@ function renderEdge(edge: LayoutEdge, zoom: number) {
 					</text>
 				</g>
 			) : null}
-		</g>
-	);
-}
-
-function CloudIcon({ x, y }: { x: number; y: number }) {
-	return (
-		<g
-			fill="none"
-			pointerEvents="none"
-			stroke="#fbbf24"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			strokeWidth="2"
-			transform={`translate(${x} ${y})`}
-		>
-			<path d="M 8 24 H 28 C 34 24 38 20 38 15 C 38 10 34 7 29 7 C 27 3 23 1 18 1 C 11 1 6 6 6 13 C 3 14 1 17 1 20 C 1 22 4 24 8 24 Z" />
 		</g>
 	);
 }

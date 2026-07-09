@@ -136,8 +136,7 @@ function buildNodes(input: LayoutInput): LaidNode[] {
 		});
 		for (const measure of measures) {
 			const owner = measure.ownerRole ? measure.ownerRole : null;
-			// dueDate may arrive as a full ISO timestamp; show the date only.
-			const due = measure.dueDate ? measure.dueDate.slice(0, 10) : null;
+			const due = formatLayoutDueDate(measure.dueDate);
 			const meta = [owner, due].filter(Boolean).join(" · ") || null;
 			nodes.push({
 				id: `m-${measure.id}`,
@@ -168,6 +167,17 @@ function buildNodes(input: LayoutInput): LaidNode[] {
 		return false;
 	};
 	return nodes.filter((n) => !isHidden(n));
+}
+
+function formatLayoutDueDate(value: LayoutAction["dueDate"]): string | null {
+	const raw = value as unknown;
+	if (typeof raw === "string") {
+		return raw.slice(0, 10);
+	}
+	if (raw instanceof Date) {
+		return raw.toISOString().slice(0, 10);
+	}
+	return null;
 }
 
 /** Tidy left-to-right layout: x by depth, y by leaf-row, parents centred. */

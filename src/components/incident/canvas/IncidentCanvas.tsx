@@ -13,6 +13,8 @@ import {
 } from "react";
 import {
 	EVENT_NODE_ID,
+	type LaidNodeKind,
+	type LaidNodeStatus,
 	layoutCauseTree,
 	NODE_H,
 	NODE_W,
@@ -72,12 +74,15 @@ type TimelineItem =
 	  };
 
 type CanvasCauseNode = {
+	action: RecordAction | null;
 	cause: RecordCauseNode | null;
 	id: string;
-	kind: "event" | "cause";
+	kind: LaidNodeKind;
 	label: string;
+	meta: string | null;
 	parentId: string | null;
-	status: "event" | "open" | "parked" | "root";
+	status: LaidNodeStatus;
+	stopClass: string | null;
 	x: number;
 	y: number;
 	width: number;
@@ -92,7 +97,6 @@ type CanvasEdge = {
 };
 
 type CanvasLayout = {
-	actionsByCause: ReadonlyMap<string, readonly RecordAction[]>;
 	bounds: { height: number; width: number; x: number; y: number };
 	causeNodes: CanvasCauseNode[];
 	edges: CanvasEdge[];
@@ -111,7 +115,6 @@ const timelineCardWidth = 190;
 const timelineEventWidth = 252;
 const timelineCardHeight = 108;
 const timelineStep = 214;
-const actionChipWidth = 178;
 
 export default function IncidentCanvas({
 	incidentId,
@@ -302,6 +305,41 @@ export default function IncidentCanvas({
 							stdDeviation="8"
 						/>
 					</filter>
+					<filter
+						id="ii-fog-blur"
+						x="-40%"
+						y="-40%"
+						width="180%"
+						height="180%"
+					>
+						<feGaussianBlur stdDeviation="7" />
+					</filter>
+					<g id="ii-fog-puff" opacity="0.62">
+						<ellipse
+							cx="22"
+							cy="23"
+							fill="#d7dade"
+							filter="url(#ii-fog-blur)"
+							rx="22"
+							ry="13"
+						/>
+						<ellipse
+							cx="42"
+							cy="18"
+							fill="#d7dade"
+							filter="url(#ii-fog-blur)"
+							rx="19"
+							ry="15"
+						/>
+						<ellipse
+							cx="59"
+							cy="25"
+							fill="#d7dade"
+							filter="url(#ii-fog-blur)"
+							rx="24"
+							ry="12"
+						/>
+					</g>
 				</defs>
 				<rect fill="#101113" height="100%" width="100%" />
 				<g
@@ -324,9 +362,7 @@ export default function IncidentCanvas({
 					<g>{layout.timelineItems.map((item) => renderTimelineItem(item))}</g>
 					<g>{layout.edges.map(renderCauseEdge)}</g>
 					<g>
-						{layout.causeNodes.map((node) =>
-							renderCauseNode(node, layout.actionsByCause),
-						)}
+						{layout.causeNodes.map((node) => renderCauseNode(node))}
 					</g>
 				</g>
 			</svg>
@@ -406,15 +442,12 @@ export default function IncidentCanvas({
 		);
 	}
 
-	function renderCauseNode(
-		node: CanvasCauseNode,
-		actionsByCause: ReadonlyMap<string, readonly RecordAction[]>,
-	) {
+	function renderCauseNode(node: CanvasCauseNode) {
 		const selected = selectedId === node.id;
-		const actions =
-			node.kind === "cause" ? (actionsByCause.get(node.id) ?? []) : [];
 		const style = causeNodeStyle(node.status);
 		const question = node.cause?.question?.trim() || "needs a why";
+		const isOpen = node.status === "open";
+		const isMeasure = node.kind === "measure";
 
 		return (
 			<g
@@ -430,22 +463,29 @@ export default function IncidentCanvas({
 					fill={style.fill}
 					filter="url(#ii-soft-shadow)"
 					height={node.height}
-					rx="12"
+					rx="6"
 					stroke={selected ? "#e4e4e8" : style.stroke}
 					strokeDasharray={style.dash}
-					strokeWidth={selected ? 4 : 2}
+					strokeWidth={selected ? 4 : 1.5}
 					width={node.width}
 					x={node.x}
 					y={node.y}
 				/>
-				{node.status === "open" ? (
+				{isOpen ? (
 					<rect
-						fill="rgba(244,244,245,0.13)"
+						fill="rgba(215,218,222,0.16)"
 						height={node.height}
-						rx="12"
+						rx="6"
 						width={node.width}
 						x={node.x}
 						y={node.y}
+					/>
+				) : null}
+				{isOpen ? (
+					<use
+						href="#ii-fog-puff"
+						pointerEvents="none"
+						transform={`translate(${node.x + node.width - 48} ${node.y + node.height - 14}) scale(0.42)`}
 					/>
 				) : null}
 				<foreignObject
@@ -455,19 +495,38 @@ export default function IncidentCanvas({
 					x={node.x}
 					y={node.y}
 				>
-					<div className="flex h-full flex-col justify-between gap-2 p-3">
-						<div className={node.status === "parked" ? "opacity-65" : ""}>
-							<div className="line-clamp-2 text-sm font-semibold leading-tight">
+					<div className="flex h-full flex-col justify-between gap-1 px-3 py-2 text-xs">
+						<div
+							className={
+								node.status === "parked"
+									? "opacity-65"
+									: isOpen
+										? "opacity-80 grayscale"
+										: ""
+							}
+						>
+							<div
+								className={`line-clamp-3 leading-tight ${
+									node.kind === "event" || isMeasure
+										? "font-semibold"
+										: "font-normal"
+								}`}
+							>
+								{isMeasure && node.stopClass ? (
+									<span className="mr-1 rounded bg-[var(--color-accent)] px-1 font-semibold text-white">
+										{node.stopClass}
+									</span>
+								) : null}
 								{node.label}
 							</div>
-							<div className="mt-1 text-[11px] uppercase tracking-normal text-[var(--color-muted)]">
-								{node.kind === "event"
-									? "effect"
-									: causeStatusLabel(node.status)}
-							</div>
+							{node.meta ? (
+								<div className="mt-1 truncate text-[10px] text-[var(--color-muted)]">
+									{node.meta}
+								</div>
+							) : null}
 						</div>
-						{node.status === "open" ? (
-							<div className="line-clamp-1 rounded-full border border-amber-500/70 bg-amber-500/15 px-2 py-0.5 text-[10px] text-amber-200">
+						{isOpen ? (
+							<div className="line-clamp-1 rounded-full border border-zinc-400/60 bg-zinc-400/15 px-2 py-0.5 text-[10px] text-zinc-100">
 								{question}
 							</div>
 						) : node.status === "parked" ? (
@@ -477,20 +536,9 @@ export default function IncidentCanvas({
 						) : null}
 					</div>
 				</foreignObject>
-				{node.status === "open" ? (
-					<CloudIcon x={node.x + node.width - 42} y={node.y + 12} />
-				) : null}
 				{node.status === "root" ? (
 					<RootMarker x={node.x + node.width - 33} y={node.y + 12} />
 				) : null}
-				{actions.map((action, index) => (
-					<ActionChip
-						action={action}
-						key={action.id}
-						x={node.x + node.width - 18}
-						y={node.y + 12 + index * 30}
-					/>
-				))}
 			</g>
 		);
 	}
@@ -648,50 +696,6 @@ function BandLabel({ label, x, y }: { label: string; x: number; y: number }) {
 	);
 }
 
-function ActionChip({
-	action,
-	x,
-	y,
-}: {
-	action: RecordAction;
-	x: number;
-	y: number;
-}) {
-	const incomplete = !action.ownerRole || !action.dueDate;
-
-	return (
-		<g pointerEvents="none">
-			<rect
-				fill="rgba(20,83,45,0.9)"
-				height="24"
-				rx="12"
-				stroke={incomplete ? "#f59e0b" : "#34d399"}
-				strokeWidth="1.5"
-				width={actionChipWidth}
-				x={x}
-				y={y}
-			/>
-			<text
-				fill="#d1fae5"
-				fontSize="10.5"
-				fontWeight="600"
-				x={x + 10}
-				y={y + 16}
-			>
-				{truncate(action.description, incomplete ? 20 : 23)}
-			</text>
-			{incomplete ? (
-				<circle
-					cx={x + actionChipWidth - 13}
-					cy={y + 12}
-					fill="#f59e0b"
-					r="4"
-				/>
-			) : null}
-		</g>
-	);
-}
-
 function Minimap({
 	bounds,
 	layout,
@@ -830,18 +834,23 @@ function renderCauseEdge(edge: CanvasEdge) {
 	const x2 = edge.to.x;
 	const y2 = edge.to.y + edge.to.height / 2;
 	const mx = (x1 + x2) / 2;
+	const isMeasure = edge.to.kind === "measure";
 
 	return (
 		<path
-			d={`M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`}
+			d={`M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`}
 			fill="none"
 			key={edge.id}
-			markerEnd="url(#ii-arrow)"
-			stroke={edge.status === "open" ? "#d97706" : "#9ca3af"}
+			stroke={
+				isMeasure
+					? "var(--color-accent)"
+					: edge.status === "open"
+						? "#8e8e9a"
+						: "#4b5563"
+			}
 			strokeDasharray={edge.status === "parked" ? "5 5" : undefined}
-			strokeLinecap="round"
 			strokeLinejoin="round"
-			strokeWidth="2.2"
+			strokeWidth="1.6"
 		/>
 	);
 }
@@ -853,7 +862,7 @@ function buildCanvasLayout(
 	const timelineItems = buildTimelineItems(record, locale);
 	const eventAnchor = timelineItems.find((item) => item.kind === "event");
 	const tree = layoutCauseTree({
-		actions: [],
+		actions: record.actions,
 		causes: record.causes,
 		eventTitle: record.incident.title || "Event",
 	});
@@ -865,33 +874,31 @@ function buildCanvasLayout(
 		? eventAnchorCenter - (eventTreeNode.x + NODE_W / 2)
 		: 160;
 	const causeById = new Map(record.causes.map((cause) => [cause.id, cause]));
-	const causeNodes: CanvasCauseNode[] = tree.nodes
-		.filter((node) => node.kind !== "measure")
-		.map((node) => {
-			const cause =
-				node.id === EVENT_NODE_ID ? null : (causeById.get(node.id) ?? null);
-			const status =
-				node.id === EVENT_NODE_ID
-					? "event"
-					: cause?.branchStatus === "PARKED"
-						? "parked"
-						: cause?.branchStatus === "ROOT_REACHED" || cause?.isRootCause
-							? "root"
-							: "open";
+	const actionByMeasureNodeId = new Map(
+		record.actions.map((action) => [`m-${action.id}`, action]),
+	);
+	const causeNodes: CanvasCauseNode[] = tree.nodes.map((node) => {
+		const cause = node.kind === "cause" ? (causeById.get(node.id) ?? null) : null;
 
-			return {
-				cause,
-				height: NODE_H,
-				id: node.id,
-				kind: node.id === EVENT_NODE_ID ? "event" : "cause",
-				label: node.label,
-				parentId: node.parentId,
-				status,
-				width: NODE_W,
-				x: treeOffsetX + node.x,
-				y: treeY + node.y,
-			};
-		});
+		return {
+			action:
+				node.kind === "measure"
+					? (actionByMeasureNodeId.get(node.id) ?? null)
+					: null,
+			cause,
+			height: NODE_H,
+			id: node.id,
+			kind: node.kind,
+			label: node.label,
+			meta: node.meta,
+			parentId: node.parentId,
+			status: node.status,
+			stopClass: node.stopClass,
+			width: NODE_W,
+			x: treeOffsetX + node.x,
+			y: treeY + node.y,
+		};
+	});
 	const nodesById = new Map(causeNodes.map((node) => [node.id, node]));
 	const edges = causeNodes.flatMap((node) => {
 		const parent = node.parentId ? nodesById.get(node.parentId) : null;
@@ -908,11 +915,9 @@ function buildCanvasLayout(
 			},
 		];
 	});
-	const actionsByCause = groupActionsByCause(record.actions);
-	const bounds = computeBounds(timelineItems, causeNodes, actionsByCause);
+	const bounds = computeBounds(timelineItems, causeNodes);
 
 	return {
-		actionsByCause,
 		bounds,
 		causeNodes,
 		edges,
@@ -1011,18 +1016,6 @@ function buildTimelineItems(
 	});
 }
 
-function groupActionsByCause(
-	actions: readonly RecordAction[],
-): ReadonlyMap<string, readonly RecordAction[]> {
-	const groups = new Map<string, RecordAction[]>();
-	for (const action of actions) {
-		const group = groups.get(action.causeNodeId) ?? [];
-		group.push(action);
-		groups.set(action.causeNodeId, group);
-	}
-	return groups;
-}
-
 function timelineItemFromEvent(
 	event: RecordTimelineEvent,
 	x: number,
@@ -1060,7 +1053,6 @@ function timelineItemFromFact(fact: RecordFact, x: number): TimelineItem {
 function computeBounds(
 	timelineItems: readonly TimelineItem[],
 	causeNodes: readonly CanvasCauseNode[],
-	actionsByCause: ReadonlyMap<string, readonly RecordAction[]>,
 ) {
 	const minX = Math.min(
 		...timelineItems.map((item) => item.x),
@@ -1074,17 +1066,11 @@ function computeBounds(
 		...timelineItems.map((item) => item.x + item.width),
 	);
 	const maxCauseX = Math.max(
-		...causeNodes.map((node) => {
-			const actions = actionsByCause.get(node.id) ?? [];
-			return node.x + node.width + (actions.length > 0 ? actionChipWidth : 0);
-		}),
+		...causeNodes.map((node) => node.x + node.width),
 	);
 	const maxY = Math.max(
 		...timelineItems.map((item) => item.y + item.height),
-		...causeNodes.map((node) => {
-			const actions = actionsByCause.get(node.id) ?? [];
-			return Math.max(node.y + node.height, node.y + 18 + actions.length * 30);
-		}),
+		...causeNodes.map((node) => node.y + node.height),
 	);
 
 	return {
@@ -1111,10 +1097,8 @@ function fitTransform(
 		usableWidth / Math.max(bounds.width, 1),
 		usableHeight / Math.max(bounds.height, 1),
 	);
-	const scale = clamp(rawScale, isSmallViewport ? 0.42 : minZoom, maxFitZoom);
-	const focusX = isSmallViewport
-		? bounds.x + bounds.width * 0.34
-		: bounds.x + bounds.width / 2;
+	const scale = clamp(rawScale, minZoom, maxFitZoom);
+	const focusX = bounds.x + bounds.width / 2;
 
 	return {
 		k: scale,
@@ -1233,6 +1217,21 @@ function resolveSelection(
 		};
 	}
 
+	const measure = layout.causeNodes.find(
+		(node) => node.kind === "measure" && node.id === selectedId,
+	)?.action;
+	if (measure) {
+		return {
+			rows: [
+				{ label: "Owner", value: measure.ownerRole ?? "Not set" },
+				{ label: "Due", value: formatActionDueDate(measure.dueDate) },
+				{ label: "Type", value: measure.actionType ?? "Not set" },
+				{ label: "Status", value: measure.status },
+			],
+			title: measure.description,
+		};
+	}
+
 	return {
 		rows: [{ label: "Selection", value: selectedId }],
 		title: "Canvas item",
@@ -1256,37 +1255,10 @@ function causeNodeStyle(status: CanvasCauseNode["status"]): {
 		case "root":
 			return { fill: "rgba(25,45,37,0.96)", stroke: "#34d399" };
 		case "open":
-			return { fill: "rgba(43,33,19,0.96)", stroke: "#f59e0b" };
+			return { fill: "rgba(34,34,39,0.9)", stroke: "#8e8e9a" };
+		case "treated":
+			return { fill: "rgba(25,28,36,0.96)", stroke: "var(--color-border)" };
 	}
-}
-
-function causeStatusLabel(status: CanvasCauseNode["status"]): string {
-	switch (status) {
-		case "event":
-			return "effect";
-		case "open":
-			return "open branch";
-		case "parked":
-			return "parked";
-		case "root":
-			return "root cause";
-	}
-}
-
-function CloudIcon({ x, y }: { x: number; y: number }) {
-	return (
-		<g
-			fill="none"
-			pointerEvents="none"
-			stroke="#fbbf24"
-			strokeLinecap="round"
-			strokeLinejoin="round"
-			strokeWidth="2"
-			transform={`translate(${x} ${y})`}
-		>
-			<path d="M 8 24 H 28 C 34 24 38 20 38 15 C 38 10 34 7 29 7 C 27 3 23 1 18 1 C 11 1 6 6 6 13 C 3 14 1 17 1 20 C 1 22 4 24 8 24 Z" />
-		</g>
-	);
 }
 
 function RootMarker({ x, y }: { x: number; y: number }) {
@@ -1339,6 +1311,17 @@ function factAttribution(fact: RecordFact): string {
 	);
 }
 
+function formatActionDueDate(value: RecordAction["dueDate"]): string {
+	const raw = value as unknown;
+	if (typeof raw === "string") {
+		return raw.slice(0, 10);
+	}
+	if (raw instanceof Date) {
+		return raw.toISOString().slice(0, 10);
+	}
+	return "Not set";
+}
+
 function formatDateTime(value: string, locale?: string): string {
 	const date = new Date(value);
 	if (Number.isNaN(date.getTime())) {
@@ -1358,12 +1341,6 @@ function isCoachPhotoEvidenceEvent(event: RecordTimelineEvent): boolean {
 		event.text === COACH_PHOTO_EVENT_TEXT &&
 		event.timeLabel === COACH_PHOTO_EVENT_TIME_LABEL
 	);
-}
-
-function truncate(value: string, length: number): string {
-	return value.length <= length
-		? value
-		: `${value.slice(0, Math.max(0, length - 1))}...`;
 }
 
 function clamp(value: number, min: number, max: number): number {
